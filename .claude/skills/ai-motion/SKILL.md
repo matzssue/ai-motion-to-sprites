@@ -1,0 +1,191 @@
+---
+name: ai-motion
+description: Full path of a character from a 3D model to audited animations (pipeline/character.py) and AI motion (Kimodo, text-to-motion) with a two-handed prop - AI rig, one sentence per motion phase, retarget to Mixamo, crossbow/bow/staff in both hands with fingers, penetration audit every 1/4 frame, skin-twist and alpha checks. Use ALWAYS when the task touches pipeline/, a character.json / rig config / motion file, Kimodo, "AI animation", "motion from text", a prop held in the hands, or when someone says "goes through the body", "hands in the head", "fingers wrong", "unnatural hands", "candy-wrapper arm". Contains the gates without which an early crossbow version went to review with the crossbow in the head.
+---
+
+# AI motion with a prop in the hands
+
+Kimodo gives a better body (phases, weight, recoil) than hand keys, but it cannot do hands for non-human proportions
+or a prop. The prop, grip and fingers are done by this repo's code, and **the audit checks every 1/4 frame**.
+Show a take to a person only after the gates (§4).
+
+## 0. Whole path: from model to every animation
+One command per character, driven by `character.json` (see `examples/character.example.json`): model, rig, AI rig config,
+work dir, output, actions (`library` = FBX clip, `ai` = motion file, `motion` = grip file for a library clip).
+```
+python pipeline/character.py --character <dir>/character.json [--from stage] [--to stage]
+```
+| stage | what | gate |
+|---|---|---|
+| (before) | the model: A/T pose, facing −Y | |
+| prepare | `prepare_for_rigging.py` (decimate, embed texture) | |
+| rig | `auto_rig.py --template <mixamo.fbx>` | |
+| rig_ai | `prepare_rig.py` + preview | **STOP**: look at the preview (§2) |
+| calibration | library actions on the AI rig + audit | FAIL = STOP, the rig or the measure is wrong, not the AI |
+| ai | §3: body (4 samples, full chain) → key poses → Kimodo through the poses → 4 samples → best → `review_page.py` | **STOP** on poses (`<work>/<action>/poses_approved.json` `{"glb"}`) and on the motion (`actions.<a>.approved` `{"bvh","score","date"}`) |
+| merge | every action in one GLB, prop in hands, audit of each | FAIL = STOP (approved action: worse than at the verdict) |
+| preview | `preview_8.py`: 8 directions × 8 frames per action into `output` | review (§4) |
+
+Exit code 2 = a human gate. Finished stages are skipped (output newer than inputs). A run is long (Kimodo + several
+samples at ~1.5 min each: prop 34 s, audit 31 s, retarget and merge): run it as a detached process, not inside a tool call
+with a timeout.
+
+## 1. Once per machine: Kimodo
+- `KIMODO_DIR` (default `~/kimodo`): `venv` (Python 3.10, torch + CUDA), `repo` (Kimodo source), `hf` (HF_HOME: weights,
+  Llama). ~20 GB, put it on a drive with room. Kimodo runs without its C++ module (MotionCorrection needs a compiler).
+- **One GPU (8 GB) shared by several jobs:** `kimodo_*.py` wait in a queue (`gpu_queue.py`: lock `KIMODO_DIR/gpu.lock` with
+  a PID + GPU memory over 2.5 GB without the lock). Eevee renders (`preview_8`, `hand_closeups`, audit close-ups, rig preview)
+  take the same lock: Kimodo allocates 14 GB on an 8 GB card, a render next to it took 28 min instead of 2. Your own render
+  outside these scripts starts with `gpu_queue.acquire(who, None)`. At most 2 Blender processes at once (`variants.py --parallel 2`)
+  on a machine with little RAM: numpy fails with MemoryError, not with a clear message.
+- Meta-Llama-3-8B-Instruct is gated: the user requests access on Hugging Face and puts the token into `KIMODO_DIR/hf/token`
+  themselves. **Never read the token and never accept it in chat.**
+- Licenses: README "Licenses". Never commit models, clips, weights or renders (`.gitignore`).
+
+## 2. Once per character: the AI rig
+Config `rig.json` (see `examples/rig.example.json`): prop vertex selection rules (tube/segment/box, `exclude`), prop frame,
+growth over thin parts (bow strings), debris, claw thresholds.
+```
+blender -b --python pipeline/rig/prepare_rig.py -- --rig <rig>.fbx --config rig.json --out <work>/rig_ai.glb --preview
+```
+Check `*_preview_*.png` (open the full image, not a thumbnail):
+- the prop is ALL red, including string ends; nothing of the body is red;
+- `*_preview_hand_*`: 5 fingers in colours, **thumb red** and it really is the thumb (guessed as the most forward finger;
+  wrong → `"thumb": {"Right": k}` in the config).
+
+Calibration: the library walk on this rig must pass the audit (`character.py --from calibration --to calibration`, or by hand
+`merge_actions.py` of the library clips onto `rig_ai.glb` + `motion_audit.py --prop <prop> --rest-is-normal` per action).
+If it fails, understand why first (§5), then do motion.
+
+## 3. Per motion (the blocks `character.py` calls; by hand only to fix one sample)
+**Reference first, then the motion file.** A crossbow shot made without one needed the reviewer to point out what any
+shooting manual says (left hand under the stock, elbow down, cheek to the stock). Before the first version: 2–3 sources on
+the stance, conclusions in one sentence in the motion file's `_reference`, and grip vectors, elbows and head from them.
+Motion file (see `examples/motion.example.json`): `phases` (duration + **one sentence per phase**), hand windows, `grip`
+(per hand: `roll_deg` – how far the grip may rotate around the stock, `elbow_target` – where the elbow goes while aiming,
+`knuckles_at_edge` – knuckles on the stock edge when fingers cannot reach its side), `aim` (`head_back_deg` – neck back,
+`head_gaze` – how much the head comes forward to keep the eyes on target), `recoil`, `loop_blend_s` (how many last seconds
+the retarget leads back to frame 0).
+
+**Write the grip in the character's words**, not vectors (the prop frame has +Y to the character's LEFT – sign mistakes are easy):
+`"palm": "from below" | "from above" | "from the right" | "from the left"`, `"fingers": "left" | "right" | "forward" …`,
+`"fingers_tilt": ["forward", 18]`. `palm_normal`/`direction` vectors still work; every run prints the grip in words
+(`grip right: palm from below, fingers left and 18 deg forward, 34 cm in front of the butt`) – read that line before the render.
+
+### Order (the approved crossbow shot, one review round)
+1. **Body without hand constraints:** `kimodo_motion.py` (4 samples), each through `chain.py`; take the best by audit.
+   Do NOT use hand constraints in Kimodo: they pull the arms into the head of a hunched character (measurement in §5).
+2. **Key poses** (start, peak; end = start so it loops) on that sample: `variants.py --frames 0,44` tunes grip and head on
+   the poses alone (~15 s per variant), then `preview_8.py --frames 0,44` + `hand_closeups.py`.
+   **The poses go to review before any motion is generated** (8 directions, previous version next to it, audit numbers).
+3. **Motion through the poses:**
+```
+<kimodo python> pipeline/motion/kimodo_text.py --motion <motion>.json --out <work>/emb.pt
+blender -b --python pipeline/motion/keyposes_to_kimodo.py -- <poses>.glb <work>/e1/p/merged_body_s<N>.glb <work>/e1/body_s<N>.bvh <work>/kf/poses.json 0,44 <action>
+<kimodo python> pipeline/motion/kimodo_keyposes.py --motion <motion>.json --emb <work>/emb.pt --base <work>/e1/body.npz:<N>
+    --poses <work>/kf/poses.json --keys 0:0,55:44,125:0 --out <work>/kf --name kf
+```
+   `<work>` here = `character.py`'s `<work_dir>/<action>`. `merged_body_s<N>` = retarget of THE sample the poses were set on
+   (another sample gives wrong deltas without any error).
+   Keys: Kimodo frame (30 fps) : pose frame (24 fps); last key = first pose. A one-shot action (`"loop": false` in
+   character.json, `loop_blend_s: 0`) ends on its last pose and the audit skips the seam.
+4. **All 4 samples** through `chain.py` (same motion file as the poses), best by audit → `review_page.py`.
+   Sample spread is large (1.4 / 4.4 / 4.5 / 15.9) – one sample is a lottery.
+
+`chain.py` does retarget → merge with the walk → `prop_in_hands.py` → `motion_audit.py`. `character.py` runs these steps
+itself (pose frames from the motion file's `key_poses`, Kimodo keys from them). The audit does not close a motion: the
+approved shot has audit FAIL (1.40) – the reviewer's verdict closes it.
+
+### Tuning grip and pose: variants, not single runs
+```
+python pipeline/variants.py --rig <work>/rig_ai.glb --motion <motion>.json --merged <work>/p/merged_x.glb --out <work>/w1 --set grip.right.x=0.06,0.08,0.10 --set hold.body_clearance=0.14,0.18 [--frames 10,45,56] [--reference approved.glb]
+```
+The cartesian product (or `--file` with named variants) runs in parallel; output `table.md` best first, with group scores,
+the three worst metrics, the difference from the reference and `LIMIT` lines. Work order:
+1. **Quick try** `--frames <hold>,<aim>,<shot>` (~15 s per variant, no path over time): drops grips that make no sense in any pose.
+   Close-ups of these frames: `hand_closeups.py --frames`.
+2. Full run only for the best 2–3.
+3. **`LIMIT …`** in the output = the solution sits at the end of its range (`roll_deg`, `elbow_deg`, `max_offset`) for most
+   of the clip. Then tune the range or the grip itself, not penalty weights (both grips at ±20° in ~70% of frames once).
+4. After a TOOL change (not a motion change): `compare_motion.py --a <approved> --b <new>` must print `COMPARE IDENTICAL`.
+   A difference = a change in look = the reviewer's decision, not yours.
+
+## 4. Gates before a review (every one, in this order)
+1. **Audit OK** (`<out>/audit.json`, limits and their meaning: [AUDIT.md](AUDIT.md)).
+   "May slightly pass through" = depth below the region's limit, not "a bit over".
+   Never raise a limit to make a take pass; raise it only from a measurement, with an entry in AUDIT.md.
+   The audit also measures arm skin twist (`skin_twist`, `skin_spread`). **Poses computed outside the chain** (a pose
+   script, IK, bone rotations) go through the skin check separately, and a frame composited with a mask through the alpha check:
+   ```
+   blender -b --python pipeline/checks/skin_check.py -- --script <anim.py> --pose-expr "pose(nr / 20)" --frames 130-170:2 --out <dir> -- <script args>
+   blender -b --python pipeline/checks/skin_check.py -- --glb X.glb --action attack --out <dir>
+   python pipeline/checks/alpha_check.py --raw <body layer>.png --final <composited layer>.png --out <dir>
+   ```
+   FAIL = look at `closeups/*_stripes.png` (stripes along the arm turn into a spiral) and `alpha_islands.png` (islands in red).
+   Both checks exist because a reviewer asked "we have an animation tool, and it did not catch this?" – a swing with
+   twisted arms and fingers cut by a mask.
+2. **Close-ups** of every failure (`closeups/`, 5 sides) and, even when OK, 3 frames by hand: start, aim peak, shot.
+   The audit does not see "unnatural": fingers wrapped the wrong way, elbow up, palm sideways to the stock. Read full frames,
+   not crops.
+3. **Review page** with one command (audit + 8 directions × every frame + hand close-ups + numbers next to the previous version):
+   ```
+   python pipeline/review/review_page.py --glb X.glb --action attack --prop crossbow --out <work>/review_vN --title "Crossbow shot" --hand-frames 10,45,56,85 [--previous <work>/review_vN-1] [--note "what changed"]
+   ```
+   Output: a self-contained `page.html`. ~4 min, run it as a detached process.
+
+## 5. Traps (each one cost a version)
+- **Kimodo hand targets assume a human** (~1.75 m, head above the shoulders). A hunched character with the head in front of
+  the shoulders gets hands and prop in the head already in the raw motion (8 cm). So the grip is solved by `prop_in_hands`,
+  and Kimodo constraints only shape the body.
+- **Hand constraints in Kimodo hurt** (same grip): samples without them scored 1.9–3.3 with no hand in the head; with them
+  3.8–17.8, a hand in the head in every one. The spread between samples is larger than the gain from tuning: first every
+  sample through the full chain, then parameters. Use key poses instead (§3): 1.40 vs 7.29 before.
+- **The grip depends on GLB vertex order** (the solver samples 260 prop points by index) and every export changes it. The same
+  shot processed after the walk (through the chain) moved 2 cm and 3°; the same walk from another file scored 0.21 or 3.40.
+  So `character.py` processes every action from the same merged file and joins them with `combine_actions.py`; tune variants
+  on the same file that goes into `character.py` (`<work>/<name>_merged.glb`).
+- Bones without curves in an action keep the pose from another action in the file: these scripts reset the pose after choosing
+  an action. A sprite-sheet renderer outside this repo may not – in a GLB for sheets give every action keys on every bone.
+- A two-handed prop in a library walk/idle: a motion file with `"no_aim": true` (without it the arm swing "aims"), and in
+  `character.json` an action with `"prop": true, "motion": <file>`. The crossbow had to sit 6 cm higher than in the shot,
+  otherwise it caught the thigh.
+- One long sentence = a static pose for the whole clip. One sentence per phase.
+- **Kimodo cannot do a deep forward bend from text** ("curls forward, chest on knees" twice gave a squat with the shoulders
+  22 cm BEHIND the hips). Set such a key pose by hand from a reference picture (bone directions + 2-bone IK from bone heads)
+  and run the motion through it. Measure the lean (shoulder vs hip along the forward axis), do not judge from a thumbnail.
+- Every `multi_prompt` phase needs at least one constrained frame (otherwise a reshape error).
+- A hand template from the end of a sample carries its crouch; `rest` windows take the pose from frame 0.
+  "Lowers back down" = puts it on the ground; write "holding it low with both hands".
+- "The head pops in the first frames" = the loop seam (Kimodo ends in another pose than it starts). Measure frame 0 vs the
+  last; `loop_blend_s` in the motion file. Rotating Head alone only tilts the head up – pulling it back is the Neck.
+- The end of a Kimodo sequence collapses: `tail_padding` generates longer and cuts.
+- A Kimodo clip stands at another height than the library walk (0.5 m lower once): in game the sprite jumps on every clip
+  change and the audit does not see it. `combine_actions.py` grounds every action on the walk (`--ground`).
+- The auto-rig stands in an A-pose: without the CORR rest correction in `soma_to_mixamo.py` the arms go sideways.
+- Bone lengths from GLB are meaningless: Blender IK does not work; IK is computed from bone heads.
+- GLB splits vertices on UV seams: count connectivity and islands after welding positions. A mesh where the prop is fused
+  with the body is one island: select by rules, not by island.
+- Before `separate` always `deselect_all` in edit mode (selection left over from import).
+- An uncut prop on the back has forearm weights: the audit sees "forearm in torso".
+- "Inside" by the sign of the nearest face alone fails next to open sheets (rags, belts): 10 cm false positives at rest.
+  The audit votes with rays (`collisions.inside`).
+- The palm side taken from claw curvature came out as the BACK of the hand (two versions with the crossbow on the back of the
+  hand, fingers bent backwards): the sign now comes from the thumb (`prepare_rig.py`). In an A-pose the palm faces the body/down.
+- **Jumps**: choosing grip and elbow frame by frame flipped between almost equal solutions (hand 60°, fingers 95° between
+  frames; the audit did not measure that then). A path over the whole clip (Viterbi) + smoothed fingers; smoothing whole
+  arms breaks the grip. Audit: `hand_jump`, `finger_jump`, `elbow_jump` (AUDIT.md).
+- A prop pose search without an offset limit lifted the crossbow 37 cm over the head to avoid collisions (`max_offset`).
+  Check the prop height frame by frame, not only the audit.
+- A stock is not a cylinder: fingers wrap on the prop surface (BVH), not on a radius.
+- The thumb lies opposite the fingers: wrapped both ways; the angle from the palm axis picked the middle finger.
+- Judging from thumbnails let a crossbow in the head through. Audit numbers + full frames.
+- **Fix passes do not converge** (frames with a collision 38 → 76 → 83 → 81) and the result is the last pass, not the best;
+  the audit score after 1–6 passes jumps (17.1 / 19.3 / 12.8 / 7.3 / 5.5 / 11.6; `grip.passes`, default 4). The IK cost
+  (spheres around bones) barely agrees with the audit (IK reports a collision in 81 frames, the audit an error in 32; in 9
+  frames the audit fails and IK sees nothing). Tune for the audit, never for the "frames with a collision" counter; a small
+  parameter change can rearrange everything (8.7 → 12.2 after 4 cm).
+- The grip path does not know about the loop: the last and first frame can differ (7 versions had 30° on the seam).
+  Audit: `loop_seam_*`.
+- Read the audit with `share` and `side` (AUDIT.md): "fr. 1–99" is a range, not the whole clip; "forearm in head" does not say which one.
+- Blender add-ons may print a Traceback on exit: success of a step is its marker line (`RETARGET OK`, `OK`, `AUDIT`),
+  not the absence of a Traceback.

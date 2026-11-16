@@ -1,0 +1,37 @@
+{
+ "_about": "Crossbow shot. Kimodo: phases (one sentence each); prop_in_hands: grip, aim, recoil. Times in s.",
+ "action": "attack",
+ "_reference": "Stance (crossbow manuals): left hand UNDER the stock, palm up, fingers below the bolt track, pressing the crossbow into the shoulder; butt in the shoulder pocket, cheek on the stock; right elbow close to the body; left elbow down, weight on the bone.",
+ "phases": [
+  {"duration": 1.0, "text": "A person stands relaxed, holding a crossbow low in front of the hips with both hands."},
+  {"duration": 1.2, "text": "The person lifts the crossbow up to the right shoulder with both hands and aims straight ahead."},
+  {"duration": 0.8, "text": "The person fires the crossbow, the weapon kicks up and the upper body jolts backward from the recoil."},
+  {"duration": 1.2, "text": "The person brings the crossbow back down to the hips and stands upright, holding it low with both hands."}
+ ],
+ "tail_padding": 0.5,
+ "loop_blend_s": 0.5,
+ "hands": {
+  "_": "only for kimodo_motion.py --template (hand constraints). Kimodo frame (Y up, Z forward, human metres ~1.75 m). Not used by default: hurts hunched characters",
+  "windows": [
+   {"from": 0.0, "to": 0.8, "every": 0.2, "mode": "rest"},
+   {"from": 1.33, "to": 2.33, "every": 0.067, "mode": "aim"},
+   {"from": 3.6, "to": "end", "every": 0.1, "mode": "rest"}
+  ],
+  "right_target_from_shoulder": [0.06, -0.10, 0.22],
+  "left_from_right": [0.02, -0.02, 0.32]
+ },
+ "grip": {
+  "_": "prop frame: X along the stock forward, Y to the character's LEFT, Z up. Words: palm = side of the prop the hand is on, fingers = where they point",
+  "palm_center": 0.10, "clearance": 0.025, "stock_radius_max": 0.07,
+  "right": {"x": 0.08, "palm": "from below", "fingers": "left", "fingers_tilt": ["forward", 45], "roll_deg": 20,
+            "elbow_target": [1, 0, -1], "elbow_target_weight": 250, "knuckles_at_edge": true},
+  "left": {"x": 0.33, "palm": "from below", "fingers": "right", "fingers_tilt": ["forward", 20], "roll_deg": 20,
+           "elbow_target": [1, 0, -1], "elbow_target_weight": 250, "knuckles_at_edge": true},
+  "elbow_deg": 60, "twist_to_forearm": 0.6, "forearm_clearance": 0.035, "hand_clearance": 0.03, "finger_thickness": 0.014
+ },
+ "hold": {"_": "outside aiming: both hands in front of the body, grips centred above the hips, in front of the belly",
+          "yaw_deg": 35, "pitch_deg": 10, "above_hips": 0.08, "body_clearance": 0.18},
+ "aim": {"butt_from_shoulder": [0, -0.07, -0.03], "pitch_deg": 4, "head_back_deg": 50, "transition_arc": 0.1, "head_gaze": 0.7},
+ "key_poses": {"_": "frames at 24 fps, reviewed before generation; the clip ends in the first pose", "hold": 0, "aim": 44},
+ "recoil": {"fire_s": 2.25, "kick_deg": 9, "lean_deg": 5}
+}

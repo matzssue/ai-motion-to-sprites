@@ -1,0 +1,14 @@
+{
+ "_about": "Library walk with the crossbow held low in both hands: only the grip part of a motion file is used (no Kimodo). Grip as in motion.example.json; the hold is 6 cm higher, otherwise the crossbow catches the thigh while walking.",
+ "action": "walk",
+ "no_aim": true,
+ "grip": {
+  "palm_center": 0.10, "clearance": 0.025, "stock_radius_max": 0.07,
+  "right": {"x": 0.08, "palm": "from below", "fingers": "left", "fingers_tilt": ["forward", 45], "roll_deg": 20,
+            "elbow_target": [1, 0, -1], "elbow_target_weight": 250, "knuckles_at_edge": true},
+  "left": {"x": 0.33, "palm": "from below", "fingers": "right", "fingers_tilt": ["forward", 20], "roll_deg": 20,
+           "elbow_target": [1, 0, -1], "elbow_target_weight": 250, "knuckles_at_edge": true},
+  "elbow_deg": 60, "twist_to_forearm": 0.6, "forearm_clearance": 0.035, "hand_clearance": 0.03, "finger_thickness": 0.014
+ },
+ "hold": {"yaw_deg": 35, "pitch_deg": 10, "above_hips": 0.14, "body_clearance": 0.24}
+}

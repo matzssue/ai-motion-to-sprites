@@ -1,0 +1,19 @@
+{
+ "_about": "Whole path of one character for pipeline/character.py. Paths are relative to this file. Assets are not part of the repo.",
+ "name": "crossbowman",
+ "model": "assets/crossbowman_base.glb",
+ "rig_input": "work/crossbowman_for_rig.fbx",
+ "rig": "work/rig_base.fbx",
+ "rig_config": "rig.example.json",
+ "work_dir": "work",
+ "output": "out/crossbowman_ai.glb",
+ "walk_clip": "library/walk.fbx",
+ "auto_rig_template": "library/walk.fbx",
+ "actions": {
+  "walk": {"library": "library/walk.fbx", "prop": true, "motion": "walk_hold.example.json"},
+  "idle": {"library": "library/idle.fbx"},
+  "attack": {"ai": "motion.example.json", "prop": true,
+             "_approved": "after the human verdict: {\"bvh\": \"work/attack/kf/kf_s1.bvh\", \"score\": 1.40, \"date\": \"YYYY-MM-DD\"}"}
+ },
+ "kimodo": {"samples": 4, "seed": 0}
+}

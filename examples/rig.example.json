@@ -1,0 +1,28 @@
+{
+ "_about": "Config of pipeline/rig/prepare_rig.py for a hunched crossbowman with the crossbow modelled on his back. World coordinates in the rest pose (m, character front = -Y, back = +Y). Measure them on your own model.",
+ "joints": "work/rig_base_joints.json",
+ "prop": {
+  "name": "crossbow",
+  "parent": "Spine2",
+  "select": [
+   {"tube": [[-0.42, 0.23, 0.53], [0.10, 0.25, 0.555]], "r": 0.055, "box": [[-0.62, -9, -9], [0.76, 9, 9]],
+    "exclude": [[[-0.38, -9, 0.59], [-0.08, 9, 9]]], "_": "stock; the quiver above it is excluded"},
+   {"tube": [[-0.42, 0.23, 0.53], [0.10, 0.25, 0.555]], "r": 0.065, "box": [[-0.1, -9, -9], [0.3, 9, 9]], "exclude": [[[-0.38, -9, 0.59], [-0.08, 9, 9]]]},
+   {"box": [[-0.62, 0.15, 0.47], [-0.38, 9, 0.64]], "_": "butt"},
+   {"box": [[0.42, 0.12, 0.45], [0.76, 9, 0.7]], "_": "front fittings"},
+   {"box": [[0.18, 0.17, 0.28], [0.45, 9, 0.98]], "_": "bow"},
+   {"box": [[0.22, 0.19, 0.18], [0.38, 9, 0.28]], "_": "lower bow tip"},
+   {"segment": [[0.30, 0.20, 0.95], [-0.06, 0.20, 0.57]], "r": 0.014, "box": [[-9, 0.16, -9], [9, 9, 9]], "_": "string"},
+   {"segment": [[0.30, 0.20, 0.30], [-0.06, 0.20, 0.57]], "r": 0.014, "box": [[-9, 0.16, -9], [9, 9, 9]]}
+  ],
+  "frame": {"axis": [[-0.42, 0.23, 0.53], [0.10, 0.25, 0.555]], "origin": [-0.25, 0.23, 0.53], "up": [0, 1, 0],
+            "_": "prop X axis = stock from butt to front; 'up' = the side facing away from the back (Y)"},
+  "grow": {"steps": 30, "thickness": 0.012, "margin": 0.02, "_": "pulls string ends (thin cylinders) into the prop"},
+  "debris": {"max_vertices": 400, "box": [[-9, 0.08, -9], [9, 9, 9]],
+             "_": "body islands left after the cut, smaller than max and fully inside the box, are deleted"}
+ },
+ "fingers": {
+  "claw_thresholds": [0.21, 0.17], "base": 0.135, "base_band": [0.11, 0.17], "min_vertices": 30, "weight_blend": [0.12, 0.05],
+  "_": "distances from the wrist along the hand axis (m); claws split at different heights: main ones from 0.21, the thumb from 0.17. Optional \"thumb\": {\"Right\": k} overrides the guessed thumb"
+ }
+}
