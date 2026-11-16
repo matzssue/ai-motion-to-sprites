@@ -38,10 +38,12 @@ def ang(a, b):
 
 
 SA, SB = trace(A.a), trace(A.b)
-if set(SA) != set(SB): print("DIFF frames: %d vs %d" % (len(SA), len(SB)))
+# a missing bone or frame is a difference: a renamed bone (e.g. other finger names) must not pass as IDENTICAL
+missing = set(SA) != set(SB)
+if missing: print("DIFF frames: %d vs %d" % (len(SA), len(SB)))
 frames = sorted(set(SA) & set(SB)); res = {}
 for k in SA[frames[0]]:
-    if k not in SB[frames[0]]: print("DIFF bone missing in b:", k); continue
+    if k not in SB[frames[0]]: print("DIFF bone missing in b:", k); missing = True; continue
     group = "fingers" if k.startswith(FINGER_PREFIX) else k
     for f in frames:
         pa, qa = SA[f][k]; pb_, qb = SB[f][k]
@@ -50,7 +52,9 @@ for k in SA[frames[0]]:
         w["mm_sum"] += mm; w["deg_sum"] += dg; w["n"] += 1
         if mm > w["mm"]: w["mm"], w["mm_fr"] = mm, f
         if dg > w["deg"]: w["deg"], w["deg_fr"] = dg, f
-different = False
+for k in SB[frames[0]]:
+    if k not in SA[frames[0]]: print("DIFF bone missing in a:", k); missing = True
+different = missing
 for k, w in res.items():
     bad = w["mm"] > A.limit_mm or w["deg"] > A.limit_deg; different |= bad
     print("DIFF %-13s position max %6.1f mm (fr. %s, mean %5.1f) | rotation max %5.1f deg (fr. %s, mean %4.1f)%s" % (
