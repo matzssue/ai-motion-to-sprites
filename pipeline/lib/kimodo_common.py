@@ -29,6 +29,22 @@ class CachedEncoder:
         return (e[0], 1) if one else (e, [1] * len(lst))
 
 
+def root_track(motion, n_frames, fps, dev):
+    """Root (x, z) per Kimodo frame, facing +Z (heading [1, 0]). In place unless the motion file sets "root_speed" (m/s):
+    a run pinned in place comes out as a standing pose (all 4 samples of a sprint moved < 0.2 deg), so locomotion travels
+    forward during generation and back_in_place() removes the travel before saving."""
+    import torch
+    z = torch.arange(n_frames, device=dev, dtype=torch.float32) * (float(motion.get("root_speed", 0.0)) / fps)
+    return torch.stack([torch.zeros_like(z), z], dim=-1)
+
+
+def back_in_place(pj, track):
+    """posed_joints [samples, frames, joints, 3] minus the commanded root travel (Y up: travel on x, z)."""
+    t = track[:pj.shape[1]].cpu().numpy()
+    pj = pj.copy(); pj[..., 0] -= t[None, :, 0, None]; pj[..., 2] -= t[None, :, 1, None]
+    return pj
+
+
 def save_bvhs(out_dir, name, pj, gr, sk30, n_samples, dev, fps):
     """BVH per sample on the SOMA77 skeleton (T-pose) for soma_to_mixamo.py."""
     import torch

@@ -69,9 +69,11 @@ for fk, fb in keys:
         fk, fb, fb0, float((spr[0] - P[fb0]).norm(dim=-1).max()),
         float((pn[0, bi["RightHand"]] - P[fb0, bi["RightHand"]]).norm()), float((pn[0, bi["LeftHand"]] - P[fb0, bi["LeftHand"]]).norm())))
     pos.append(pn[0][sl]); rot.append(Gn[sl])
+track = kimodo_common.root_track(R, T, FPS, dev)
 fr = torch.tensor([k[0] for k in keys])
+for p, fk in zip(pos, fr.tolist()): p[:, [0, 2]] += track[fk]   # the base sample was saved in place
 rest = torch.tensor([f for f in range(T) if f not in set(fr.tolist())])
-cons = [Root2DConstraintSet(sk30, rest, torch.zeros(len(rest), 2, device=dev),
+cons = [Root2DConstraintSet(sk30, rest, track[rest],
                             global_root_heading=torch.tensor([[1.0, 0.0]], device=dev).repeat(len(rest), 1)),
         Poses(sk30, fr, torch.stack(pos), torch.stack(rot))]
 torch.manual_seed(A.seed); np.random.seed(A.seed)
@@ -80,9 +82,10 @@ out = model(texts, nfs, constraint_lst=cons, num_denoising_steps=100, num_sample
             num_transition_frames=5, post_processing=False, return_numpy=True)
 keep = int(round(keep_s * FPS))
 pj, gr = out["posed_joints"][:, :keep], out["global_rot_mats"][:, :keep]
-np.savez(os.path.join(A.out, A.name + ".npz"), posed_joints=pj, global_rot_mats=gr)
 for (fk, fb), target in zip(keys, pos):
     if fk < keep:
         e = np.linalg.norm(pj[:, fk][:, sl] - target.cpu().numpy()[None], axis=-1)
         print("hit on pose fr. %3d: mean %.3f m, max %.3f m (per sample: %s)" % (fk, e.mean(), e.max(), np.round(e.max(1), 3)))
+pj = kimodo_common.back_in_place(pj, track)
+np.savez(os.path.join(A.out, A.name + ".npz"), posed_joints=pj, global_rot_mats=gr)
 kimodo_common.save_bvhs(A.out, A.name, pj, gr, sk30, A.samples, dev, FPS)
