@@ -1,6 +1,6 @@
 ---
 name: ai-motion
-description: Full path of a character from a 3D model to audited animations (pipeline/character.py) and AI motion (Kimodo, text-to-motion) with a two-handed prop - AI rig, one sentence per motion phase, retarget to Mixamo, crossbow/bow/staff in both hands with fingers, penetration audit every 1/4 frame, skin-twist and alpha checks. Use ALWAYS when the task touches pipeline/, a character.json / rig config / motion file, Kimodo, "AI animation", "motion from text", a prop held in the hands, or when someone says "goes through the body", "hands in the head", "fingers wrong", "unnatural hands", "candy-wrapper arm". Contains the gates without which an early crossbow version went to review with the crossbow in the head.
+description: Full path of a character from a 3D model to audited animations (pipeline/character.py) and AI motion (Kimodo, text-to-motion) with a two-handed prop - prop rig (`rig_ai`), one sentence per motion phase, retarget by bone role, crossbow/bow/staff in both hands with fingers, penetration audit every 1/4 frame, skin-twist and alpha checks. Use ALWAYS when the task touches pipeline/, a character.json / rig config / motion file, Kimodo, "AI animation", "motion from text", a prop held in the hands, or when someone says "goes through the body", "hands in the head", "fingers wrong", "unnatural hands", "candy-wrapper arm". Contains the gates without which an early crossbow version went to review with the crossbow in the head.
 ---
 
 # AI motion with a prop in the hands

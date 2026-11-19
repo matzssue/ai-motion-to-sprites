@@ -71,3 +71,13 @@ def test_load_names_file():
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"): fn(); print("ok", name)
+
+
+def test_character_without_any_library_clip():
+    """No walk_clip and no library walk: valid (grounded on the rest pose, no Mixamo file); ground is a non-empty string."""
+    C = json.load(open(os.path.join(EXAMPLES, "character.example.json"), encoding="utf-8"))
+    C.pop("walk_clip", None); C.pop("auto_rig_template", None)
+    C["actions"] = {n: a for n, a in C["actions"].items() if "library" not in a} or {"attack": {"ai": "attack.json"}}
+    assert schema_check.problems(C, "character") == []
+    C["ground"] = "@rest"; assert schema_check.problems(C, "character") == []
+    C["ground"] = ""; assert schema_check.problems(C, "character") != []

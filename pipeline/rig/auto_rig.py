@@ -1,6 +1,7 @@
 """Auto-rig: skeleton + skin weights from the mesh silhouette.
 python pipeline/rig/auto_rig.py --src=<x>_for_rig.fbx --out=rig_base.fbx      # own skeleton (skeletons/amts.json)
-python pipeline/rig/auto_rig.py --src=... --out=... --template=<any Mixamo FBX with the standard skeleton>   # `mixamorig:*`
+python pipeline/rig/auto_rig.py --src=... --out=... --template=<any Mixamo FBX with the standard skeleton>
+    # Mixamo-compatible `mixamorig:*` names; hierarchy, rest orientations and finger bones come from that FBX
 python pipeline/rig/auto_rig.py --bench --mesh-dir=<npz> --gt-dir=<json>   # against rigs made by Mixamo
 Joints (numpy/scipy/PIL) -> skeleton and weights in Blender (`auto_rig_blender.py`). Joints land in `<out>_joints.json`
 (editable by hand; an existing file is reused).

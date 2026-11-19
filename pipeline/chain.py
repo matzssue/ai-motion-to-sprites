@@ -67,12 +67,12 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description="Run retarget -> merge -> prop in hands -> audit for one Kimodo sample.")
     ap.add_argument("--rig", required=True); ap.add_argument("--motion", required=True); ap.add_argument("--bvh", required=True)
-    ap.add_argument("--out", required=True); ap.add_argument("--walk", help="library walk clip (Mixamo skeleton) merged next to the action")
+    ap.add_argument("--out", required=True); ap.add_argument("--walk", default=None, help="library walk clip merged next to the sample (optional)")
     ap.add_argument("--no-prop", action="store_true"); ap.add_argument("--from", dest="start", default="retarget", choices=["retarget", "merge", "prop", "audit"])
     ap.add_argument("--skeleton", default=None, help="skeleton profile of the rig: built-in name or JSON path (default mixamo)")
     A = ap.parse_args()
     load_config(A.motion, "motion", () if A.no_prop else ("grip",))
     if A.skeleton: load_skeleton(A.skeleton)   # a bad profile is named before any Blender step
-    glb, rep = chain(*(os.path.abspath(p) for p in (A.rig, A.motion, A.bvh, A.out)), A.walk and os.path.abspath(A.walk), not A.no_prop, A.start,
+    glb, rep = chain(*(os.path.abspath(p) if p else None for p in (A.rig, A.motion, A.bvh, A.out, A.walk)), not A.no_prop, A.start,
                      skeleton=A.skeleton and (A.skeleton if not A.skeleton.endswith(".json") else os.path.abspath(A.skeleton)))
     print("RESULT", glb, rep["result"], "score", rep["score"])
