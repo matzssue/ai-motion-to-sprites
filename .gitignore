@@ -16,3 +16,6 @@ out/
 audit/
 skin/
 alpha_check/
+.venv/
+*.egg-info/
+build/
