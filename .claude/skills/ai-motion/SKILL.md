@@ -197,7 +197,9 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   arms breaks the grip. Audit: `hand_jump`, `finger_jump`, `elbow_jump` (AUDIT.md).
 - A prop pose search without an offset limit lifted the crossbow 37 cm over the head to avoid collisions (`max_offset`).
   Check the prop height frame by frame, not only the audit.
-- A stock is not a cylinder: fingers wrap on the prop surface (BVH), not on a radius.
+- A stock is not a cylinder: fingers wrap on the prop surface (BVH), not on a radius. But a grip by the bow mount has the
+  mount, limbs and string closer than the far side of the stock: the own skeleton's long fingers wrapped those (hooks
+  8-12 cm off the stock axis). Own chains aim at the stock's faces only (`stock_radius_max`) and collide with the whole prop.
 - The thumb lies opposite the fingers: wrapped both ways; the angle from the palm axis picked the middle finger.
 - Judging from thumbnails let a crossbow in the head through. Audit numbers + full frames.
 - **Fix passes do not converge** (frames with a collision 38 → 76 → 83 → 81) and the result is the last pass, not the best;

@@ -93,6 +93,10 @@ print("stock: butt %.3f, radius at grips R %.3f / L %.3f" % (BUTT, RS["Right"], 
 # fingers wrap around the real surface: a stock is not a cylinder (left hand: 7 cm down, 3-5 cm to the sides);
 # a cylinder radius kept the left claws 5-16 cm from the stock
 PBVH = BVHTree.FromPolygons([Vector(v) for v in Lc], [tuple(q.vertices) for q in prop.data.polygons])
+# the own skeleton's long fingers wrap on the stock alone (faces within stock_radius_max of the axis): on the whole prop
+# Kusznik's left fingers (grip 33 cm along it, by the bow mount) hooked round the string and the bow 8-12 cm off the axis
+STOCK_F = [tuple(q.vertices) for q in prop.data.polygons if stockm[list(q.vertices)].all()]
+PBVH_STOCK = BVHTree.FromPolygons([Vector(v) for v in Lc], STOCK_F) if STOCK_F else PBVH
 
 
 def set_prop(C4, f):
@@ -410,11 +414,17 @@ PREV_F = {}   # bend angle of every finger bone from the previous frame
 def wrap_fingers(C4):
     Ci = C4.inverted(); g = GP["finger_thickness"]   # joints are the finger axis; the claw skin is that much further out
 
-    def sd(p):
+    def sd(p, tree=PBVH):
         """Signed distance from the prop surface (< 0 inside, by the normal of the nearest face)."""
-        q = Ci @ p; loc, nrm, _, d = PBVH.find_nearest(q)
+        q = Ci @ p; loc, nrm, _, d = tree.find_nearest(q)
         if loc is None: return 1.0
         return d if (q - loc).dot(nrm) >= 0 else -d
+
+    def dists(ps, own):
+        """Distances for the wrap cost: (target, collision). Own chains wrap onto the stock alone (PBVH_STOCK) and still
+        keep out of the whole prop (stock-only collision let the fingers into the mount: fingers_in_prop 1.8 -> 2.0 cm)."""
+        full = [sd(p_) for p_ in ps]
+        return ([sd(p_, PBVH_STOCK) for p_ in ps] if own else full), full
     for side, fl in FING.items():
         Hn = wmat(BN[side]["hand"]); Hn.normalize(); T = Hn @ hand_rest[side].normalized().inverted()
         npw = (wrot(BN[side]["hand"]) @ NPALM[side]).normalized()
@@ -428,7 +438,7 @@ def wrap_fingers(C4):
         own_f = [k for k, (_, names, thumb) in enumerate(fl) if not thumb and names[0] in SPREAD]
         md = sum(((JW[k][1] - JW[k][0]).normalized() for k in own_f), Vector())
         for (J, names, thumb), Jw in zip(fl, JW):
-            b0 = 0
+            b0 = 0; own_c = names[0] in CURL
             if names[0] in SPREAD and not thumb and md.length > 1e-6:
                 # own fingers side by side: each first bone turns in the palm plane onto the fingers' mean direction.
                 # Spread as at rest, the long index/middle of Kusznik wrapped far over the stock apart from ring/pinky
@@ -450,8 +460,8 @@ def wrap_fingers(C4):
                         pts = [Jw[0] + q @ (Jw[j] - Jw[0]) for j in (1, 2, 3)]
                         mids = [Jw[0].lerp(pts[0], 0.5), pts[0].lerp(pts[1], 0.5), pts[1].lerp(pts[2], 0.5)]
                         gl = [max(g, BONE_R.get(n, g)) for n in names] + [max(g, BONE_R.get(n, g)) for n in names]
-                        d_ = [sd(p_) for p_ in pts + mids]
-                        c_ = abs(d_[0] - (gl[0] + 0.005)) + sum(10 + 100 * (gg - x) for x, gg in zip(d_, gl) if x < gg)
+                        d_, f_ = dists(pts + mids, own_c)
+                        c_ = abs(d_[0] - (gl[0] + 0.005)) + sum(10 + 100 * (gg - x) for x, gg in zip(f_, gl) if x < gg)
                         c_ += ALONG * (1 - abs((pts[2] - Jw[0]).normalized().dot(stock)))
                         c_ += GP.get("finger_change_penalty", 0.0015) * (abs(a - PREV_F.get(names[0], a))
                                                                           + abs(ab - PREV_F.get(names[0] + "@spread", ab)))
@@ -473,10 +483,10 @@ def wrap_fingers(C4):
                     q = Quaternion(axis, math.radians(a))
                     pts = [pivot + q @ (Jw[j] - pivot) for j in range(b + 1, 4)]
                     mids = [pivot.lerp(pts[0], 0.5)] + [pts[i].lerp(pts[i + 1], 0.5) for i in range(len(pts) - 1)]
-                    d_ = [sd(p) for p in pts + mids]
+                    d_, f_ = dists(pts + mids, own_c)
                     gl = [max(g, BONE_R.get(names[min(b + j, 2)], g)) for j in range(len(pts))] + [
                         max(g, BONE_R.get(names[b + k], g)) for k in range(len(mids))]
-                    c_ = abs(d_[0] - (gl[0] + 0.005)) + sum(10 + 100 * (gg - x) for x, gg in zip(d_, gl) if x < gg)
+                    c_ = abs(d_[0] - (gl[0] + 0.005)) + sum(10 + 100 * (gg - x) for x, gg in zip(f_, gl) if x < gg)
                     c_ += GP.get("finger_change_penalty", 0.0015) * abs(a - PREV_F.get(names[b], a))   # 0.0015/deg ~ 1.5 mm per 1 deg
                     if own and thumb: c_ += ALONG * (1 - abs((pts[-1] - Jw[0]).normalized().dot(stock)))
                     if own and not thumb and b in NEXT: c_ += GP.get("finger_together_penalty", 0.001) * abs(a - NEXT[b])
