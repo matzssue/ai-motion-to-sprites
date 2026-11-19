@@ -322,7 +322,9 @@ for side, (fl, ax, w0) in FING.items():
     print(side, "fingers forward (m):", fwd, "-> thumb", k_)
     # palm side from hand anatomy: fingers along the axis, palm n -> thumb on the axis x n side (right) / n x axis (left).
     # The claw curl (above) gave the BACK of the hand: fingers bent backwards and stuck out from the stock.
-    tk = np.array(fl[k_][0][0]) - w0; tk = tk - ax * (tk @ ax)
+    # thumb side from its base; the rig's own thumb starts at the CMC next to the wrist, almost on the hand axis (Kusznik: the
+    # palm came out flipped on one hand only), so there from its second joint (MCP), where it leaves the hand
+    tk = np.array(fl[k_][0][1 if side in OWN else 0]) - w0; tk = tk - ax * (tk @ ax)
     ch_ = np.cross(ax, n) if side == "Right" else np.cross(n, ax)
     if ch_ @ tk < 0:
         n = -n; print(side, "palm flipped (claw curl pointed at the back of the hand)")
