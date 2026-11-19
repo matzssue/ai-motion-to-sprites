@@ -171,7 +171,7 @@ def test_default_fits_old_rigs_explicit_must_match():
 
 
 def test_locate_and_args(tmp_path):
-    with pytest.raises(skeleton.ProfileError, match="built-in: mixamo, soma"):
+    with pytest.raises(skeleton.ProfileError, match="built-in: amts, mixamo, soma"):
         skeleton.load("unreal")
     assert skeleton.locate("rig/x.json", str(tmp_path)) == os.path.normpath(os.path.join(str(tmp_path), "rig/x.json"))
     assert skeleton.take_arg(["a.bvh", "--skeleton", "soma", "b.glb"]) == (["a.bvh", "b.glb"], "soma")
