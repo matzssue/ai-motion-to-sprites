@@ -113,8 +113,8 @@ Measured on the game's characters (assets are not included):
 - **No runnable demo.** `examples/` describe a character whose assets are not included, and the first run needs Kimodo
   plus the gated Llama 3 encoder (~20 GB).
 - **Windows only so far.** Paths are handled for Linux and macOS, but nothing was run there.
-- **Checkpoint licenses differ.** The default `Kimodo-SOMA-*` checkpoints allow commercial use. `Kimodo-SMPLX-RP-v1` is
-  under the NVIDIA R&D Model License. `KIMODO_MODEL` does not check this for you.
+- **Commercial-use checkpoints only.** `KIMODO_MODEL` must be a `Kimodo-SOMA-*` or `Kimodo-G1-*` checkpoint (NVIDIA Open
+  Model License). Every script refuses `Kimodo-SMPLX-RP-v1` (NVIDIA R&D Model License) and any name not on the allowlist.
 
 ## Setup
 
@@ -168,13 +168,5 @@ Every run prints the grip back in words (`grip right: palm from below, fingers l
 
 ## Licenses
 
-This repository: MIT. It contains **no** models, clips or weights. It calls these:
-
-| Dependency | License | Note |
-|---|---|---|
-| Kimodo (code) | Apache-2.0 | |
-| Kimodo SOMA checkpoints | NVIDIA Open Model License | commercial use allowed; not redistributed |
-| SOMA-X (`py-soma-x`) | Apache-2.0 | MANO models are not redistributed by it |
-| Meta-Llama-3-8B-Instruct + LLM2Vec adapters | Llama 3 Community License | used only for sentence embeddings |
-| Mixamo clips/rigs | Adobe Mixamo terms | royalty-free in projects; raw FBX files must not be redistributed |
-| Blender | GPL | scripts run inside it |
+This repository: MIT. It contains **no** models, clips or weights. Every dependency and model it calls, with its license
+and whether it allows commercial use, is listed in [LICENSES.md](LICENSES.md).
