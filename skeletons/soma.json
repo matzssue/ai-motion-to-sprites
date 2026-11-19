@@ -10,11 +10,13 @@
   "head_end": "HeadEnd",
   "left": {
    "shoulder": "LeftShoulder", "upper_arm": "LeftArm", "forearm": "LeftForeArm", "hand": "LeftHand", "fingers": "LeftHandMiddle1",
-   "upper_leg": "LeftLeg", "lower_leg": "LeftShin", "foot": "LeftFoot", "toe": "LeftToeBase", "toe_end": "LeftToeEnd"
+   "upper_leg": "LeftLeg", "lower_leg": "LeftShin", "foot": "LeftFoot", "toe": "LeftToeBase", "toe_end": "LeftToeEnd",
+   "finger_chains": {"thumb": ["LeftHandThumb1", "LeftHandThumb2", "LeftHandThumb3"], "index": ["LeftHandIndex1", "LeftHandIndex2", "LeftHandIndex3", "LeftHandIndex4"], "middle": ["LeftHandMiddle1", "LeftHandMiddle2", "LeftHandMiddle3", "LeftHandMiddle4"], "ring": ["LeftHandRing1", "LeftHandRing2", "LeftHandRing3", "LeftHandRing4"], "pinky": ["LeftHandPinky1", "LeftHandPinky2", "LeftHandPinky3", "LeftHandPinky4"]}
   },
   "right": {
    "shoulder": "RightShoulder", "upper_arm": "RightArm", "forearm": "RightForeArm", "hand": "RightHand", "fingers": "RightHandMiddle1",
-   "upper_leg": "RightLeg", "lower_leg": "RightShin", "foot": "RightFoot", "toe": "RightToeBase", "toe_end": "RightToeEnd"
+   "upper_leg": "RightLeg", "lower_leg": "RightShin", "foot": "RightFoot", "toe": "RightToeBase", "toe_end": "RightToeEnd",
+   "finger_chains": {"thumb": ["RightHandThumb1", "RightHandThumb2", "RightHandThumb3"], "index": ["RightHandIndex1", "RightHandIndex2", "RightHandIndex3", "RightHandIndex4"], "middle": ["RightHandMiddle1", "RightHandMiddle2", "RightHandMiddle3", "RightHandMiddle4"], "ring": ["RightHandRing1", "RightHandRing2", "RightHandRing3", "RightHandRing4"], "pinky": ["RightHandPinky1", "RightHandPinky2", "RightHandPinky3", "RightHandPinky4"]}
   }
  },
  "absent": [],

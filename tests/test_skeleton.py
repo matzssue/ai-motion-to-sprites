@@ -24,7 +24,8 @@ def test_builtin_profiles_valid():
 
 def test_role_lists_match_schema():
     S = schema_check.schema("skeleton")
-    assert set(S["$defs"]["side"]["properties"]) == set(skeleton.SIDED)
+    assert set(S["$defs"]["side"]["properties"]) == set(skeleton.SIDED) | {"finger_chains"}
+    assert set(S["$defs"]["side"]["properties"]["finger_chains"]["properties"]) == set(skeleton.FINGERS)
     assert set(S["properties"]["bones"]["properties"]) == set(skeleton.CENTER) | {"left", "right"}
     assert set(S["properties"]["absent"]["items"]["enum"]) == {r for r, req in {**skeleton.CENTER, **skeleton.SIDED}.items() if not req}
     assert set(S["$defs"]["side"]["required"]) == {r for r, req in skeleton.SIDED.items() if req}
@@ -47,7 +48,7 @@ def test_unknown_role():
     lo, sc = both(D)
     assert any(x.startswith("bones.left.claw: unknown role") for x in lo) and any(x.startswith("bones.tail: unknown role") for x in lo)
     assert "absent: unknown role 'wings'" in lo
-    assert "$.bones.left: unknown role (per side: shoulder, upper_arm, forearm, hand, fingers, upper_leg, lower_leg, foot, toe, toe_end)" in sc
+    assert "$.bones.left: unknown role (per side: shoulder, upper_arm, forearm, hand, fingers, upper_leg, lower_leg, foot, toe, toe_end; or finger_chains)" in sc
     assert any(x.startswith("$.bones: unknown role") for x in sc) and any(x.startswith("$.absent[0]") for x in sc)
 
 
@@ -168,6 +169,31 @@ def test_default_fits_old_rigs_explicit_must_match():
     assert logs == ["skeleton mixamo: the rig has no fingers bones -> treated as absent"] and not R.prof.has("fingers")
     with pytest.raises(skeleton.ProfileError, match="fingers.left -> 'mixamorig:LeftHandMiddle1'"):
         skeleton.for_rig("mixamo", mixamo_rig(fingers=False))
+
+
+def test_finger_chains():
+    """Optional per-side finger chains: the retarget carries finger bends only where both skeletons list the finger;
+    Mixamo lists none (a template's finger bones own no skin), so a Mixamo retarget stays as it was."""
+    soma, amts, mix = skeleton.load("soma"), skeleton.load("amts"), skeleton.load()
+    assert mix.finger_chains("L") == {} and mix.finger_chains("Right") == {}
+    for s in ("Left", "Right"):
+        assert set(soma.finger_chains(s)) == set(amts.finger_chains(s)) == set(skeleton.FINGERS)
+        assert all(len(c) == 3 for c in amts.finger_chains(s).values()) and len(soma.finger_chains(s)["index"]) == 4
+    assert amts.finger_chains("L")["thumb"] == ["thumb.1.L", "thumb.2.L", "thumb.3.L"]
+    assert amts.without(["fingers"]).finger_chains("L") == {}
+    D = copy.deepcopy(MIXAMO)
+    D["bones"]["left"]["finger_chains"] = {"index": ["LeftHandIndex1", "LeftHandIndex2"], "claw": ["a", "b", "c"], "_": "note"}
+    D["bones"]["right"]["finger_chains"] = ["RightHandIndex1"]
+    lo, sc = both(D)
+    assert "bones.left.finger_chains.index: a list of at least 3 bone names" in lo
+    assert any(x.startswith("bones.left.finger_chains.claw: unknown finger") for x in lo)
+    assert "bones.right.finger_chains: an object {finger: [bones]}" in lo and len(sc) >= 3
+    D = copy.deepcopy(MIXAMO); D["bones"]["left"]["finger_chains"] = {"index": ["LeftHandIndex1", "LeftHandIndex2", "LeftHandIndex3"]}
+    assert both(D) == ([], [])
+    R = skeleton.Profile(D).bind(mixamo_rig() | {"mixamorig:LeftHandIndex1": "mixamorig:LeftHand"})   # no Index2/3 on this rig
+    assert R.prof.finger_chains("L") == {} and skeleton.Profile(D).finger_chains("L")["index"][0] == "mixamorig:LeftHandIndex1"
+    full = mixamo_rig() | {"mixamorig:LeftHandIndex%d" % i: "x" for i in (1, 2, 3)}
+    assert skeleton.Profile(D).bind(full).prof.finger_chains("L") == {"index": ["mixamorig:LeftHandIndex%d" % i for i in (1, 2, 3)]}
 
 
 def test_locate_and_args(tmp_path):

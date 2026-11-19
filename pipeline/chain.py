@@ -9,7 +9,7 @@ from config import BLENDER, script_path
 from schema_check import load as load_config, load_skeleton
 
 IMPORTANT = ("smoothed", "RETARGET", "merge_actions", "pass", "OK", "AUDIT", "  FAIL", "  rest", "  score", "  no limit", "  skipped",
-             "skeleton", "fingers: skipped", "stock",
+             "skeleton", "fingers:", "stock",
              "closeups", "MAX", "RIG OK", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ")
 
 
