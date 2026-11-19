@@ -1,4 +1,5 @@
-"""Motion from Kimodo (SOMA, 30 fps) following a motion file: one sentence per phase, body in place without turning (Root2D),
+"""Motion from Kimodo (SOMA, 30 fps) following a motion file: one sentence per phase, body without turning (Root2D), in place
+or with "root_speed" travelling forward and saved back in place (kimodo_common.root_track),
 optionally hands driven by constraints (with --template: pose from a sample of the no-hands stage). Output: <name>.npz + one BVH per sample.
 $KIMODO_PYTHON pipeline/motion/kimodo_motion.py --motion <motion>.json --emb emb.pt --out dir --name n
     [--samples 4] [--seed 0] [--template dir/root.npz:IDX]
@@ -30,8 +31,8 @@ model = load_model(kimodo_common.KIMODO_MODEL, device=dev, text_encoder=kimodo_c
 sk30 = model.skeleton; FPS = model.fps
 nfs = [int(round(d * FPS)) for d in durs]; T = sum(nfs)
 fi = torch.arange(T)
-cons = [Root2DConstraintSet(sk30, fi, torch.zeros(T, 2, device=dev),
-                            global_root_heading=torch.tensor([[1.0, 0.0]], device=dev).repeat(T, 1))]
+track = kimodo_common.root_track(R, T, FPS, dev)
+cons = [Root2DConstraintSet(sk30, fi, track, global_root_heading=torch.tensor([[1.0, 0.0]], device=dev).repeat(T, 1))]
 
 if A.template:
     path, idx = A.template.rsplit(":", 1); d = np.load(path)
@@ -45,6 +46,7 @@ if A.template:
         a_ = int(round(w["from"] * FPS)); b_ = T - 1 if w["to"] == "end" else int(round(w["to"] * FPS))
         for f in range(a_, b_ + 1, max(1, int(round(w["every"] * FPS)))): fr.append(f); mode.append(w["mode"])
     Pn = torch.stack([P[min(f, NP - 1)] for f in fr]).clone(); Rn = torch.stack([Rm[min(f, NP - 1)] for f in fr]).clone()
+    P = P.clone(); P[:, :, [0, 2]] += track[:NP, None]; Pn[:, :, [0, 2]] += track[fr][:, None]   # template saved in place
     tgt_r = torch.tensor(D["right_target_from_shoulder"], device=dev); tgt_l = torch.tensor(D["left_from_right"], device=dev)
     for k, (f, t) in enumerate(zip(fr, mode)):
         if t == "aim":
@@ -72,6 +74,6 @@ os.makedirs(A.out, exist_ok=True)
 out = model(texts, nfs, constraint_lst=cons, num_denoising_steps=100, num_samples=A.samples, multi_prompt=True,
             num_transition_frames=5, post_processing=False, return_numpy=True)
 keep = int(round(keep_s * FPS))
-pj, gr = out["posed_joints"][:, :keep], out["global_rot_mats"][:, :keep]
+pj, gr = kimodo_common.back_in_place(out["posed_joints"][:, :keep], track), out["global_rot_mats"][:, :keep]
 np.savez(os.path.join(A.out, A.name + ".npz"), posed_joints=pj, global_rot_mats=gr)
 kimodo_common.save_bvhs(A.out, A.name, pj, gr, sk30, A.samples, dev, FPS)

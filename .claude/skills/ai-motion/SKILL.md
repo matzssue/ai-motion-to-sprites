@@ -137,6 +137,13 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - **Kimodo hand targets assume a human** (~1.75 m, head above the shoulders). A hunched character with the head in front of
   the shoulders gets hands and prop in the head already in the raw motion (8 cm). So the grip is solved by `prop_in_hands`,
   and Kimodo constraints only shape the body.
+  Without a prop it lands in the key poses: on a rig whose shoulders sit where they really are, "hands to the chest"
+  hits the jaw (Wybuchacz crouch 16.2 -> 6.2 after moving the hands to the belly in the key poses and running Kimodo
+  through them). One-character script for now: game repo `art_source/characters/wybuchacz/ruch_ai/fix_key_poses.py`;
+  generalise it here when a second character needs it.
+- **A Meshy backpack fused into the torso pulls the auto-rig spine and head into the pack** (Wybuchacz: 15-30 cm back) and
+  stretches in motion. Cut it before `auto_rig`, put the prop back as a separate mesh rigid on Spine2, and keep it on the
+  upper back only: below Spine the waist bends away from it (a hip-length keg floated off the back in a sprint).
 - **Hand constraints in Kimodo hurt** (same grip): samples without them scored 1.9–3.3 with no hand in the head; with them
   3.8–17.8, a hand in the head in every one. The spread between samples is larger than the gain from tuning: first every
   sample through the full chain, then parameters. Use key poses instead (§3): 1.40 vs 7.29 before.
@@ -150,6 +157,8 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   `character.json` an action with `"prop": true, "motion": <file>`. The crossbow had to sit 6 cm higher than in the shot,
   otherwise it caught the thigh.
 - One long sentence = a static pose for the whole clip. One sentence per phase.
+- **Locomotion pinned in place comes out standing** (a Kimodo sprint: all 4 samples moved < 0.2 deg). Set `root_speed` (m/s)
+  in the motion file: the root travels forward during generation and the travel is subtracted before saving (clip in place).
 - **Kimodo cannot do a deep forward bend from text** ("curls forward, chest on knees" twice gave a squat with the shoulders
   22 cm BEHIND the hips). Set such a key pose by hand from a reference picture (bone directions + 2-bone IK from bone heads)
   and run the motion through it. Measure the lean (shoulder vs hip along the forward axis), do not judge from a thumbnail.
