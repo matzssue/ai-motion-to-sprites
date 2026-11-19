@@ -4,9 +4,9 @@ Stages: prepare, rig, rig_ai, calibration, ai, merge, preview. A finished stage 
 STOPs for a human decision: a new AI rig, key poses (<work>/<action>/poses_approved.json), the motion (actions.<a>.approved).
 Body sample and poses are made once: to redo, delete <action>/body.json or poses_approved.json.
 Paths in character.json are relative to that file. Schemas: schemas/*.schema.json, example: examples/character.example.json.
-All actions are put on the ground of the `walk` action (or, without one, of the first library action).
 Rig: `auto_rig_template`, else the library walk, is the Mixamo template of auto_rig (`mixamorig:*` skeleton). With neither,
-or with "skeleton": "amts", auto_rig builds the own skeleton (skeletons/amts.json) and every later stage uses that profile."""
+or with "skeleton": "amts", auto_rig builds the own skeleton (skeletons/amts.json) and every later stage uses that profile.
+All actions are put on the ground of `ground` (default: the `walk` action, else the first library action, else the rest pose's feet)."""
 import argparse, glob, json, os, shutil, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from config import KIMODO_PYTHON, script_path
@@ -31,8 +31,8 @@ RIG_AI = os.path.join(WORK, "rig_ai.glb")
 RIG_DATA = RIG_AI.replace(".glb", "_data.json")
 MERGED = os.path.join(WORK, "%s_merged.glb" % C["name"])
 READY = os.path.join(WORK, "%s_ai.glb" % C["name"])
-WALK = C.get("walk_clip") or C["actions"].get("walk", {}).get("library")
-WALK = WALK and r(WALK)
+_walk = C.get("walk_clip") or C["actions"].get("walk", {}).get("library")
+WALK = r(_walk) if _walk else None   # None: AI samples are merged alone (no library clip anywhere)
 OUTPUT = r(C["output"])
 # skeleton profile of `rig` (built-in name or path); None = Mixamo, and the scripts get no --skeleton (as before profiles)
 SKEL = C.get("skeleton") and (r(C["skeleton"]) if C["skeleton"].lower().endswith(".json") else C["skeleton"])
@@ -72,8 +72,9 @@ if OWN_RIG and LIB_ACTIONS:
 AI_ACTIONS = {n: a for n, a in C["actions"].items() if "ai" in a}
 # prop in hands: an AI action (motion file "ai") or a library action with a grip file "motion" (walk with a crossbow: `no_aim`)
 PROP_MOTION = {n: r(a.get("ai") or a["motion"]) for n, a in C["actions"].items() if a.get("prop") and (a.get("ai") or a.get("motion"))}
-# combine_actions grounds every action on this one (a Kimodo clip stood 0.5 m lower than the library walk)
-GROUND = "walk" if "walk" in C["actions"] else (LIB_ACTIONS[0][0] if LIB_ACTIONS else "")
+# combine_actions grounds every action on this one (a Kimodo clip stood 0.5 m lower than the library walk);
+# @rest = the rest pose's feet, for a character without any library clip
+GROUND = C.get("ground") or ("walk" if "walk" in C["actions"] else (LIB_ACTIONS[0][0] if LIB_ACTIONS else "@rest"))
 PROP = None
 
 # 1. model -> FBX for rigging (decimation, embedded texture)
