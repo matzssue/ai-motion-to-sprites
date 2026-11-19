@@ -69,8 +69,9 @@ the stance, conclusions in one sentence in the motion file's `_reference`, and g
 Motion file (see `examples/motion.example.json`): `phases` (duration + **one sentence per phase**), hand windows, `grip`
 (per hand: `roll_deg` – how far the grip may rotate around the stock, `elbow_target` – where the elbow goes while aiming,
 `knuckles_at_edge` – knuckles on the stock edge when fingers cannot reach its side), `aim` (`head_back_deg` – neck back,
-`head_gaze` – how much the head comes forward to keep the eyes on target), `recoil`, `loop_blend_s` (how many last seconds
-the retarget leads back to frame 0).
+`head_gaze` – how much the head comes forward to keep the eyes on target, `butt_from_shoulder` – where the butt goes,
+`butt_push` – the world direction it leaves the body along, default forward; `[-1, 0, 0]` = to the right, for a stock under
+the right armpit), `recoil`, `loop_blend_s` (how many last seconds the retarget leads back to frame 0).
 
 **Write the grip in the character's words**, not vectors (the prop frame has +Y to the character's LEFT – sign mistakes are easy):
 `"palm": "from below" | "from above" | "from the right" | "from the left"`, `"fingers": "left" | "right" | "forward" …`,
@@ -201,6 +202,17 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   mount, limbs and string closer than the far side of the stock: the own skeleton's long fingers wrapped those (hooks
   8-12 cm off the stock axis). Own chains aim at the stock's faces only (`stock_radius_max`) and collide with the whole prop.
 - The thumb lies opposite the fingers: wrapped both ways; the angle from the palm axis picked the middle finger.
+- A prop fused with the body in the model (Kusznik's stock goes through the quiver) is cut out with matching open loops in
+  both meshes: a see-through hole in the stock by the right hand and in the quiver. `prepare_rig.py` welds the seam-split
+  vertices and fills only loops lying on the other mesh's open edges; on the prop the cap bulges onto the stock radius (a
+  flat cap ran through the stock and the grip lifted the thumb off it). The stock's surface inside the quiver never existed:
+  the patch is faceted - a clean stock needs a model fix. The right thumb had lain IN that hole: tuning done on a broken
+  prop does not hold once it is fixed (`thumb_along_stock` 0.05 -> 0.2).
+- Cords hanging from a wrist wrap sit inside the finger tube of the thumb's/pinky's first bone: weighted to it, the grip
+  pulled them 4 cm and they showed as strings across the crossbow. Thin mesh beside a finger's first bone goes to the hand.
+- `aim.head_back_deg` turns the neck back and the head forward. On Mixamo the `Neck` bone has no skin, so only the head
+  moved; on the own skeleton the neck carries a third of the throat and the 50 deg tuned on Mixamo stretched it (amts throat
+  edges p95 1.5-1.8 x rest vs Mixamo 1.2-1.4). Set it per character on the own skeleton, 0 when the stock is not at the cheek.
 - Judging from thumbnails let a crossbow in the head through. Audit numbers + full frames.
 - **Fix passes do not converge** (frames with a collision 38 → 76 → 83 → 81) and the result is the last pass, not the best;
   the audit score after 1–6 passes jumps (17.1 / 19.3 / 12.8 / 7.3 / 5.5 / 11.6; `grip.passes`, default 4). The IK cost

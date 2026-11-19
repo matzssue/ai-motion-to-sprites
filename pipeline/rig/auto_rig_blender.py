@@ -329,43 +329,59 @@ def build_own(a):
 # a claw is ~1 cm thick): the grip bent them into the crossbow (4 cm). Tube = TUBE x the finger's own thickness (median
 # distance of its outer two bones' skin from the chain), fading to the hand by TUBE_FADE x that.
 TUBE, TUBE_FADE = 2.0, 3.0
+# thin cords inside the tube: Kusznik's wrist wraps hang cords 2-4 cm from the thumb's and pinky's first bones (thickness
+# < 6 mm, finger radius 1.2-2.3 cm); weighted to those bones they were pulled up to 4.3 cm by the grip and drawn as strings
+# across the crossbow (Mixamo: the same cords are all hand). Mesh thinner than THIN x the finger's radius, outside its skin
+# (farther than its radius) and nearest to the finger's first bone goes to the hand. Claws (thin, at the third bone) stay.
+THIN = 0.35
 
 
 def finger_tubes(arm, meshes):
-    """Moves finger weight farther from the finger's chain than the tube onto the hand bone; prints what moved."""
+    """Moves finger weight farther from the finger's chain than the tube, and thin cords beside its first bone, onto the
+    hand bone; prints what moved."""
+    from mathutils.bvhtree import BVHTree
     W = arm.matrix_world
     for o in meshes:
         names = [g.name for g in o.vertex_groups]; gi = {n: i for i, n in enumerate(names)}
         co = np.array([tuple(o.matrix_world @ v.co) for v in o.data.vertices])
+        tree = BVHTree.FromPolygons([Vector(c) for c in co], [p.vertices[:] for p in o.data.polygons])
+        nor = [(o.matrix_world.to_3x3() @ v.normal).normalized() for v in o.data.vertices]
+
+        def thickness(i):
+            hit = tree.ray_cast(Vector(co[i]) - nor[i] * 1e-4, -nor[i], 0.2)
+            return hit[3] if hit[0] is not None else 0.2
         wts = [{g.group: g.weight for g in v.groups} for v in o.data.vertices]
         dom = [max(w, key=w.get) if w else -1 for w in wts]; changed = set()
         for s, side in own_skeleton.SIDES:
             hand = gi.get("hand." + s)
             if hand is None: continue
-            moved, verts = 0.0, 0
+            moved, verts, cords = 0.0, 0, 0
             for f in own_skeleton.FINGERS:
                 bones = ["%s.%d.%s" % (f, i, s) for i in (1, 2, 3)]
                 if not all(b in gi and b in arm.data.bones for b in bones): continue
                 end = arm.data.bones.get("%s_end.%s" % (f, s))
                 P = [np.array(W @ arm.data.bones[b].head_local) for b in bones]
                 P.append(np.array(W @ (end.head_local if end else arm.data.bones[bones[-1]].tail_local)))
-                d = np.full(len(co), np.inf)
-                for a_, b_ in zip(P, P[1:]):
+                d = np.full(len(co), np.inf); seg = np.zeros(len(co), int)
+                for k_, (a_, b_) in enumerate(zip(P, P[1:])):
                     ab = b_ - a_; u = np.clip(((co - a_) @ ab) / max(ab @ ab, 1e-12), 0, 1)
-                    d = np.minimum(d, np.linalg.norm(co - (a_ + u[:, None] * ab), axis=1))
+                    dk = np.linalg.norm(co - (a_ + u[:, None] * ab), axis=1); seg[dk < d] = k_; d = np.minimum(d, dk)
                 g = [gi[b] for b in bones]
                 outer = [i for i, x in enumerate(dom) if x in g[1:]]
                 if not outer: continue
                 r = float(np.median(d[outer]))
                 for i, w in enumerate(wts):
                     k = 1.0 if d[i] <= TUBE * r else max(0.0, 1.0 - (d[i] - TUBE * r) / ((TUBE_FADE - TUBE) * r))
-                    if k >= 1.0 or not any(x in w for x in g): continue
+                    if not any(x in w for x in g): continue
+                    if k > 0.0 and seg[i] == 0 and r < d[i] and thickness(i) < THIN * r: k = 0.0; cords += 1
+                    if k >= 1.0: continue
                     m = sum(w.get(x, 0.0) * (1 - k) for x in g)
                     if m < 1e-4: continue
                     for x in g:
                         if x in w: w[x] *= k
                     w[hand] = w.get(hand, 0.0) + m; moved += m; verts += 1; changed.add(i)
-            print("auto_rig: finger tubes %s %s - weight moved to the hand on %d vertices (%.0f vertex-weights)" % (o.name, side, verts, moved))
+            print("auto_rig: finger tubes %s %s - weight moved to the hand on %d vertices (%.0f vertex-weights), %d of them thin cords"
+                  % (o.name, side, verts, moved, cords))
         for i in changed:
             for x, val in wts[i].items():
                 o.vertex_groups[x].add([i], val, "REPLACE")

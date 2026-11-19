@@ -153,6 +153,72 @@ if PC:
     print("debris: %d vertices in %d islands" % (len(kill), sum(1 for c in islands.values() if c[0] in kill)))
     bmesh.ops.delete(bm, geom=kill, context="VERTS"); bm.to_mesh(body.data); bm.free()
 
+    # cap the cut: where the prop was fused with the body the separation leaves matching open loops in both meshes
+    # (Kusznik: the stock went through the quiver in the model; seen as a hole in the stock by the right hand and in the
+    # quiver). Only loops whose vertices lie on the other mesh's open edges are filled; other open edges stay.
+    # The mesh is split at UV seams: it is welded first, or a loop crossing a seam is not closed and stays open.
+    # The stock's surface inside the quiver never existed: what it kept there (a concave piece of the quiver wall) stays.
+    key = lambda v: tuple(round(c * 2e4) for c in v.co)
+    bms = {}
+    for o in (body, prop):
+        bms[o] = bmesh.new(); bms[o].from_mesh(o.data)
+    rim = {o: {key(v) for e in bms[o].edges if e.is_boundary for v in e.verts} for o in bms}
+    for o, other in ((body, prop), (prop, body)):
+        b_ = bms[o]
+        # the prop is small and welded whole (its seam edges ending on the rim kept the loop from closing); the body only
+        # at the rim
+        bmesh.ops.remove_doubles(b_, verts=list(b_.verts) if o is prop else [v for v in b_.verts if key(v) in rim[other]], dist=1e-5)
+        cut = [e for e in b_.edges if e.is_boundary and all(key(v) in rim[other] for v in e.verts)]
+        # each simple loop (every vertex on two cut edges) becomes one face; bmesh.ops.holes_fill left Kusznik's 49-edge
+        # loop on the stock open
+        cs, seen_, new = set(cut), set(), []
+        for e in cut:
+            if e in seen_: continue
+            ring, v, prev = [e.verts[0]], e.verts[1], e; seen_.add(e)
+            while v is not ring[0]:
+                nxt = [y for y in v.link_edges if y in cs and y is not prev]
+                if len(nxt) != 1: ring = None; break
+                ring.append(v); prev = nxt[0]; seen_.add(prev); v = prev.other_vert(v)
+            if ring and len(ring) >= 3:
+                try: new.append(b_.faces.new(ring))
+                except ValueError: pass   # a face over these vertices exists already
+        nf = len(new)
+        if new and o is prop and PC.get("frame"):
+            # on the prop the cap bulges onto the stock radius around the prop axis: a flat cap of a loop wrapping half the
+            # stock ran through its inside, the grip read the stock surface as inside and lifted the right thumb off it
+            U_ = PC["frame"]; mw_ = o.matrix_world; mwi_ = mw_.inverted()
+            A_ = Vector(U_["axis"][0]); fa = (Vector(U_["axis"][1]) - A_).normalized()
+
+            def radial(p):   # world point -> (along the axis, radial vector)
+                x = (p - A_).dot(fa); return x, p - (A_ + fa * x)
+            prof = []
+            for f in b_.faces:
+                if f in new: continue
+                x, rv = radial(mw_ @ f.calc_center_median())
+                if rv.length > 1e-6 and (mw_.to_3x3() @ f.normal).normalized().dot(rv.normalized()) > 0.7: prof.append((x, rv.length))
+            prof = np.array(prof)
+
+            def r_at(x):   # stock radius at x from its outward-facing surface
+                m = np.abs(prof[:, 0] - x) < 0.03
+                return float(np.median(prof[m, 1])) if len(prof) and m.any() else None
+            centers = bmesh.ops.poke(b_, faces=new)["verts"]
+            for c in centers:
+                d = sum((radial(mw_ @ v.co)[1].normalized() for e in c.link_edges for v in e.verts
+                         if v is not c and radial(mw_ @ v.co)[1].length > 1e-6), Vector())
+                x, _ = radial(mw_ @ c.co); r = r_at(x)
+                if r and d.length > 1e-6: c.co = mwi_ @ (A_ + fa * x + d.normalized() * r)
+            sub = bmesh.ops.subdivide_edges(b_, edges=list({e for c in centers for e in c.link_edges}), cuts=2)
+            inner = [g for g in sub["geom_inner"] if isinstance(g, bmesh.types.BMVert)]
+            for v in inner:
+                x, rv = radial(mw_ @ v.co); r = r_at(x)
+                if r and rv.length > 1e-6: v.co = mwi_ @ (A_ + fa * x + rv.normalized() * r)
+            new = list({f for v in [c for c in centers if c.is_valid] + [v for v in inner if v.is_valid] for f in v.link_faces})
+        if new:
+            new = bmesh.ops.triangulate(b_, faces=new)["faces"]
+            bmesh.ops.recalc_face_normals(b_, faces=new)
+        print("cut capped on %s: %d open edges, %d loops filled, %d new faces" % (o.name, len(cut), nf, len(new)))
+        b_.to_mesh(o.data); b_.free()
+
 # ---------- 2. fingers out of the claws ----------
 dom = dominant(body)
 co0 = coords()

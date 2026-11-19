@@ -234,6 +234,7 @@ for f in all_frames:
 AIM = MO.get("aim", {})
 # head slightly back while aiming: makes room for the stock and the right elbow
 HEAD_BACK = AIM.get("head_back_deg", 0)
+BUTT_PUSH = Vector(AIM.get("butt_push", tuple(FWD))).normalized()
 for f in all_frames:
     if not HEAD_BACK or W_AIM[f] < 1e-3: continue
     sc.frame_set(f)
@@ -387,7 +388,9 @@ def base_pose(f):
     kick = math.radians(RC["kick_deg"] * env(f)) if RC else 0.0; tilt = math.radians(AIM.get("pitch_deg", 0))
     fd = (FWD * math.cos(tilt - kick) + UP * math.sin(-tilt + kick)).normalized()
     butt = k["RightS"] + Vector(AIM.get("butt_from_shoulder", (0, -0.07, -0.03)))
-    butt = out_of_body(butt, FWD, TR[f][0], 0.01)   # the shoulder joint lies inside the body
+    # the shoulder joint lies inside the body: the butt leaves it forward (stock on the shoulder) or along `butt_push`.
+    # A stock under the armpit (Kusznik on amts, author 2026-11-19) pushed forward ended 10 cm in front of the chest
+    butt = out_of_body(butt, BUTT_PUSH, TR[f][0], 0.01)
     Ca = frame3(fd, UP).to_4x4(); Ca.translation = butt - fd * BUTT
     w = W_AIM[f]
     C = Ck.to_quaternion().slerp(Ca.to_quaternion(), w).to_matrix().to_4x4()
@@ -431,7 +434,9 @@ def wrap_fingers(C4):
         JW = [[T @ j for j in J] for J, _, _ in fl]
         # own thumb: cost of its tip direction off the stock axis, for each of its bones (only the metacarpal: the other two
         # bent on towards the palm normal looking for a surface they could not reach and stood up as a hook)
-        stock = C4.to_3x3().col[0].normalized(); ALONG = GP.get("thumb_along_stock", 0.05)
+        # 0.05 was tuned while Kusznik's stock had a hole by the right hand (the thumb lay in it); with the hole capped the
+        # thick thumb base collided lying along the stock and the thumb stood up as a hook again: 0.2 lays it along (0.8 -> 0.49)
+        stock = C4.to_3x3().col[0].normalized(); ALONG = GP.get("thumb_along_stock", 0.2)
         # own fingers close together: each joint's angle costs its distance from the same joint of the finger before it
         # (index -> pinky). Solved alone, Kusznik's index and middle arched far round the stock apart from ring and pinky
         NEXT = {}

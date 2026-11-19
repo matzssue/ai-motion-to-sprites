@@ -54,7 +54,7 @@
   },
   "aim": {
    "type": "object",
-   "properties": {"butt_from_shoulder": {"$ref": "#/$defs/vec3"}, "pitch_deg": {"type": "number"},
+   "properties": {"butt_from_shoulder": {"$ref": "#/$defs/vec3"}, "butt_push": {"$ref": "#/$defs/vec3"}, "pitch_deg": {"type": "number"},
                   "head_back_deg": {"type": "number"}, "transition_arc": {"type": "number"}, "head_gaze": {"type": "number"}}
   },
   "recoil": {
