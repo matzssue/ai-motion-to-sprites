@@ -14,7 +14,8 @@
     "test": "vitest run",
     "licenses": "node scripts/check-licenses.mjs",
     "api:types": "openapi-typescript src/api/openapi.json -o src/api/schema.d.ts",
-    "api:check": "node scripts/check-api-types.mjs"
+    "api:check": "node scripts/check-api-types.mjs",
+    "local": "node scripts/local.mjs"
   },
   "dependencies": {
     "@react-three/drei": "10.7.9",

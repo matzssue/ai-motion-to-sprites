@@ -28,3 +28,5 @@ next-env.d.ts
 web/public/local/
 # source folder of the viewer, not an audit output
 !web/src/audit/
+# local dev workspace of the review service (copies of real characters, scratch), never committed
+/local/
