@@ -10,9 +10,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 from config import KIMODO_PYTHON, script_path
 from chain import blender, merge, audit, chain
 from schema_check import load_character
-from stages import fresh, keys
+from stages import NOISE, STAGES, fresh, keys
 
-STAGES = ["prepare", "rig", "rig_ai", "calibration", "ai", "merge", "preview"]
 ap = argparse.ArgumentParser(description="Run the whole pipeline for one character, stopping at human review gates.")
 ap.add_argument("--character", required=True); ap.add_argument("--from", dest="start", default=None, choices=STAGES)
 ap.add_argument("--to", dest="end", default="preview", choices=STAGES)
@@ -62,7 +61,6 @@ AI_ACTIONS = {n: a for n, a in C["actions"].items() if "ai" in a}
 PROP_MOTION = {n: r(a.get("ai") or a["motion"]) for n, a in C["actions"].items() if a.get("prop") and (a.get("ai") or a.get("motion"))}
 # combine_actions grounds every action on this one (a Kimodo clip stood 0.5 m lower than the library walk)
 GROUND = "walk" if "walk" in C["actions"] else (LIB_ACTIONS[0][0] if LIB_ACTIONS else "")
-NOISE = 0.15   # the audit score of the same motion in another GLB export differs by ~0.1 (README, "Audit noise")
 PROP = None
 
 # 1. model -> FBX for rigging (decimation, embedded texture)

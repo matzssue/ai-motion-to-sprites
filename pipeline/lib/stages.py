@@ -1,6 +1,9 @@
 """Pure helpers of character.py (no argparse, no Blender), importable by tests."""
 import os
 
+STAGES = ["prepare", "rig", "rig_ai", "calibration", "ai", "merge", "preview"]
+NOISE = 0.15   # the audit score of the same motion in another GLB export differs by ~0.1 (README, "Audit noise")
+
 
 def fresh(out, *inputs):
     if not os.path.exists(out): return False
