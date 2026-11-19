@@ -9,7 +9,8 @@ from mathutils import Vector
 
 ap = argparse.ArgumentParser(description="Combine separately processed actions into one GLB and align them to one ground.")
 ap.add_argument("--base", required=True); ap.add_argument("--action", action="append", default=[]); ap.add_argument("--out", required=True)
-ap.add_argument("--ground", default="walk", help="reference action: the lowest foot point of every action = its lowest point ('' = off)")
+ap.add_argument("--ground", default="walk", help="reference action: the lowest foot point of every action = its lowest point; "
+                "@rest = the rest pose's feet ('' = off)")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=A.base)
@@ -52,10 +53,18 @@ def feet_min(act):
     return z
 
 
+def rest_feet_min():
+    """lowest head of foot and toe bones in the rest pose: the auto-rig builds the rest pose on the mesh standing on the floor"""
+    return min((arm.matrix_world @ b.head_local).z for b in arm.data.bones if "foot" in b.name.lower() or "toe" in b.name.lower())
+
+
 if A.ground:
-    ref = bpy.data.actions.get(A.ground)
-    if ref is None: raise SystemExit("--ground %s: no such action" % A.ground)
-    z0 = feet_min(ref)
+    if A.ground == "@rest":
+        z0 = rest_feet_min()
+    else:
+        ref = bpy.data.actions.get(A.ground)
+        if ref is None: raise SystemExit("--ground %s: no such action (or @rest)" % A.ground)
+        z0 = feet_min(ref)
     hips = next(b for b in arm.pose.bones if "hips" in b.name.lower())
     for act in bpy.data.actions:
         dz = z0 - feet_min(act)
