@@ -128,12 +128,14 @@ Measured on the game's characters (assets are not included):
   Optional: `KIMODO_PYTHON` (another interpreter) and `KIMODO_MODEL` (default `Kimodo-SOMA-RP-v1.1`).
   The GPU queue (`gpu_queue.py`) keeps its lock in `KIMODO_DIR` (the temp dir without Kimodo); `AMTS_GPU_QUEUE=0` turns it off,
   `AMTS_GPU_THRESHOLD_MB` (default 2500) is the GPU memory in use above which a Kimodo script waits.
-- Host Python with `numpy`, `scipy`, `Pillow` (auto-rig, alpha check, review page, tests).
+- Host Python with `numpy`, `scipy`, `Pillow`, `jsonschema` (auto-rig, alpha check, review page, config validation, tests):
+  `pip install -e .`
 - A Mixamo-skeleton FBX (any library clip) as the auto-rig template and the walk used for calibration. Download it yourself
   from Mixamo. Clips are not redistributed here.
 
 The files in `examples/` describe a real character whose assets are not in this repo: copy them next to your own model
-and clips, fix the paths, and measure the coordinates in `rig.example.json` on your model. Then:
+and clips, fix the paths, and measure the coordinates in `rig.example.json` on your model. `schemas/` describes every key;
+`character.py`, `chain.py` and `variants.py` check the configs against it before any Blender step. Then:
 
 ```bash
 python pipeline/character.py --character my_character/character.json

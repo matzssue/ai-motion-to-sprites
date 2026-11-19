@@ -29,5 +29,6 @@ before adding a row. CI fails on GPL, AGPL and non-commercial licenses among the
 | Blender | GPL-2.0-or-later | yes | outputs (GLB, renders) are not covered by the GPL; the scripts here that import `bpy` are MIT, which is GPL-compatible |
 | `numpy`, `scipy` | BSD-3-Clause | yes | host Python |
 | `Pillow` | MIT-CMU (HPND) | yes | host Python |
+| `jsonschema` (+ `attrs`, `referencing`, `rpds-py`, `jsonschema-specifications`) | MIT | yes | host Python, config validation (`schemas/`) |
 | `psutil` | BSD-3-Clause | yes | optional, `variants.py` free-RAM probe |
 | `pytest`, `ruff`, `pip-licenses` | MIT | yes | development only |

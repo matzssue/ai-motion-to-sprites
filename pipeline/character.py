@@ -3,12 +3,13 @@ python pipeline/character.py --character <dir>/character.json [--from stage] [--
 Stages: prepare, rig, rig_ai, calibration, ai, merge, preview. A finished stage (output newer than its inputs) is skipped; --from forces.
 STOPs for a human decision: a new AI rig, key poses (<work>/<action>/poses_approved.json), the motion (actions.<a>.approved).
 Body sample and poses are made once: to redo, delete <action>/body.json or poses_approved.json.
-Paths in character.json are relative to that file. Schema: examples/character.example.json.
+Paths in character.json are relative to that file. Schemas: schemas/*.schema.json, example: examples/character.example.json.
 All actions are put on the ground of the `walk` action (or, without one, of the first library action)."""
 import argparse, glob, json, os, shutil, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from config import KIMODO_PYTHON, script_path
 from chain import blender, merge, audit, chain
+from schema_check import load_character
 
 STAGES = ["prepare", "rig", "rig_ai", "calibration", "ai", "merge", "preview"]
 ap = argparse.ArgumentParser(description="Run the whole pipeline for one character, stopping at human review gates.")
@@ -16,7 +17,7 @@ ap.add_argument("--character", required=True); ap.add_argument("--from", dest="s
 ap.add_argument("--to", dest="end", default="preview", choices=STAGES)
 A = ap.parse_args()
 sys.stdout.reconfigure(encoding="utf-8")
-C = json.load(open(A.character, encoding="utf-8"))
+C = load_character(A.character)   # also the rig config and motion files: a bad key is named before any Blender step
 BASE_DIR = os.path.dirname(os.path.abspath(A.character))
 
 

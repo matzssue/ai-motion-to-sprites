@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from config import BLENDER, script_path
+from schema_check import load as load_config
 
 GB_PER_PROCESS = 0.7   # Blender with a 25k-triangle character takes ~0.3 GB; the rest is headroom
 
@@ -84,7 +85,7 @@ if __name__ == "__main__":
     ap.add_argument("--out", required=True); ap.add_argument("--set", action="append", default=[]); ap.add_argument("--file")
     ap.add_argument("--frames"); ap.add_argument("--reference"); ap.add_argument("--parallel", type=int, default=3)
     A = ap.parse_args()
-    base = json.load(open(A.motion, encoding="utf-8")); os.makedirs(A.out, exist_ok=True)
+    base = load_config(A.motion, "motion", ("grip",)); os.makedirs(A.out, exist_ok=True)
     prop = json.load(open(A.rig.replace(".glb", "_data.json"), encoding="utf-8"))["prop"]["name"]
     if A.file:
         variants = list(json.load(open(A.file, encoding="utf-8")).items())

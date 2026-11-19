@@ -6,6 +6,7 @@ import argparse, json, os, subprocess, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from config import BLENDER, script_path
+from schema_check import load as load_config
 
 IMPORTANT = ("smoothed", "RETARGET", "merge_actions", "pass", "OK", "AUDIT", "  FAIL", "  rest", "  score", "  no limit", "stock",
              "closeups", "MAX", "RIG OK", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ")
@@ -60,5 +61,6 @@ if __name__ == "__main__":
     ap.add_argument("--out", required=True); ap.add_argument("--walk", required=True, help="library walk clip (Mixamo skeleton)")
     ap.add_argument("--no-prop", action="store_true"); ap.add_argument("--from", dest="start", default="retarget", choices=["retarget", "merge", "prop", "audit"])
     A = ap.parse_args()
+    load_config(A.motion, "motion", () if A.no_prop else ("grip",))
     glb, rep = chain(*(os.path.abspath(p) for p in (A.rig, A.motion, A.bvh, A.out, A.walk)), not A.no_prop, A.start)
     print("RESULT", glb, rep["result"], "score", rep["score"])

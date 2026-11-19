@@ -1,0 +1,57 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "character.schema.json",
+ "title": "character.json",
+ "description": "Whole path of one character for pipeline/character.py. Paths are relative to the file. Keys starting with _ are comments; unknown keys are allowed.",
+ "type": "object",
+ "required": ["name", "model", "rig_input", "rig", "rig_config", "work_dir", "output", "actions"],
+ "properties": {
+  "name": {"type": "string", "minLength": 1},
+  "model": {"type": "string"},
+  "rig_input": {"type": "string"},
+  "rig": {"type": "string"},
+  "rig_config": {"type": "string"},
+  "work_dir": {"type": "string"},
+  "output": {"type": "string"},
+  "walk_clip": {"type": "string"},
+  "auto_rig_template": {"type": "string"},
+  "actions": {
+   "type": "object",
+   "description": "action name -> action; every key is an action (no _ comments here)",
+   "minProperties": 1,
+   "additionalProperties": {"$ref": "#/$defs/action"}
+  },
+  "kimodo": {
+   "type": "object",
+   "properties": {"samples": {"type": "integer"}, "seed": {"type": "integer"}}
+  }
+ },
+ "allOf": [
+  {"description": "give `walk_clip`, or an actions.walk with a `library` clip",
+   "anyOf": [
+    {"required": ["walk_clip"]},
+    {"properties": {"actions": {"required": ["walk"], "properties": {"walk": {"required": ["library"]}}}}}
+   ]}
+ ],
+ "$defs": {
+  "action": {
+   "type": "object",
+   "properties": {
+    "library": {"type": "string", "description": "Mixamo-skeleton clip (FBX/GLB)"},
+    "ai": {"type": "string", "description": "motion file generated with Kimodo"},
+    "motion": {"type": "string", "description": "grip-only motion file for a library action with a prop"},
+    "prop": {"type": "boolean"},
+    "loop": {"type": "boolean"},
+    "approved": {
+     "type": "object",
+     "required": ["score"],
+     "properties": {"bvh": {"type": "string"}, "npz": {"type": "string"}, "score": {"type": "number"}, "date": {"type": "string"}}
+    }
+   },
+   "allOf": [
+    {"description": "an action needs `library` or `ai`", "anyOf": [{"required": ["library"]}, {"required": ["ai"]}]},
+    {"if": {"required": ["ai", "approved"]}, "then": {"properties": {"approved": {"required": ["bvh"]}}}}
+   ]
+  }
+ }
+}
