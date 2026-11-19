@@ -29,6 +29,10 @@ export const AuditReportSchema = z.object({
   limits: z.record(z.string(), z.number()),
   no_limit: z.array(z.string()).default([]),
   frames: z.array(z.number()).nullable().optional(),
+  /** skeleton profile the audit used (absent in reports from before profiles: Mixamo) */
+  skeleton: z.string().optional(),
+  /** metric -> why it was not measured (a role the skeleton does not have); never scored */
+  skipped: z.record(z.string(), z.string()).default({}),
 });
 
 /** One row of audit_samples.json: `t` in Blender frames, then one number per measured metric. */
@@ -66,4 +70,6 @@ export type MetricTrack = {
   /** runs of consecutive samples over the limit, as [first t, last t] in frames */
   failRanges: [number, number][];
   error: AuditError | null;
+  /** why the audit did not measure it (no values, no limit), or null */
+  skipped: string | null;
 };

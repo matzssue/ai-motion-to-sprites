@@ -25,6 +25,13 @@ export const REPORT = {
   frames: null,
 };
 
+/** The same report from a skeleton without fingers: the finger metrics are skipped, not zero. */
+export const REPORT_SKIPPED = {
+  ...REPORT,
+  skeleton: "mixamo_nofingers",
+  skipped: { fingers_in_prop: "skeleton 'mixamo_nofingers' has no fingers", finger_jump: "skeleton 'mixamo_nofingers' has no fingers" },
+};
+
 export const SAMPLE_ROWS = [
   { t: 70, hands_in_head: 0.001, wrist_bend_L: 40, prop_rot_jump: 0.4 },
   { t: 70.25, hands_in_head: 0.006, wrist_bend_L: 41 },

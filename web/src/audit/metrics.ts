@@ -1,5 +1,5 @@
 // Names, groups and units of the audit metrics. Labels and formatting copy pipeline/review/review_page.py
-// (LABELS, fmt); groups and order copy METRICS in pipeline/checks/motion_audit.py.
+// (LABELS, fmt); groups and order copy METRICS in pipeline/lib/audit_metrics.py.
 import type { MetricGroup, MetricUnit } from "./schema";
 
 export const GROUPS: MetricGroup[] = ["penetration", "joints", "smoothness", "grip", "other"];

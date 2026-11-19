@@ -31,6 +31,12 @@ export function AuditHeader() {
           {report.height_m !== undefined && <span className="pill">height {report.height_m.toFixed(2)} m</span>}
           {audit.samples && <span className="pill">{audit.samples.length} samples</span>}
           {!audit.samples && <span className="pill">no audit_samples.json: errors only</span>}
+          {report.skeleton && <span className="pill">skeleton {report.skeleton}</span>}
+          {Object.keys(report.skipped).length > 0 && (
+            <span className="pill" title={Object.entries(report.skipped).map(([k, why]) => `${k}: ${why}`).join("\n")}>
+              {Object.keys(report.skipped).length} skipped
+            </span>
+          )}
         </div>
       )}
       {clip && lastSample !== undefined && audited !== clip.name && (
