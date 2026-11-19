@@ -20,3 +20,11 @@ alpha_check/
 *.egg-info/
 build/
 runtime/
+# web viewer: dependencies, Next.js output, local sample data (never committed)
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+web/public/local/
+# source folder of the viewer, not an audit output
+!web/src/audit/
