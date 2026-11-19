@@ -3,6 +3,7 @@
 python pipeline/review/review_page.py --glb X.glb --action attack --out dir --title "Crossbowman shot" [--prop crossbow]
     [--previous dir_of_previous_review] [--hand-frames 10,45,56,85] [--px 360] [--note "what changed"]
     [--rest-is-normal] [--no-loop]   (library walk/idle: prop on the back; without it "hand to prop" 50 cm = FAIL)
+    [--skeleton mixamo|profile.json]  (metrics the skeleton cannot measure are listed as skipped)
 Finished steps (audit, frames, close-ups) are skipped when their output is newer than the GLB."""
 import argparse, base64, glob, html, json, os, sys
 from PIL import Image
@@ -49,16 +50,17 @@ def sheet(folder, d, px):
 def build(A):
     """Audit, frames, close-ups -> data.json in the review folder (sheets and close-ups as webp files)."""
     os.makedirs(A.out, exist_ok=True); data_p = os.path.join(A.out, "data.json")
+    SKEL = ["--skeleton", A.skeleton] if getattr(A, "skeleton", None) else []
     aud = os.path.join(A.out, "audit")
     if not fresh(os.path.join(aud, "audit.json"), A.glb):
         blender("motion_audit.py", "AUDIT", "--glb", A.glb, "--action", A.action, "--out", aud, *(["--prop", A.prop] if A.prop else []),
-                *(["--rest-is-normal"] if A.rest_is_normal else []), *(["--no-loop"] if A.no_loop else []))
+                *(["--rest-is-normal"] if A.rest_is_normal else []), *(["--no-loop"] if A.no_loop else []), *SKEL)
     fr = os.path.join(A.out, "frames")
     if not fresh(os.path.join(fr, "done.json"), A.glb):
         blender("preview_8.py", "PREVIEW OK", "--glb", A.glb, "--actions", A.action, "--out", fr, "--all", "--px", str(A.px))
     hc = os.path.join(A.out, "hands")
     if A.hand_frames and not fresh(os.path.join(hc, "done"), A.glb):
-        blender("hand_closeups.py", "CLOSEUPS OK", "--glb", A.glb, "--action", A.action, "--frames", A.hand_frames, "--out", hc, "--px", "360")
+        blender("hand_closeups.py", "CLOSEUPS OK", "--glb", A.glb, "--action", A.action, "--frames", A.hand_frames, "--out", hc, "--px", "360", *SKEL)
         open(os.path.join(hc, "done"), "w").close()
     n = 0
     for d in DIRS:
@@ -177,6 +179,9 @@ def page(data, folder, prev=None, prev_folder=None, diff=None, note=""):
             w = rp["maxima"].get(k); cl = "" if w is None or abs(w - v) < 1e-6 else ("better" if v < w else "worse")
             row += '<td class="%s">%s</td>' % (cl, fmt(k, w))
         H.append(row + "</tr>")
+    for k, why in rep.get("skipped", {}).items():
+        H.append('<tr><td>%s</td><td class="muted">skipped</td><td colspan="%d" class="muted">%s</td></tr>' % (
+            LABELS.get(k, k), 3 if rp else 2, html.escape(why)))
     H.append("</tbody></table></div></section>")
     if diff:
         H.append('<section><h2>Difference from the previous version</h2><div class="tab"><table><thead><tr><th>part</th><th>max position</th>'
@@ -200,12 +205,14 @@ if __name__ == "__main__":
     ap.add_argument("--hand-frames", default=""); ap.add_argument("--px", type=int, default=360); ap.add_argument("--note", default="")
     ap.add_argument("--rest-is-normal", action="store_true", help="library action: prop on the back, as in calibration")
     ap.add_argument("--no-loop", action="store_true", help="one-shot action: audit without the loop seam")
+    ap.add_argument("--skeleton", default=None, help="skeleton profile of the rig: built-in name or JSON path (default mixamo)")
     A = ap.parse_args()
+    SKEL = ["--skeleton", A.skeleton] if A.skeleton else []
     data = build(A); prev = diff = None
     if A.previous:
         prev = json.load(open(os.path.join(A.previous, "data.json"), encoding="utf-8"))
         dp = os.path.join(A.out, "diff.json")
-        blender("compare_motion.py", "COMPARE", "--a", prev["glb"], "--b", A.glb, "--action", A.action, "--out", dp, *(["--prop", A.prop] if A.prop else []))
+        blender("compare_motion.py", "COMPARE", "--a", prev["glb"], "--b", A.glb, "--action", A.action, "--out", dp, *(["--prop", A.prop] if A.prop else []), *SKEL)
         diff = json.load(open(dp, encoding="utf-8"))
     doc = page(data, A.out, prev, A.previous, diff, A.note)
     out = os.path.join(A.out, "page.html"); open(out, "w", encoding="utf-8").write(doc)

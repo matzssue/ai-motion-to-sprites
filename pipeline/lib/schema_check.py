@@ -58,8 +58,8 @@ def load_skeleton(spec, base=None):
 
 
 def load_character(path):
-    """character.json plus the configs it points to: the rig config, each `ai` motion (needs `phases`) and each prop
-    motion (needs `grip`). A file that does not exist yet is left to the stage that reads it."""
+    """character.json plus the configs it points to: the rig config, the skeleton profile, each `ai` motion (needs `phases`)
+    and each prop motion (needs `grip`). A file that does not exist yet is left to the stage that reads it."""
     C = load(path, "character"); base = os.path.dirname(os.path.abspath(path))
 
     def r(p): return p if os.path.isabs(p) else os.path.normpath(os.path.join(base, p))
@@ -69,4 +69,5 @@ def load_character(path):
         if a.get("prop") and (a.get("ai") or a.get("motion")): need.setdefault(r(a.get("ai") or a["motion"]), set()).add("grip")
     for p, kind, req in [(r(C["rig_config"]), "rig", ())] + [(p, "motion", tuple(k)) for p, k in need.items()]:
         if os.path.exists(p): load(p, kind, req)
+    if C.get("skeleton"): load_skeleton(C["skeleton"], base)
     return C

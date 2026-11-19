@@ -1,6 +1,6 @@
 """Arm skin check before review: "candy wrapper" twist of upper arm/forearm (skin.py) on every frame,
 on failure a close-up of the worst spot from the game camera (textured, and with stripes along the arm that spiral when twisted).
-Motion from GLB:  blender -b --python pipeline/checks/skin_check.py -- --glb X.glb --action attack --out dir [--step 1]
+Motion from GLB:  blender -b --python pipeline/checks/skin_check.py -- --glb X.glb --action attack --out dir [--step 1] [--skeleton X]
 Posing script:    blender -b --python pipeline/checks/skin_check.py -- --script anim.py --pose-expr "pose(nr / 20)" --frames 130-170:2 --out dir -- <script args>
 The script is run once (as __main__); then for every frame `nr` is set in its globals and --pose-expr is evaluated there.
 Limits and measurements: README, "Skin twist". Alpha (a mask cutting the body): alpha_check.py."""
@@ -9,7 +9,7 @@ import numpy as np
 from mathutils import Matrix, Vector
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import skin
-from collisions import dominant, vertices
+from collisions import dominant, vertices, rig_of
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 rest_args = argv[argv.index("--") + 1:] if "--" in argv else []; argv = argv[:argv.index("--")] if "--" in argv else argv
@@ -19,6 +19,7 @@ ap.add_argument("--script"); ap.add_argument("--pose-expr", help="expression in 
 ap.add_argument("--frames", default="", help="10,20 or 130-170:2")
 ap.add_argument("--out", required=True); ap.add_argument("--yaw", type=float, default=0.0, help="game camera: rotation around vertical (deg)")
 ap.add_argument("--pitch", type=float, default=30.0); ap.add_argument("--no-closeups", action="store_true")
+ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
 A = ap.parse_args(argv); os.makedirs(A.out, exist_ok=True)
 if not A.glb and not A.script: ap.error("give --glb with --action, or --script with --pose-expr")
 
@@ -48,32 +49,34 @@ else:
 arm = max((o for o in bpy.data.objects if o.type == "ARMATURE"), key=lambda o: len(o.pose.bones))
 body = max((o for o in bpy.data.objects if o.type == "MESH" and any(m.type == "ARMATURE" and m.object == arm for m in o.modifiers)),
            key=lambda o: len(o.data.vertices))
-P = next((b.name.split(":")[0] + ":" for b in arm.data.bones if ":" in b.name), "")
+PROF = rig_of(arm, A.skeleton).prof
 AW = arm.matrix_world
 dom = np.array([str(d) for d in dominant(body)])
-TORSO = next(n for n in ("Spine2", "Spine1", "Spine") if P + n in arm.data.bones)
+TORSO = PROF.spine[-1]
 arm.data.pose_position = "REST"; bpy.context.view_layer.update(); rest = vertices(body, bpy.context.evaluated_depsgraph_get())
 arm.data.pose_position = "POSE"; bpy.context.view_layer.update()
-heads0 = {b.name[len(P):]: np.array(AW @ b.head_local) for b in arm.data.bones if b.name.startswith(P)}
-SEL = {s: skin.select(dom, rest, heads0, s) for s in ("Left", "Right")}
+heads0 = {b.name: np.array(AW @ b.head_local) for b in arm.data.bones}
+SEGS = {s: skin.segments(PROF, s) for s in ("Left", "Right")}
+SEL = {s: skin.select(dom, rest, heads0, SEGS[s]) for s in ("Left", "Right")}
+SEG_OF = {PROF.short(a): (s, a, b, vb) for s in SEGS for a, b, vb in SEGS[s]}   # report region (bone without prefix) -> segment
 H = float(np.ptp(rest[:, 2]))
 
 
 def torso():
-    b = arm.data.bones[P + TORSO]; return np.array((AW @ arm.pose.bones[P + TORSO].matrix @ b.matrix_local.inverted() @ AW.inverted()).to_3x3())
+    b = arm.data.bones[TORSO]; return np.array((AW @ arm.pose.bones[TORSO].matrix @ b.matrix_local.inverted() @ AW.inverted()).to_3x3())
 
 
-def head(n): return np.array(AW @ arm.pose.bones[P + n].head)
+def head(n): return np.array(AW @ arm.pose.bones[n].head)
 
 
 rows = []
 for nr in nrs:
     set_frame(nr); co = vertices(body, bpy.context.evaluated_depsgraph_get()); Rt = torso(); row = {"frame": float(nr)}
     for s, seg in SEL.items():
-        for k, end, _ in skin.SEGMENTS:
-            if s + k not in seg: continue
-            b, r = skin.twist(rest, co, seg[s + k], heads0[s + k], heads0[s + end], head(s + k), head(s + end), Rt)
-            row[s + k] = {"twist": round(b), "spread": round(r, 2)}
+        for a, end, _ in SEGS[s]:
+            if a not in seg: continue
+            b, r = skin.twist(rest, co, seg[a], heads0[a], heads0[end], head(a), head(end), Rt)
+            row[PROF.short(a)] = {"twist": round(b), "spread": round(r, 2)}
     rows.append(row)
     print("SKIN fr. %6.1f  " % nr + "  ".join("%s twist %4d deg spread %.2f" % (k, v["twist"], v["spread"]) for k, v in row.items() if k != "frame"), flush=True)
 
@@ -103,12 +106,11 @@ def closeup(e):
     hidden = {o: o.hide_render for o in sc.objects}
     for o in sc.objects:
         if o is not cp and o.type in ("MESH", "CURVE"): o.hide_render = True
-    s = e["region"][:4] if e["region"].startswith("Left") else e["region"][:5]; k = e["region"][len(s):]
-    end = {o[0]: o[1] for o in skin.SEGMENTS}[k]; ii = SEL[s][e["region"]]
-    a0, b0 = heads0[e["region"]], heads0[s + end]; d0 = (b0 - a0) / np.linalg.norm(b0 - a0)
+    s, a, end, _ = SEG_OF[e["region"]]; ii = SEL[s][a]
+    a0, b0 = heads0[a], heads0[end]; d0 = (b0 - a0) / np.linalg.norm(b0 - a0)
     ref = np.cross(d0, [0, 0, 1.0]); ref = ref / np.linalg.norm(ref) if np.linalg.norm(ref) > 1e-6 else np.array([1.0, 0, 0]); ref2 = np.cross(d0, ref)
     col = np.tile(np.array([0.55, 0.55, 0.55, 1.0]), (len(me.vertices), 1))
-    bones = {s + x for _, _, xs in skin.SEGMENTS for x in xs}
+    bones = {x for _, _, xs in SEGS[s] for x in xs}
     m = np.isin(dom, list(bones)); p = rest[m] - a0; ang = np.arctan2(p @ ref2, p @ ref)
     col[m] = np.where((np.floor(ang / (np.pi / 4)) % 2 == 0)[:, None], [0.85, 0.15, 0.1, 1.0], [0.95, 0.9, 0.8, 1.0])
     ca = me.color_attributes.new("stripes", "FLOAT_COLOR", "POINT"); ca.data.foreach_set("color", col.astype(np.float32).ravel())

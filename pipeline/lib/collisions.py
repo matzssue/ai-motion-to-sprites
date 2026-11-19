@@ -4,25 +4,20 @@ import math
 import numpy as np
 from mathutils import Quaternion, Vector
 from mathutils.bvhtree import BVHTree
+import skeleton
 
-# bone names without the `mixamorig:` prefix; fingers = `finger_*` bones from prop_in_hands plus Mixamo fingers
-REGIONS = {
-    "head": ("Head", "Neck", "HeadTop_End"),
-    "torso": ("Spine", "Spine1", "Spine2", "Hips"),
-    "clavicles": ("LeftShoulder", "RightShoulder"),
-    "legs": ("LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg"),
-    "forearms": ("LeftForeArm", "RightForeArm"),
-    "hands": ("LeftHand", "RightHand"),
-}
-FINGER_PREFIX = "finger_"
+FINGER_PREFIX = "finger_"   # bones prepare_rig grows out of claws (the tool's own names, any skeleton)
+REGIONS = skeleton.REGIONS
 
 
-def is_finger(name):
-    return name.startswith(FINGER_PREFIX) or ("Hand" in name and name not in ("LeftHand", "RightHand"))
+def rig_of(arm, spec=None, exclude=()):
+    """Skeleton profile (name/path, None = default) bound to a Blender armature (skeleton.Rig, profile in `.prof`)."""
+    return skeleton.for_rig(spec, {b.name: b.parent.name if b.parent else None for b in arm.data.bones}, exclude)
 
 
 def dominant(mesh):
-    names = [g.name.split(":")[-1] for g in mesh.vertex_groups]
+    """Bone (full vertex group name) with the largest weight of every vertex."""
+    names = [g.name for g in mesh.vertex_groups]
     dom = np.full(len(mesh.data.vertices), "", dtype=object)
     for v in mesh.data.vertices:
         best, w = "", 0.0
@@ -33,9 +28,10 @@ def dominant(mesh):
     return dom
 
 
-def masks(dom):
-    out = {r: np.isin(dom, b) for r, b in REGIONS.items()}
-    out["fingers"] = np.array([is_finger(d) for d in dom])
+def masks(dom, rig):
+    out = {r: np.isin(dom, rig.prof.region_bones(r)) for r in REGIONS}
+    out["forearms"] = np.isin(dom, rig.prof.bones("forearm")); out["hands"] = np.isin(dom, rig.prof.bones("hand"))
+    out["fingers"] = np.isin(dom, sorted(rig.fingers))
     return out
 
 
@@ -82,15 +78,12 @@ def depth(tree, pts, reach=0.15):
     return best, bi
 
 
-ARMS = ("LeftArm", "RightArm", "LeftForeArm", "RightForeArm", "LeftHand", "RightHand")
-
-
-def labels(dom):
+def labels(dom, rig):
     """Region of every vertex; arms (from the upper arm down) and fingers = '' (those are what gets tested)."""
     lab = np.full(len(dom), "", dtype=object)
-    for r in ("head", "torso", "clavicles", "legs"):
-        lab[np.isin(dom, REGIONS[r])] = r
-    lab[np.array([d in ARMS or is_finger(d) for d in dom])] = ""
+    for r in REGIONS:
+        lab[np.isin(dom, rig.prof.region_bones(r))] = r
+    lab[np.isin(dom, sorted(rig.arms | rig.fingers))] = ""
     return lab
 
 
@@ -112,12 +105,6 @@ def depths(tree, reg, pts, reach=0.12):
         r = reg[fi]
         if d > out.get(r, (0.0,))[0] and inside(tree, v): out[r] = (d, p, i)
     return out
-
-
-def bone_side(name):
-    """'L' / 'R' / '' for arm, hand and finger bones (`finger_R0_1`, `LeftHandIndex1`)."""
-    if name.startswith(FINGER_PREFIX): return name[len(FINGER_PREFIX)]
-    return "L" if name.startswith("Left") else "R" if name.startswith("Right") else ""
 
 
 def joint_angles(parent_rest, child_rest, parent, child):

@@ -5,7 +5,7 @@ import pytest
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "pipeline", "lib"))
-import schema_check, skeleton
+import audit_metrics, schema_check, skeleton
 
 MIXAMO = json.load(open(os.path.join(ROOT, "skeletons", "mixamo.json"), encoding="utf-8"))
 
@@ -60,10 +60,18 @@ def test_optional_part_absent():
     assert both(D) == ([], [])
     P = skeleton.Profile(D)
     assert not P.has("fingers") and not P.has("fingers", "L") and P.has("toe", "R")
+    sk = P.skipped(audit_metrics.NEEDS)
+    assert set(sk) == {"fingers_in_prop", "finger_jump", "loose_fingers"} and "has no fingers" in sk["finger_jump"]
     with pytest.raises(skeleton.ProfileError, match="has no fingers.left"):
         P.bone("fingers", "Left")
     D["absent"] = ["hand"]
     assert "absent: hand is required and cannot be absent" in skeleton.problems(D)
+
+
+def test_region_without_bones_skips_its_metrics():
+    P = skeleton.load().without(["shoulder"])
+    assert P.region_bones("clavicles") == []
+    assert set(P.skipped(audit_metrics.NEEDS)) == {"prop_in_clavicles"}
 
 
 # a small synthetic rig: prefix "x:", two spine bones, fingers on the left only as grown finger_* bones, a prop on the chest
@@ -94,6 +102,7 @@ def test_role_lookup_on_synthetic_rig():
     assert [R.bone_side(b) for b in ("finger_L0_2", "x:shin_r", "x:clav_l", "x:spine_b", "prop", "")] == ["L", "R", "L", "", "", ""]
     assert R.arms == {"x:arm_l", "x:fore_l", "x:hand_l", "x:arm_r", "x:fore_r", "x:hand_r"}
     assert P.aim("x:root") == "x:spine_a" and P.aim("x:spine_b") == "x:neck" and P.aim("x:head") is None and P.aim("x:foot_l") is None
+    assert P.skipped(audit_metrics.NEEDS) == {}
 
 
 def test_profile_must_match_rig():
@@ -101,6 +110,18 @@ def test_profile_must_match_rig():
     rig = dict(PARENTS); del rig["x:fore_r"]; rig["x:hand_r"] = "x:arm_r"
     with pytest.raises(skeleton.ProfileError, match=r"skeleton 'syn'.*forearm\.right -> 'x:fore_r'"):
         P.bind(rig)
+
+
+def test_skipped_metric_does_not_score():
+    rows = [{"t": 0.0, "hands_in_head": 0.002, "finger_jump": 40.0, "_where": {}, "_side": {}},
+            {"t": 0.25, "hands_in_head": 0.009, "finger_jump": 50.0, "_where": {}, "_side": {}}]
+    lim = {"hands_in_head": 0.005, "finger_jump": 6}
+    group = {k: v[2] for k, v in audit_metrics.METRICS.items()}
+    full = audit_metrics.judge(rows, lim, group)
+    skip = skeleton.load().without(["fingers"]).skipped(audit_metrics.NEEDS)
+    errors, scores, score, _ = audit_metrics.judge(rows, {k: v for k, v in lim.items() if k not in skip}, group)
+    assert "finger_jump" in full[0] and full[2] == 8.13
+    assert set(errors) == {"hands_in_head"} and score == 0.8 and scores == {"penetration": 0.8}
 
 
 def test_default_is_mixamo_and_old_retarget_map():
@@ -142,6 +163,7 @@ def mixamo_rig(fingers=True):
 def test_default_fits_old_rigs_explicit_must_match():
     logs = []
     R = skeleton.for_rig(None, mixamo_rig(), log=logs.append)
+    assert logs == [] and R.prof.has("fingers") and R.prof.skipped(audit_metrics.NEEDS) == {}
     R = skeleton.for_rig(None, mixamo_rig(fingers=False), log=logs.append)   # a Mixamo rig without finger bones ran before
     assert logs == ["skeleton mixamo: the rig has no fingers bones -> treated as absent"] and not R.prof.has("fingers")
     with pytest.raises(skeleton.ProfileError, match="fingers.left -> 'mixamorig:LeftHandMiddle1'"):
@@ -154,6 +176,21 @@ def test_locate_and_args(tmp_path):
     assert skeleton.locate("rig/x.json", str(tmp_path)) == os.path.normpath(os.path.join(str(tmp_path), "rig/x.json"))
     assert skeleton.take_arg(["a.bvh", "--skeleton", "soma", "b.glb"]) == (["a.bvh", "b.glb"], "soma")
     assert skeleton.take_arg(["a", "--skeleton=x.json"]) == (["a"], "x.json") and skeleton.take_arg(["a"]) == (["a"], None)
+
+
+def test_character_with_skeleton(tmp_path):
+    C = json.load(open(os.path.join(ROOT, "examples", "character.example.json"), encoding="utf-8"))
+    for k in ("rig_config",): C[k] = os.path.join(ROOT, "examples", C[k])
+    C["actions"] = {"walk": {"library": "walk.fbx"}}
+    D = copy.deepcopy(SYN); (tmp_path / "rig").mkdir(); (tmp_path / "rig" / "syn.json").write_text(json.dumps(D))
+    C["skeleton"] = "rig/syn.json"; (tmp_path / "character.json").write_text(json.dumps(C))
+    assert schema_check.load_character(str(tmp_path / "character.json"))["skeleton"] == "rig/syn.json"
+    del D["bones"]["neck"]; (tmp_path / "rig" / "syn.json").write_text(json.dumps(D))
+    with pytest.raises(SystemExit, match=r"(?s)syn\.json.*bones\.neck: missing \(required\)"):
+        schema_check.load_character(str(tmp_path / "character.json"))
+    C["skeleton"] = "mixam"; (tmp_path / "character.json").write_text(json.dumps(C))
+    with pytest.raises(SystemExit, match="no built-in skeleton profile 'mixam'"):
+        schema_check.load_character(str(tmp_path / "character.json"))
 
 
 if __name__ == "__main__":

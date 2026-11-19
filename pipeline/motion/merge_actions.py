@@ -1,14 +1,18 @@
 """Merge several single-animation files (FBX/GLB on the same skeleton) into ONE GLB with named actions.
 blender -b --python pipeline/motion/merge_actions.py -- --base=rig.(fbx|glb) --anim=walk=walk.fbx --anim=attack=clip.glb --out=out.glb
-    [--skip-fingers]
+    [--skip-fingers] [--skeleton=mixamo|profile.json]
 Mixamo exports every animation as its own FBX with the whole character repeated; a sprite renderer wants one GLB
 with all actions, so every frame comes from the same mesh, camera and scale fit.
-All files must come from the SAME skeleton: actions are stored as `pose.bones["name"]` paths, so a clip from
-another skeleton simply moves nothing - and reports no error."""
+A clip bone goes to the base bone of the same role (library clips use the Mixamo skeleton, the base its --skeleton profile),
+then to the same name, then to the same name without the profile prefix (fingers). A clip whose bones match none of these
+moves nothing - and reports no error, apart from the count of shared bones."""
 import os
 import sys
 
 import bpy
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+import skeleton  # noqa: E402
 
 
 def parse_args(argv):
@@ -54,7 +58,18 @@ def is_finger_bone(name):
     return any(h in name.lower() for h in FINGER_HINTS)
 
 
-def retarget_action(source, target, name, skip_fingers=False):
+def bone_map(source, target, base_prof):
+    """{base bone: clip bone}: by role from the library (Mixamo) skeleton, by name, by name without the prefix."""
+    lib = skeleton.load()
+    by_role = {b: a for a, b in lib.same_roles(base_prof)}
+    out = {}
+    for b in target.pose.bones:
+        for n in (by_role.get(b.name), b.name, lib.prefix + base_prof.short(b.name)):
+            if n and n in source.pose.bones: out[b.name] = n; break
+    return out
+
+
+def retarget_action(source, target, name, skip_fingers=False, base_prof=None):
     """Copies the animation from the SOURCE skeleton onto the BASE one, frame by frame, via `pose_bone.matrix`.
 
     Why not just reassign the action: curves are LOCAL rotations relative to the skeleton REST POSE, and Mixamo's
@@ -67,7 +82,8 @@ def retarget_action(source, target, name, skip_fingers=False):
     """
     action = source.animation_data.action
     start, end = int(action.frame_range[0]), int(action.frame_range[1])
-    shared = [b.name for b in target.pose.bones if b.name in source.pose.bones]
+    src_of = bone_map(source, target, base_prof) if base_prof else {b.name: b.name for b in target.pose.bones if b.name in source.pose.bones}
+    shared = [b.name for b in target.pose.bones if b.name in src_of]
     if not shared:
         raise SystemExit("merge_actions: skeletons share no bones")
     if len(shared) != len(target.pose.bones):
@@ -86,7 +102,7 @@ def retarget_action(source, target, name, skip_fingers=False):
         bpy.context.view_layer.update()
         for bone_name in ordered:
             bone = target.pose.bones[bone_name]
-            bone.matrix = source.pose.bones[bone_name].matrix.copy()
+            bone.matrix = source.pose.bones[src_of[bone_name]].matrix.copy()
             # a bone NOT connected to its parent also got the head POSITION of the clip dummy; with other proportions
             # toes and fingers were torn to splinters (18% of foot edges). Only the root moves.
             if bone.parent is not None:
@@ -117,6 +133,8 @@ def main():
     if armature.animation_data is None:
         armature.animation_data_create()
     collected = []
+    # without --skeleton: same names only, as before profiles (the game calls this on rigs of any naming)
+    base_prof = skeleton.for_rig(args["skeleton"], {b.name: b.parent.name if b.parent else None for b in armature.data.bones}).prof         if args.get("skeleton") else None
     for name, path in anims:
         imported = import_file(path)
         source = find_armature(imported)
@@ -124,7 +142,7 @@ def main():
             print("merge_actions: SKIPPING '%s' - no action in %s" % (name, path))
             for obj in imported: bpy.data.objects.remove(obj, do_unlink=True)
             continue
-        action = retarget_action(source, armature, name, "skip-fingers" in args)
+        action = retarget_action(source, armature, name, "skip-fingers" in args, base_prof)
         # THE NAME MUST BE EXACT: when the clip file carries an action with the same name, Blender renames the new one
         # to `<name>.001`, the export writes it under that name and a renderer looking for the original finds nothing.
         if action.name != name:

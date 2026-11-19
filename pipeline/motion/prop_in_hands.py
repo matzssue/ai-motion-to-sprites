@@ -2,6 +2,7 @@
 both arms by analytic IK to the grip from the motion file (grip roll and elbow chosen for the wrist and for collisions),
 fingers wrapped around the stock, torso recoil. The result is checked by motion_audit.py - never shown without it.
 blender -b --python pipeline/motion/prop_in_hands.py -- --glb merged.glb --rig-data rig_ai_data.json --motion <motion>.json --out out.glb
+    [--skeleton mixamo|profile.json]   bones by role; a skeleton without fingers: no finger wrap (reported as skipped)
     [--frames 10,45,56]  quick grip try: only these frames, best grip for each on its own (no path or smoothing in time)
 Blender's IK does not work on rigs from GLB (bone lengths are meaningless), hence IK from bone heads."""
 import bpy, sys, os, math, json, argparse, time
@@ -9,12 +10,13 @@ import numpy as np
 from mathutils import Matrix, Vector, Quaternion
 from mathutils.bvhtree import BVHTree
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from collisions import dominant, labels, vertices, inside, joint_angles, FINGER_PREFIX
+from collisions import dominant, labels, vertices, inside, joint_angles, rig_of, FINGER_PREFIX
 from grip_words import grip_from_words, grip_in_words
 
 ap = argparse.ArgumentParser(description="Put the prop in both hands: prop pose, two-arm IK, finger wrap, recoil.")
 ap.add_argument("--glb", required=True); ap.add_argument("--rig-data", required=True)
 ap.add_argument("--motion", required=True); ap.add_argument("--out", required=True); ap.add_argument("--frames", default=None)
+ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
 MO = json.load(open(A.motion, encoding="utf-8")); GP = MO["grip"]
 RD = json.load(open(A.rig_data, encoding="utf-8"))
@@ -30,7 +32,8 @@ skinned = [o for o in bpy.data.objects if o.type == "MESH" and any(m.type == "AR
 PN = RD["prop"]["name"]
 prop = next(o for o in skinned if o.name.startswith(PN))
 body = max((o for o in skinned if o is not prop), key=lambda o: len(o.data.vertices))
-P = next((b.name.split(":")[0] + ":" for b in arm.data.bones if ":" in b.name), "")
+RIG = rig_of(arm, A.skeleton, exclude=(PN,)); PROF = RIG.prof; P = PROF.prefix
+BN = {s: {r: PROF.bone(r, s) for r in ("upper_arm", "forearm", "hand")} for s in ("Left", "Right")}
 f0, f1 = (int(v) for v in act.frame_range); all_frames = list(range(f0, f1 + 1))
 frames = [int(x) for x in A.frames.split(",")] if A.frames else all_frames   # frames on which the prop is placed
 sc = bpy.context.scene; FPS = sc.render.fps
@@ -99,9 +102,10 @@ def set_prop(C4, f):
 
 # ---------- hands and fingers from the rig ----------
 NPALM = {s: Vector(RD["palm"][s]["local_normal"]) for s in RD["palm"]}
-hand_rest = {s: AW @ bone(s + "Hand").matrix_local for s in ("Left", "Right")}
+hand_rest = {s: AW @ bone(BN[s]["hand"]).matrix_local for s in ("Left", "Right")}
 FING = {}
-for s, chains in RD["fingers"].items():
+if RD["fingers"] and not PROF.has("fingers"): print("fingers: skipped (skeleton '%s' has no fingers): no finger wrap" % PROF.name)
+for s, chains in (RD["fingers"] if PROF.has("fingers") else {}).items():
     FING[s] = [([AW @ bone(n).head_local for n in ch] + [AW @ bone(ch[-1]).tail_local], ch, k in RD["thumbs"].get(s, []))
                for k, ch in enumerate(chains)]
 
@@ -121,7 +125,7 @@ def hand_R(side, d, n):
 
 
 # ---------- body: collision trees per frame ----------
-dom = dominant(body); LAB = labels(dom)
+dom = dominant(body); LAB = labels(dom, RIG)
 tris = np.array([p.vertices[:3] for p in body.data.polygons])
 T_ALL = tris[(LAB[tris] != "").all(1)].tolist()
 T_CORE = tris[np.isin(LAB[tris], ("head", "torso")).all(1)].tolist()    # no clavicles: the upper arm always touches the shoulder
@@ -166,7 +170,7 @@ for f in all_frames:
     e = env(f)
     if e < 1e-3: continue
     sc.frame_set(f)
-    for n in ("Spine1", "Spine2"):
+    for n in PROF.spine[-2:]:   # the two top spine bones lean back
         setw(n, Quaternion(Vector((1, 0, 0)), -math.radians(RC["lean_deg"] * e)).to_matrix() @ wrot(n)); keyb(n, f)
 
 # ---------- arm motion from the AI ----------
@@ -174,9 +178,9 @@ K = {}
 for f in all_frames:
     sc.frame_set(f); d = {}
     for s in ("Left", "Right"):
-        d[s + "palm"] = head(s + "Hand") + wrot(s + "Hand") @ Vector((0, PALM, 0))
-        d[s + "E"] = head(s + "ForeArm"); d[s + "S"] = head(s + "Arm"); d[s + "W"] = head(s + "Hand")
-        d[s + "Rua"] = wrot(s + "Arm"); d[s + "Rfa"] = wrot(s + "ForeArm")
+        d[s + "palm"] = head(BN[s]["hand"]) + wrot(BN[s]["hand"]) @ Vector((0, PALM, 0))
+        d[s + "E"] = head(BN[s]["forearm"]); d[s + "S"] = head(BN[s]["upper_arm"]); d[s + "W"] = head(BN[s]["hand"])
+        d[s + "Rua"] = wrot(BN[s]["upper_arm"]); d[s + "Rfa"] = wrot(BN[s]["forearm"])
     K[f] = d
 zR = np.array([K[f]["Rightpalm"].z for f in all_frames])
 z_lo, z_hi = np.median(zR[:8]), np.percentile(zR, 92)
@@ -192,9 +196,9 @@ for f in all_frames:
     if not HEAD_BACK or W_AIM[f] < 1e-3: continue
     sc.frame_set(f)
     # neck back, head forward by part of it: the head MOVES back, the gaze stays on target (tilting alone only lifted the chin)
-    for n, k_ in (("Neck", -1.0), ("Head", AIM.get("head_gaze", 0.7))):
+    for n, k_ in ((PROF.bone("neck"), -1.0), (PROF.bone("head"), AIM.get("head_gaze", 0.7))):
         setw(n, Quaternion(Vector((1, 0, 0)), k_ * math.radians(HEAD_BACK * W_AIM[f])).to_matrix() @ wrot(n)); keyb(n, f)
-rel_rest = {s: rest_rot(s + "ForeArm").transposed() @ rest_rot(s + "Hand") for s in ("Left", "Right")}
+rel_rest = {s: rest_rot(BN[s]["forearm"]).transposed() @ rest_rot(BN[s]["hand"]) for s in ("Left", "Right")}
 SPLIT = GP["twist_to_forearm"]
 
 
@@ -210,7 +214,7 @@ def grip(side, C4, roll):
     n = qr @ vec(g["palm_normal"]).normalized(); d = (qr @ vec(g["direction"])).normalized()
     palm = C4.translation + ax[0] * g["x"] - n * (RS[side] + GP["clearance"])
     Rh = hand_R(side, d, n)
-    if g.get("knuckles_at_edge"):
+    if g.get("knuckles_at_edge") and side in KOFF:
         # knuckles under the middle of the stock: the first phalanx will not bend up (it would enter the stock), fingers went sideways.
         # Put the knuckles (from the hand rest pose) on the stock corner: towards the fingers s and underneath (-n), half a finger off the wall
         s = d - ax[0] * d.dot(ax[0]) - n * d.dot(n)
@@ -247,7 +251,7 @@ def solve_arm(side, f, C4, tr, rolls=(0,), poles=(0,), all_=False):
             Rfa2 = (Rfa1 @ Vector((0, 1, 0))).rotation_difference(Wn - En).to_matrix() @ Rfa1
             tw = twist_y(rel_rest[side].inverted() @ (Rfa2.transposed() @ Rh))
             Rfa3 = Rfa2 @ Quaternion(Vector((0, 1, 0)), math.radians(SPLIT * tw)).to_matrix()
-            bend, twist = joint_angles(rest_rot(side + "ForeArm"), rest_rot(side + "Hand"), Rfa3, Rh)   # same measure as the audit
+            bend, twist = joint_angles(rest_rot(BN[side]["forearm"]), rest_rot(BN[side]["hand"]), Rfa3, Rh)   # same measure as the audit
             reach = (Wt - Sp).length - (la + lb)
             coll = sum(hits(En.lerp(Wn, t), tr[1], GP["forearm_clearance"]) for t in (0.0, 0.15, 0.4, 0.65, 0.9))
             coll += hits(Sp.lerp(En, 0.6), tr[1], GP["forearm_clearance"])   # elbow and upper arm too (the left elbow sat in the torso)
@@ -325,7 +329,7 @@ def hold_pose(f):
     yaw, pitch = math.radians(HOLD["yaw_deg"]), math.radians(HOLD["pitch_deg"])
     fd = FWD * math.cos(yaw) - RIGHT * math.sin(yaw)
     fd = (fd * math.cos(pitch) + UP * math.sin(pitch)).normalized()
-    center = head("Hips") + UP * HOLD["above_hips"]
+    center = head(PROF.bone("hips")) + UP * HOLD["above_hips"]
     center = out_of_body(center, FWD, TR[f][0], HOLD["body_clearance"])
     x_mid = (GR["Right"]["x"] + GR["Left"]["x"]) / 2
     C = frame3(fd, UP).to_4x4(); C.translation = center - fd * x_mid
@@ -374,8 +378,8 @@ def wrap_fingers(C4):
         if loc is None: return 1.0
         return d if (q - loc).dot(nrm) >= 0 else -d
     for side, fl in FING.items():
-        Hn = wmat(side + "Hand"); Hn.normalize(); T = Hn @ hand_rest[side].normalized().inverted()
-        npw = (wrot(side + "Hand") @ NPALM[side]).normalized()
+        Hn = wmat(BN[side]["hand"]); Hn.normalize(); T = Hn @ hand_rest[side].normalized().inverted()
+        npw = (wrot(BN[side]["hand"]) @ NPALM[side]).normalized()
         for J, names, thumb in fl:
             Jw = [T @ j for j in J]
             for b in range(3):
@@ -431,8 +435,8 @@ def place(f, C4, prevs, tr):
     set_prop(C4, f); out = {}
     for side in ("Right", "Left"):
         r, p = prevs[side][f]; b = solve_arm(side, f, C4, tr, [r], [p])
-        setw(side + "Arm", b["q1"].to_matrix() @ K[f][side + "Rua"]); setw(side + "ForeArm", b["Rfa3"]); setw(side + "Hand", b["Rh"])
-        for n in ("Arm", "ForeArm", "Hand"): keyb(side + n, f)
+        setw(BN[side]["upper_arm"], b["q1"].to_matrix() @ K[f][side + "Rua"]); setw(BN[side]["forearm"], b["Rfa3"]); setw(BN[side]["hand"], b["Rh"])
+        for n in ("upper_arm", "forearm", "hand"): keyb(BN[side][n], f)
         out[side] = dict(roll=b["roll"], elbow=b["pa"], bend=round(b["bend"], 1), twist=round(b["twist"], 1), collisions=b["coll"])
     wrap_fingers(C4)
     for chains in FING.values():
