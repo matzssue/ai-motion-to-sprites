@@ -13,10 +13,10 @@
   "rig_config": {"type": "string"},
   "work_dir": {"type": "string"},
   "output": {"type": "string"},
-  "walk_clip": {"type": "string"},
-  "auto_rig_template": {"type": "string"},
+  "walk_clip": {"type": "string", "description": "library walk (Mixamo skeleton): calibration, merged next to every AI action, auto-rig template when `auto_rig_template` is missing"},
+  "auto_rig_template": {"type": "string", "description": "Mixamo FBX: auto_rig builds the `mixamorig:*` skeleton from it. Without it and without a library walk (or with skeleton amts) auto_rig builds the own skeleton"},
   "skeleton": {"type": "string", "minLength": 1,
-               "description": "skeleton profile of `rig`: a built-in name (skeletons/*.json: mixamo, soma) or a .json path; default mixamo (what auto_rig builds)"},
+               "description": "skeleton profile of `rig`: a built-in name (skeletons/*.json: amts, mixamo, soma) or a .json path; default mixamo with a template, amts without one"},
   "actions": {
    "type": "object",
    "description": "action name -> action; every key is an action (no _ comments here)",
@@ -28,13 +28,6 @@
    "properties": {"samples": {"type": "integer"}, "seed": {"type": "integer"}}
   }
  },
- "allOf": [
-  {"description": "give `walk_clip`, or an actions.walk with a `library` clip",
-   "anyOf": [
-    {"required": ["walk_clip"]},
-    {"properties": {"actions": {"required": ["walk"], "properties": {"walk": {"required": ["library"]}}}}}
-   ]}
- ],
  "$defs": {
   "action": {
    "type": "object",
