@@ -20,18 +20,21 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev,server]"
       - name: Lint
         run: ruff check .
+      # includes server/tests (review service, fake pipeline) and the check that web/src/api/openapi.json is current
       - name: Test
         run: python -m pytest
-      # Runtime dependencies only (a fresh venv without the dev tools): every SPDX identifier must be on the allowlist
+      - name: Compile
+        run: python -m compileall -q pipeline server
+      # Runtime dependencies only (a fresh venv with the `server` extra, without the dev tools): every SPDX identifier must be on the allowlist
       # in tools/check_licenses.py (permissive, commercial use); GPL, AGPL, LGPL, MPL, non-commercial and unknown fail.
       - name: License scan
         run: |
           python -m venv runtime
           if [ -d runtime/Scripts ]; then BIN=runtime/Scripts; else BIN=runtime/bin; fi
-          "$BIN/python" -m pip install . "pip-licenses>=4.4"
+          "$BIN/python" -m pip install ".[server]" "pip-licenses>=4.4"
           "$BIN/pip-licenses" --from=mixed --format=json > runtime/licenses.json
           "$BIN/python" tools/check_licenses.py runtime/licenses.json
 
@@ -56,6 +59,9 @@ jobs:
         run: npm run lint
       - name: Typecheck
         run: npm run typecheck
+      # src/api/schema.d.ts must be what openapi-typescript makes of the committed OpenAPI document
+      - name: API types
+        run: npm run api:check
       - name: Test
         run: npm test
       - name: Build
