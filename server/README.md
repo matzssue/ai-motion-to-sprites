@@ -13,7 +13,8 @@ python -m server path/to/characters/ --fake      # or folders: every JSON with `
 ```
 
 Service and web app together (from `web/`): `npm run local -- <character.json or folder> [--fake]`. It starts this
-service and `next dev` with `NEXT_PUBLIC_API_BASE=http://127.0.0.1:8765`; open `http://localhost:3000/characters/`.
+service and `next dev` (both bound to 127.0.0.1) with `NEXT_PUBLIC_API_BASE=http://127.0.0.1:8765`; open
+`http://127.0.0.1:3000/characters/` (`localhost` works too).
 
 | Flag | Default | Meaning |
 |---|---|---|

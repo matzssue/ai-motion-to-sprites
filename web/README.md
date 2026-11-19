@@ -20,7 +20,7 @@ Node 20.9 or newer.
 ```
 cd web
 npm ci
-npm run dev          # http://localhost:3000
+npm run dev          # http://127.0.0.1:3000 (bound to 127.0.0.1 only)
 ```
 
 | Script | What it does |
@@ -57,7 +57,7 @@ For development, `?data=<folder or manifest.json>` loads files over HTTP, with p
 { "title": "crossbowman attack", "action": "attack", "glb": "prop_kf_s1.glb", "audit": "audit.json", "samples": "audit_samples.json" }
 ```
 
-Put the folder under `web/public/local/` (gitignored) and open `http://localhost:3000/?data=local/<folder>/`.
+Put the folder under `web/public/local/` (gitignored) and open `http://127.0.0.1:3000/?data=local/<folder>/`.
 The repository ships no characters, so no sample data is committed.
 
 ## Server-backed pages

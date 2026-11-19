@@ -1,6 +1,7 @@
 // Starts the review service and the web dev server together; Ctrl+C stops both.
 // npm run local -- <character.json or folder>... [--fake] [--port 8765] [other `python -m server` flags]
 // The web app gets NEXT_PUBLIC_API_BASE=http://127.0.0.1:<port>; WEB_PORT picks its port (default 3000).
+// Both bind to 127.0.0.1 only: the UI can write verdicts and start runs, so it must not be reachable from the LAN.
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -25,13 +26,13 @@ const origins = [`http://localhost:${webPort}`, `http://127.0.0.1:${webPort}`].f
 
 const children = [
   spawn(python, ["-m", "server", ...serverArgs, ...origins], { cwd: repo, stdio: "inherit" }),
-  spawn(process.execPath, [join(web, "node_modules", "next", "dist", "bin", "next"), "dev", "-p", webPort], {
+  spawn(process.execPath, [join(web, "node_modules", "next", "dist", "bin", "next"), "dev", "-H", "127.0.0.1", "-p", webPort], {
     cwd: web,
     stdio: "inherit",
     env: { ...process.env, NEXT_PUBLIC_API_BASE: `http://127.0.0.1:${apiPort}` },
   }),
 ];
-console.log(`review service http://127.0.0.1:${apiPort} · web http://localhost:${webPort}/characters/`);
+console.log(`review service http://127.0.0.1:${apiPort} · web http://127.0.0.1:${webPort}/characters/`);
 const stop = () => children.forEach((c) => c.exitCode === null && c.kill());
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);

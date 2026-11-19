@@ -193,7 +193,7 @@ pip install -e ".[server]"
 cd web && npm ci && npm run local -- <character.json or folder> --fake   # service + web; drop --fake for real runs
 ```
 
-Open `http://localhost:3000/characters/`. Endpoints, configuration and the safety rules: [server/README.md](server/README.md).
+Open `http://127.0.0.1:3000/characters/` (the web app binds to 127.0.0.1 too). Endpoints, configuration and the safety rules: [server/README.md](server/README.md).
 
 ## Known traps (each cost a version)
 
