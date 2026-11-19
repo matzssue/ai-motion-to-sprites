@@ -1,7 +1,9 @@
 name: CI
 
+# Feature branches are tested through their pull request; a plain `push:` ran everything twice per PR.
 on:
   push:
+    branches: [develop, main]
   pull_request:
 
 jobs:
