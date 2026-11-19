@@ -8,6 +8,7 @@
   --bad: #b3402e;
   --bad-soft: rgb(179 64 46 / 0.18);
   --good: #2f6f5e;
+  --warn: #8a5a00;
   --plot: #3b6fb0;
   --stage: #dfe2dc;
   --font: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -25,6 +26,7 @@
     --bad: #ef8a75;
     --bad-soft: rgb(239 138 117 / 0.22);
     --good: #6fc2a8;
+    --warn: #e2b25c;
     --plot: #7fb0ea;
     --stage: #23292e;
     color-scheme: dark;
@@ -89,6 +91,34 @@ button:disabled {
 .pill.ok {
   border-color: var(--good);
   color: var(--good);
+}
+
+.pill.warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+a {
+  color: var(--accent);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+textarea,
+input[type="text"] {
+  font: 14px/1.4 var(--font);
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
 }
 
 .muted {
