@@ -12,6 +12,7 @@ import numpy as np
 from mathutils import Matrix, Vector
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from collisions import dominant, rig_of, FINGER_PREFIX
+import own_skeleton
 
 ap = argparse.ArgumentParser(description="Cut the prop onto its own bone and grow finger bones out of the claws.")
 ap.add_argument("--rig", required=True); ap.add_argument("--config", required=True); ap.add_argument("--out", required=True)
@@ -328,6 +329,14 @@ for side, (fl, ax, w0) in FING.items():
     ch_ = np.cross(ax, n) if side == "Right" else np.cross(n, ax)
     if ch_ @ tk < 0:
         n = -n; print(side, "palm flipped (claw curl pointed at the back of the hand)")
+    # the rig's own fingers: the palm normal from the knuckles in the joints file, the rule the own skeleton rolls its hand
+    # with (own_skeleton.palm_normal). The point cloud above saw the wrist cloth and the thumb's offset towards the palm
+    # (Kusznik: 127 and 150 deg off, the back of the hand on the stock, fingers bent backwards out of the crossbow)
+    try: kn = own_skeleton.palm_normal(JOINTS, side) if side in OWN else None
+    except KeyError: kn = None   # a joints file without finger keys (fingers from another source)
+    if kn is not None:
+        print(side, "palm from the knuckles: %.0f deg from the point-cloud estimate" % math.degrees(math.acos(max(-1, min(1, float(kn @ n))))))
+        n = kn
     R = (AW @ arm.data.bones[HAND[side]].matrix_local).to_3x3().normalized()
     data["palm"][side] = {"local_normal": list((R.transposed() @ Vector(n)).normalized()),
                           "axis_vs_bone_deg": round(math.degrees(Vector((0, 1, 0)).angle(R.transposed() @ Vector(ax))), 1)}

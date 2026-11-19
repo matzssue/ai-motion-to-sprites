@@ -321,7 +321,54 @@ def build_own(a):
                                                                  sum(b.use_deform for b in arm.data.bones)))
     # finger weights: bone heat like the rest. Weights along the chains (nearest chain, blended at joints and knuckles) were
     # measured too and tore more (Kusznik, 30 deg fist: 1.8-2.3% of hand edges over 50% vs 1.2% with heat; a 0.005 voxel: 1.6%)
-    skin_and_export(arm, a, fist_check if fingers else None)
+    skin_and_export(arm, a, (lambda arm_, meshes: (finger_tubes(arm_, meshes), fist_check(arm_, meshes))) if fingers else None)
+
+
+# finger weights stay in a tube around their own finger. Bone heat gave the first thumb bone (it starts next to the wrist)
+# the cuff, its cloth strips and the palm's heel (Kusznik: 490 vertices, median 3 cm and 90% within 5.5 cm of the thumb;
+# a claw is ~1 cm thick): the grip bent them into the crossbow (4 cm). Tube = TUBE x the finger's own thickness (median
+# distance of its outer two bones' skin from the chain), fading to the hand by TUBE_FADE x that.
+TUBE, TUBE_FADE = 2.0, 3.0
+
+
+def finger_tubes(arm, meshes):
+    """Moves finger weight farther from the finger's chain than the tube onto the hand bone; prints what moved."""
+    W = arm.matrix_world
+    for o in meshes:
+        names = [g.name for g in o.vertex_groups]; gi = {n: i for i, n in enumerate(names)}
+        co = np.array([tuple(o.matrix_world @ v.co) for v in o.data.vertices])
+        wts = [{g.group: g.weight for g in v.groups} for v in o.data.vertices]
+        dom = [max(w, key=w.get) if w else -1 for w in wts]; changed = set()
+        for s, side in own_skeleton.SIDES:
+            hand = gi.get("hand." + s)
+            if hand is None: continue
+            moved, verts = 0.0, 0
+            for f in own_skeleton.FINGERS:
+                bones = ["%s.%d.%s" % (f, i, s) for i in (1, 2, 3)]
+                if not all(b in gi and b in arm.data.bones for b in bones): continue
+                end = arm.data.bones.get("%s_end.%s" % (f, s))
+                P = [np.array(W @ arm.data.bones[b].head_local) for b in bones]
+                P.append(np.array(W @ (end.head_local if end else arm.data.bones[bones[-1]].tail_local)))
+                d = np.full(len(co), np.inf)
+                for a_, b_ in zip(P, P[1:]):
+                    ab = b_ - a_; u = np.clip(((co - a_) @ ab) / max(ab @ ab, 1e-12), 0, 1)
+                    d = np.minimum(d, np.linalg.norm(co - (a_ + u[:, None] * ab), axis=1))
+                g = [gi[b] for b in bones]
+                outer = [i for i, x in enumerate(dom) if x in g[1:]]
+                if not outer: continue
+                r = float(np.median(d[outer]))
+                for i, w in enumerate(wts):
+                    k = 1.0 if d[i] <= TUBE * r else max(0.0, 1.0 - (d[i] - TUBE * r) / ((TUBE_FADE - TUBE) * r))
+                    if k >= 1.0 or not any(x in w for x in g): continue
+                    m = sum(w.get(x, 0.0) * (1 - k) for x in g)
+                    if m < 1e-4: continue
+                    for x in g:
+                        if x in w: w[x] *= k
+                    w[hand] = w.get(hand, 0.0) + m; moved += m; verts += 1; changed.add(i)
+            print("auto_rig: finger tubes %s %s - weight moved to the hand on %d vertices (%.0f vertex-weights)" % (o.name, side, verts, moved))
+        for i in changed:
+            for x, val in wts[i].items():
+                o.vertex_groups[x].add([i], val, "REPLACE")
 
 
 # fist pose of the self-check: flexion about the bone's local X (own_skeleton roll rule: +X curls into the palm), every
