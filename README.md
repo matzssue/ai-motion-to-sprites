@@ -25,14 +25,14 @@ model.glb ─► prepare ─► auto-rig ─► AI rig ─► calibration ─►
 | rig_ai | `prepare_rig.py` | cuts the prop out of the mesh onto its own bone (rule-based selection, island closure, thin-part growth for bow strings, debris cleanup), grows finger bones out of fused claws, finds the thumb and the palm side |
 | calibration | `merge_actions.py` + `motion_audit.py` | library clips must pass the audit on this rig, so a bad rig is not blamed on the AI motion |
 | ai | `kimodo_text.py`, `kimodo_motion.py`, `kimodo_keyposes.py`, `keyposes_to_kimodo.py` | one sentence per phase; body samples without hand constraints; key poses set on the best sample and reviewed; then Kimodo is constrained through those poses (`FullBodyConstraintSet`) |
-| (chain) | `soma_to_mixamo.py`, `prop_in_hands.py` | SOMA77 BVH to Mixamo with an A/T rest-pose correction and loop closure; prop pose search without body collisions, analytic two-arm IK, Viterbi path for grip roll and elbow over the whole clip, fingers wrapped on the real prop surface (BVH), recoil |
+| (chain) | `soma_to_mixamo.py`, `prop_in_hands.py` | SOMA77 BVH to the rig, bone by role (skeleton profile), with an A/T rest-pose correction and loop closure; prop pose search without body collisions, analytic two-arm IK, Viterbi path for grip roll and elbow over the whole clip, fingers wrapped on the real prop surface (BVH), recoil |
 | merge | `combine_actions.py` | every action processed from the same merged file, then combined and grounded on the walk |
 | preview | `preview_8.py`, `review_page.py` | 8 isometric directions; a self-contained review page with a frame-synced player, hand close-ups and audit numbers next to the previous version |
 
 ```
 pipeline/
   character.py, chain.py, variants.py   orchestration: whole character, one sample, parameter grid
-  lib/       config (env paths), GPU queue, body collisions, skin-twist math, Kimodo setup
+  lib/       config (env paths), GPU queue, skeleton profiles, body collisions, skin-twist math, audit metrics, Kimodo setup
   rig/       prepare, auto-rig, AI rig
   motion/    Kimodo, retarget, prop in hands, merge/combine actions
   checks/    motion audit, skin check, alpha check, motion compare
@@ -56,7 +56,8 @@ inputs, and stops with an exit code of 2 at each human gate.
 "Inside" is decided by a 10-ray vote against the arm-less body volume. The sign of the nearest face alone gave 10 cm
 false positives next to open cloth sheets. On failure the audit renders close-ups from 5 sides at the deepest point.
 The `score` (sum of max/limit − 1) only ranks Kimodo samples. Approval stays with a person: one approved clip still
-scored FAIL 1.40.
+scored FAIL 1.40. A metric that needs a part the skeleton does not have (fingers, clavicles: `absent` in its profile) is
+listed in `skipped` with the reason and left out of the score.
 
 ### Skin twist (`skin.py`, `skin_check.py`)
 Bone-twist angles did **not** separate good clips from bad ones. An approved overhead strike had a 136° elbow/wrist
@@ -102,8 +103,12 @@ Measured on the game's characters (assets are not included):
 
 - **Bipedal humanoids only.** The auto-rig expects an A/T pose facing −Y with two arms and two legs, and Kimodo generates
   human motion. Quadrupeds, spiders, snakes and other body plans are not supported.
-- **Mixamo skeleton naming.** Retarget and audit use a fixed set of `mixamorig:*` bones. A rig with other bone names, or
-  without one of them, fails.
+- **Bone names come from a skeleton profile; the rest of the rig is still Mixamo-shaped.** Every stage after rigging
+  finds bones by role (`skeletons/*.json`). Built in: `mixamo` (default, what the auto-rig builds) and `soma` (Kimodo's
+  output). A Wybuchacz and a Kusznik rig with every bone renamed to the SOMA convention audit identically to the Mixamo
+  originals. Still fixed: the spine must have as many bones as SOMA's (3), library clips must be on the Mixamo skeleton,
+  the auto-rig only builds Mixamo, and `prepare_rig.py` reads the auto-rig's joints file. Fingers, toes, clavicles and
+  bone tips may be declared absent; missing arms or legs are not supported.
 - **No foot IK.** Retarget copies rotations and scales the root motion by leg length. A character whose proportions are
   far from human can slide or float its feet, and the audit has no foot-contact metric yet.
 - **One prop, held in both hands**, with a stock-like long axis (crossbow, bow, staff). One-handed props (sword, shield,
@@ -137,7 +142,11 @@ Measured on the game's characters (assets are not included):
 
 The files in `examples/` describe a real character whose assets are not in this repo: copy them next to your own model
 and clips, fix the paths, and measure the coordinates in `rig.example.json` on your model. `schemas/` describes every key;
-`character.py`, `chain.py` and `variants.py` check the configs against it before any Blender step. Then:
+`character.py`, `chain.py` and `variants.py` check the configs against it before any Blender step.
+A rig that is not Mixamo-named needs a skeleton profile: copy `skeletons/mixamo.json`, map each role to your bone, list the
+parts the rig lacks in `absent`, and set `"skeleton": "my_rig.json"` (or a built-in name) in `character.json`. Blender
+scripts take it as `--skeleton`. Without it every stage uses `mixamo`, and optional bones the rig lacks count as absent.
+Then:
 
 ```bash
 python pipeline/character.py --character my_character/character.json
