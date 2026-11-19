@@ -122,7 +122,7 @@ for s, chains in (RD["fingers"] if PROF.has("fingers") else {}).items():
 # carried by the bones above it. With one axis from the hand's palm normal for every bone, a finger bent ~90 deg at the
 # knuckle points along that normal, the next axis degenerates and the rest of the finger stood up beside the stock
 # (Kusznik). The grown finger_* bones (Mixamo template) keep the hand's palm normal: their wrap is approved as it is.
-CURL = {}
+CURL, SPREAD = {}, {}
 for s, fl in FING.items():
     n_rest = (hand_rest[s].to_3x3().normalized() @ Vector(RD["palm"][s]["local_normal"])).normalized()
     for J, names, thumb in fl:
@@ -130,6 +130,8 @@ for s, fl in FING.items():
         for b in range(3):
             ax = (J[b + 1] - J[b]).normalized().cross(n_rest)
             if ax.length > 1e-6: CURL[names[b]] = (rest_rot(names[b]).transposed() @ ax).normalized()
+        # spread axis of the first bone: the palm normal in that bone's frame (the own skeleton: local Z)
+        if not names[0].startswith(FINGER_PREFIX): SPREAD[names[0]] = (rest_rot(names[0]).transposed() @ n_rest).normalized()
 
 
 # knuckles (finger bases without the thumb) in the hand bone frame, from the rest pose
@@ -416,9 +418,48 @@ def wrap_fingers(C4):
     for side, fl in FING.items():
         Hn = wmat(BN[side]["hand"]); Hn.normalize(); T = Hn @ hand_rest[side].normalized().inverted()
         npw = (wrot(BN[side]["hand"]) @ NPALM[side]).normalized()
-        for J, names, thumb in fl:
-            Jw = [T @ j for j in J]
-            for b in range(3):
+        JW = [[T @ j for j in J] for J, _, _ in fl]
+        # own thumb: cost of its tip direction off the stock axis, for each of its bones (only the metacarpal: the other two
+        # bent on towards the palm normal looking for a surface they could not reach and stood up as a hook)
+        stock = C4.to_3x3().col[0].normalized(); ALONG = GP.get("thumb_along_stock", 0.05)
+        # own fingers close together: each joint's angle costs its distance from the same joint of the finger before it
+        # (index -> pinky). Solved alone, Kusznik's index and middle arched far round the stock apart from ring and pinky
+        NEXT = {}
+        own_f = [k for k, (_, names, thumb) in enumerate(fl) if not thumb and names[0] in SPREAD]
+        md = sum(((JW[k][1] - JW[k][0]).normalized() for k in own_f), Vector())
+        for (J, names, thumb), Jw in zip(fl, JW):
+            b0 = 0
+            if names[0] in SPREAD and not thumb and md.length > 1e-6:
+                # own fingers side by side: each first bone turns in the palm plane onto the fingers' mean direction.
+                # Spread as at rest, the long index/middle of Kusznik wrapped far over the stock apart from ring/pinky
+                sp = (wrot(names[0]) @ SPREAD[names[0]]).normalized(); d0 = Jw[1] - Jw[0]
+                u, v = d0 - sp * d0.dot(sp), md - sp * md.dot(sp)
+                if u.length > 1e-6 and v.length > 1e-6:
+                    q = Quaternion(sp, math.atan2(u.normalized().cross(v.normalized()).dot(sp), u.normalized().dot(v.normalized())))
+                    for j in range(1, 4): Jw[j] = Jw[0] + q @ (Jw[j] - Jw[0])
+                    setw(names[0], q.to_matrix() @ wrot(names[0]), h=Jw[0], loc=True)
+            if names[0] in SPREAD and thumb:
+                # own thumb: turns in the palm plane (abduction) and bends at its metacarpal together, to lie along the
+                # stock's side with its tip forward or back. Bending alone carried it over the top of the stock as a hook
+                sp = (wrot(names[0]) @ SPREAD[names[0]]).normalized(); fx = (wrot(names[0]) @ CURL[names[0]]).normalized()
+                best = (1e9, None, 0, 0)
+                for ab in range(-60, 61, 10):
+                    qs = Quaternion(sp, math.radians(ab))
+                    for a in range(-45, 46, 5):
+                        q = Quaternion(qs @ fx, math.radians(a)) @ qs
+                        pts = [Jw[0] + q @ (Jw[j] - Jw[0]) for j in (1, 2, 3)]
+                        mids = [Jw[0].lerp(pts[0], 0.5), pts[0].lerp(pts[1], 0.5), pts[1].lerp(pts[2], 0.5)]
+                        gl = [max(g, BONE_R.get(n, g)) for n in names] + [max(g, BONE_R.get(n, g)) for n in names]
+                        d_ = [sd(p_) for p_ in pts + mids]
+                        c_ = abs(d_[0] - (gl[0] + 0.005)) + sum(10 + 100 * (gg - x) for x, gg in zip(d_, gl) if x < gg)
+                        c_ += ALONG * (1 - abs((pts[2] - Jw[0]).normalized().dot(stock)))
+                        c_ += GP.get("finger_change_penalty", 0.0015) * (abs(a - PREV_F.get(names[0], a))
+                                                                          + abs(ab - PREV_F.get(names[0] + "@spread", ab)))
+                        if c_ < best[0]: best = (c_, q, ab, a)
+                _, q, PREV_F[names[0] + "@spread"], PREV_F[names[0]] = best
+                for j in range(1, 4): Jw[j] = Jw[0] + q @ (Jw[j] - Jw[0])
+                setw(names[0], q.to_matrix() @ wrot(names[0]), h=Jw[0], loc=True); b0 = 1
+            for b in range(b0, 3):
                 pivot = Jw[b]
                 axis = wrot(names[b]) @ CURL[names[b]] if names[b] in CURL else (Jw[b + 1] - Jw[b]).normalized().cross(npw)
                 if axis.length < 1e-6: continue
@@ -437,7 +478,10 @@ def wrap_fingers(C4):
                         max(g, BONE_R.get(names[b + k], g)) for k in range(len(mids))]
                     c_ = abs(d_[0] - (gl[0] + 0.005)) + sum(10 + 100 * (gg - x) for x, gg in zip(d_, gl) if x < gg)
                     c_ += GP.get("finger_change_penalty", 0.0015) * abs(a - PREV_F.get(names[b], a))   # 0.0015/deg ~ 1.5 mm per 1 deg
+                    if own and thumb: c_ += ALONG * (1 - abs((pts[-1] - Jw[0]).normalized().dot(stock)))
+                    if own and not thumb and b in NEXT: c_ += GP.get("finger_together_penalty", 0.001) * abs(a - NEXT[b])
                     if c_ < best[0]: best = (c_, a)
+                if own and not thumb: NEXT[b] = best[1]
                 PREV_F[names[b]] = best[1]; q = Quaternion(axis, math.radians(best[1]))
                 for j in range(b + 1, 4): Jw[j] = pivot + q @ (Jw[j] - pivot)
                 setw(names[b], q.to_matrix() @ wrot(names[b]), h=Jw[b], loc=True)
