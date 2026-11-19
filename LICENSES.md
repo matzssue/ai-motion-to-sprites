@@ -16,6 +16,7 @@ the `server` extra) is not on its permissive allowlist: GPL, AGPL, LGPL, MPL, no
 | `McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp` | MIT (Hugging Face license tag) | yes | adapter on top of Llama 3, whose license still applies to the base weights |
 | `McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised` | MIT (Hugging Face license tag, checked 2026-11-19) | yes | loaded by `kimodo_text.py`; same note on the base weights |
 | SOMA-X body models (MANO hands) | MANO license | **no** | must not be used; this pipeline does not load them |
+| SOMA77 skeleton proportions (`kimodo/assets/skeletons/somaskel77/somaskel77_standard_tpose.bvh`, Kimodo repository) | Apache-2.0 | yes | numbers only: spine split, clavicle start and finger joints of the own skeleton (`pipeline/lib/own_skeleton.py`) |
 | Mixamo clips and rigs | Adobe Mixamo terms | yes, inside projects | raw FBX files must not be redistributed; not in this repo |
 
 ## Code
