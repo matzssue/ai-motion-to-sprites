@@ -30,7 +30,7 @@ Regions measured as separate volumes gave 15 cm false positives (they are open w
 | | prop_in_clavicles | 0.03 | a stock in the shoulder pocket is real contact |
 | | hands_in_torso | 0.02 | |
 | | forearms_in_torso | 0.045 | an approved archer pose had 4.8 cm of forearm in the belly |
-| | fingers_in_prop | 0.008 | fingers on the stock, not in it |
+| | fingers_in_prop | 0.008 | fingers on the stock, not in it. On the own skeleton the thumb's metacarpal (`thumb.1`, from the wrist) is a finger, so its thick base counts here; on a Mixamo rig that skin is "hand" and not measured at all (approved crossbow shot: hand skin up to 5.9–8.2 cm inside the stock; Kusznik on `amts`: thumb base 2.3 cm, hand 5.8–7.0 cm) |
 | joints | wrist_bend_L/R | 85 | |
 | | wrist_twist_L/R | 60 | hand twist vs the forearm |
 | | stretch | 0.30 | body mesh edge growth vs rest = a wrong bone weight (a "stick" from a claw weighted to the foot). Walk: broken rig 94 cm, fixed 4; a rag between the legs 18 cm (walk), approved shot 12 cm. A length ratio did not separate them (short edges after decimation) |

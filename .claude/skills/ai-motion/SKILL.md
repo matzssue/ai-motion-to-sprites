@@ -187,6 +187,11 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   The audit votes with rays (`collisions.inside`).
 - The palm side taken from claw curvature came out as the BACK of the hand (two versions with the crossbow on the back of the
   hand, fingers bent backwards): the sign now comes from the thumb (`prepare_rig.py`). In an A-pose the palm faces the body/down.
+  On the own skeleton the palm comes from the index/pinky knuckles, like the hand bone's roll: the point-cloud estimate took
+  the wrist cloth and came out 127/150° off on Kusznik (wrist bent 96°, fingers sticking up out of the crossbow).
+- **The finger wrap of the own skeleton bends each bone about its own axis** (local X), carried by the bones above it. One
+  axis from the hand's palm normal for all three bones degenerates once the first one bends ~90° and the rest of the finger
+  stood up beside the stock.
 - **Jumps**: choosing grip and elbow frame by frame flipped between almost equal solutions (hand 60°, fingers 95° between
   frames; the audit did not measure that then). A path over the whole clip (Viterbi) + smoothed fingers; smoothing whole
   arms breaks the grip. Audit: `hand_jump`, `finger_jump`, `elbow_jump` (AUDIT.md).
