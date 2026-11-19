@@ -162,8 +162,8 @@ Every run prints the grip back in words (`grip right: palm from below, fingers l
 Host Python 3.10+, no Blender or Kimodo needed:
 
 ```bash
-pip install -e ".[dev]"     # numpy, scipy, Pillow, jsonschema + pytest, ruff, pip-licenses
-python -m pytest            # auto-rig, grip words, stage helpers, config schemas, skin and alpha checks
+pip install -e ".[dev,server]"   # numpy, scipy, Pillow, jsonschema + pytest, ruff, pip-licenses; FastAPI, uvicorn
+python -m pytest            # auto-rig, grip words, stage helpers, config schemas, skin and alpha checks, review service
 ruff check .                # pyflakes and syntax errors only; the dense style is deliberate
 ```
 
@@ -178,6 +178,22 @@ ran on plus `audit.json` (and `audit_samples.json`) onto the page: it plays the 
 draws every metric over time against its limit, and clicking a failure jumps to that frame with a marker on the audit
 point. Files are read in the browser, so the static build needs no server. Setup, data flow and the Blender to three.js
 coordinate and frame conversions (with the measurements behind them) are in [web/README.md](web/README.md).
+
+## Review service
+
+[`server/`](server/) is a local FastAPI service over `character.py` for the human gates. A reviewer opens a character,
+sees every stage (up to date, runs next, waiting for review, not reached) and what the waiting gate needs, watches the
+motion in the web viewer next to its audit, and approves or rejects it: the service writes exactly what the STOP
+message asks for (`poses_approved.json`, `actions.<action>.approved`), shows the change before writing, and keeps a
+trail of every verdict. It can also start a run, stream its log and cancel it. It binds to 127.0.0.1 and only runs
+the command it was started with, for the characters it was started with.
+
+```bash
+pip install -e ".[server]"
+cd web && npm ci && npm run local -- <character.json or folder> --fake   # service + web; drop --fake for real runs
+```
+
+Open `http://localhost:3000/characters/`. Endpoints, configuration and the safety rules: [server/README.md](server/README.md).
 
 ## Known traps (each cost a version)
 

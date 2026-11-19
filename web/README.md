@@ -31,6 +31,9 @@ npm run dev          # http://localhost:3000
 | `npm test` | Vitest: the pure logic in `src/audit`, `src/motion` and the license script |
 | `npm run build` | static export into `out/`; `BASE_PATH=/ai-motion-to-sprites npm run build` for GitHub Pages |
 | `npm run licenses` | license gate over the production packages in `package-lock.json` |
+| `npm run local -- <character.json or folder> [--fake]` | review service (`python -m server`) + dev server, wired together |
+| `npm run api:types` | regenerate `src/api/schema.d.ts` from `src/api/openapi.json` |
+| `npm run api:check` | fail when `src/api/schema.d.ts` is out of date (CI) |
 
 `.github/workflows/deploy-pages.yml` builds and deploys `out/` to GitHub Pages. It only runs by hand
 (`workflow_dispatch`) after Pages is enabled with "GitHub Actions" as the source.
@@ -56,6 +59,42 @@ For development, `?data=<folder or manifest.json>` loads files over HTTP, with p
 
 Put the folder under `web/public/local/` (gitignored) and open `http://localhost:3000/?data=local/<folder>/`.
 The repository ships no characters, so no sample data is committed.
+
+## Server-backed pages
+
+With the review service (`../server/README.md`) the app also has:
+
+- `/characters/`: every configured character and what it waits for;
+- `/character/?id=<id>`: the seven stages as a stepper (each status as a glyph and words, not colour alone), the
+  waiting gate with its preview images and verdict controls, one card per action (best sample and all scores, audits,
+  approval), a run control (stage range, live log, cancel, end state: done / stopped at a gate / failed / cancelled)
+  and the review trail. The page reloads its state when a run ends or a verdict is written;
+- `/review/?character=<id>&action=<action>[&source=choice|merged]`: this viewer fed by the service's manifest, with the
+  verdict next to the motion. Approve or reject asks the service for a preview first and shows exactly what would be
+  written (file, JSON path, before/after, diff); nothing is written before "Write it".
+
+The service's address is `NEXT_PUBLIC_API_BASE`, inlined at build time (`npm run local` sets it). Without it, or with
+the service stopped, these pages say how to start it, and the file viewer at `/` keeps working with dropped files:
+the static export (no API base) is the public demo. Query parameters address characters and actions because a static
+export has no dynamic route segments.
+
+### The API contract
+
+`server/` is the single source of the request and response shapes:
+
+```
+server/models.py (Pydantic) ─► python -m server.export_openapi ─► src/api/openapi.json (committed)
+                                                                   └► npm run api:types ─► src/api/schema.d.ts (committed)
+```
+
+`src/api/types.ts` only gives names to the generated types and `src/api/client.ts` checks at compile time that its
+calls return them, so a change on the server is a type error here. `server/tests/test_openapi.py` fails when
+`openapi.json` is stale, `npm run api:check` when `schema.d.ts` is.
+
+Client state: `src/api/resource.ts` (load/reload keeping shown data), `src/review/verdictFlow.ts` (compose → preview →
+confirm → written), `src/runs/log.ts` (log lines by index, so a reconnect does not duplicate them). The run log streams
+over server-sent events (`EventSource`) and is flushed into React ten times a second; the playhead still stays out of
+React state.
 
 ## How it works
 
@@ -122,7 +161,8 @@ the clip; at 24 fps, 0.00 mm. One frame off: 4–14 mm.
 ## Dependencies and licenses
 
 Production: `next`, `react`, `react-dom`, `three`, `@react-three/fiber`, `@react-three/drei`, `zustand`, `zod`.
-All MIT. The whole production tree is checked by `scripts/check-licenses.mjs` (CI job `web`). The allowlist
+All MIT. The server-backed pages add no production package. Development adds `openapi-typescript` (MIT; its tree is MIT,
+ISC, Apache-2.0 and BlueOak-1.0.0). The whole production tree is checked by `scripts/check-licenses.mjs` (CI job `web`). The allowlist
 matches `tools/check_licenses.py` (no GPL, LGPL, AGPL, MPL, non-commercial or unknown), plus CC-BY-4.0 for the
 `caniuse-lite` browser data.
 

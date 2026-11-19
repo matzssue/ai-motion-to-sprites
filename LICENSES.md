@@ -2,8 +2,8 @@
 
 This repository is MIT and contains **no** models, clips or weights. Everything below is installed or downloaded by
 the user. Rule for new dependencies: the license must allow commercial use (prefer MIT, BSD, Apache-2.0); check it
-before adding a row. CI (`tools/check_licenses.py`) fails when any SPDX identifier of an installed host package is not on its
-permissive allowlist: GPL, AGPL, LGPL, MPL, non-commercial and unknown licenses fail.
+before adding a row. CI (`tools/check_licenses.py`) fails when any SPDX identifier of an installed host package (base dependencies and
+the `server` extra) is not on its permissive allowlist: GPL, AGPL, LGPL, MPL, non-commercial and unknown licenses fail.
 
 ## Models and assets
 
@@ -33,7 +33,16 @@ permissive allowlist: GPL, AGPL, LGPL, MPL, non-commercial and unknown licenses 
 | `Pillow` | MIT-CMU (HPND) | yes | host Python |
 | `jsonschema` (+ `attrs`, `referencing`, `rpds-py`, `jsonschema-specifications`) | MIT | yes | host Python, config validation (`schemas/`) |
 | `psutil` | BSD-3-Clause | yes | optional, `variants.py` free-RAM probe |
+| `fastapi` | MIT | yes | `server` extra: the review service (`server/`) |
+| `starlette` | BSD-3-Clause | yes | via FastAPI |
+| `pydantic`, `pydantic-core`, `typing-inspection`, `annotated-types`, `annotated-doc` | MIT | yes | via FastAPI: request and response models |
+| `anyio` | MIT | yes | via Starlette |
+| `opentelemetry-api` | Apache-2.0 | yes | via FastAPI |
+| `uvicorn` (+ `click`, `h11`) | BSD-3-Clause (`h11` MIT) | yes | `server` extra: the ASGI server |
+| `idna` | BSD-3-Clause | yes | via AnyIO |
+| `typing_extensions`, `exceptiongroup` | PSF-2.0, MIT | yes | backports on Python 3.10 |
 | `pytest`, `ruff`, `pip-licenses` | MIT | yes | development only |
+| `httpx2` (+ `httpcore2`, `truststore`) | BSD-3-Clause (`truststore` MIT) | yes | development only: Starlette's test client. The older `httpx` pulled `certifi` (MPL-2.0); `httpx2` does not |
 
 ## Web viewer (`web/`)
 
@@ -56,4 +65,5 @@ for browser-support data.
 | `zod` | MIT | yes | audit file validation |
 | `sharp` | replaced by an empty MIT stub (`web/stubs/sharp`) | yes | Next.js's optional image optimizer; the real package bundles libvips (LGPL-3.0) and is never installed |
 | `typescript` | Apache-2.0 | yes | development only |
+| `openapi-typescript` (+ `@redocly/openapi-core`, `yaml-ast-parser`, `minimatch`, …) | MIT (tree: MIT, ISC, Apache-2.0, BlueOak-1.0.0) | yes | development only: generates `src/api/schema.d.ts` |
 | `eslint`, `eslint-config-next`, `vitest`, `@types/*` | MIT | yes | development only |
