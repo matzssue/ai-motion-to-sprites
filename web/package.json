@@ -12,7 +12,9 @@
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "licenses": "node scripts/check-licenses.mjs"
+    "licenses": "node scripts/check-licenses.mjs",
+    "api:types": "openapi-typescript src/api/openapi.json -o src/api/schema.d.ts",
+    "api:check": "node scripts/check-api-types.mjs"
   },
   "dependencies": {
     "@react-three/drei": "10.7.9",
@@ -20,10 +22,10 @@
     "next": "16.4.6",
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "sharp": "file:./stubs/sharp",
     "three": "0.187.0",
     "zod": "4.6.7",
-    "zustand": "5.1.0",
-    "sharp": "file:./stubs/sharp"
+    "zustand": "5.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
@@ -32,6 +34,7 @@
     "@types/three": "0.187.0",
     "eslint": "9.39.5",
     "eslint-config-next": "16.4.6",
+    "openapi-typescript": "7.13.0",
     "typescript": "5.9.3",
     "vitest": "3.2.7"
   },
