@@ -42,6 +42,21 @@ def load(path, kind, require=()):
     return data
 
 
+def load_skeleton(spec, base=None):
+    """Skeleton profile (built-in name or path relative to `base`) checked against the schema and by the loader."""
+    import skeleton
+    try:
+        p = skeleton.locate(spec, base)
+    except skeleton.ProfileError as e:
+        raise SystemExit(str(e))
+    try:
+        prof = skeleton.load(p)   # first: its messages name the unknown or missing role
+    except skeleton.ProfileError as e:
+        raise SystemExit(str(e))
+    load(p, "skeleton")
+    return prof
+
+
 def load_character(path):
     """character.json plus the configs it points to: the rig config, each `ai` motion (needs `phases`) and each prop
     motion (needs `grip`). A file that does not exist yet is left to the stage that reads it."""

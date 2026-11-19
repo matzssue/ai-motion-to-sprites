@@ -1,0 +1,27 @@
+{
+ "name": "mixamo",
+ "description": "Mixamo skeleton (65 bones, `mixamorig:` prefix): what pipeline/rig/auto_rig.py builds and the library clips use. The default.",
+ "prefix": "mixamorig:",
+ "bones": {
+  "hips": "Hips",
+  "spine": ["Spine", "Spine1", "Spine2"],
+  "neck": "Neck",
+  "head": "Head",
+  "head_end": "HeadTop_End",
+  "left": {
+   "shoulder": "LeftShoulder", "upper_arm": "LeftArm", "forearm": "LeftForeArm", "hand": "LeftHand", "fingers": "LeftHandMiddle1",
+   "upper_leg": "LeftUpLeg", "lower_leg": "LeftLeg", "foot": "LeftFoot", "toe": "LeftToeBase", "toe_end": "LeftToe_End"
+  },
+  "right": {
+   "shoulder": "RightShoulder", "upper_arm": "RightArm", "forearm": "RightForeArm", "hand": "RightHand", "fingers": "RightHandMiddle1",
+   "upper_leg": "RightUpLeg", "lower_leg": "RightLeg", "foot": "RightFoot", "toe": "RightToeBase", "toe_end": "RightToe_End"
+  }
+ },
+ "absent": [],
+ "regions": {
+  "head": ["head", "neck", "head_end"],
+  "torso": ["spine", "hips"],
+  "clavicles": ["shoulder"],
+  "legs": ["upper_leg", "lower_leg"]
+ }
+}
