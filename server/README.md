@@ -60,7 +60,7 @@ the run rewrites their inputs.
 |---|---|---|
 | AI rig | `rig_ai.glb` is fresh and nothing later is newer than it (calibration, body, choice, output) and no rig approval in the trail since | nothing: a new run continues past it; the trail records the look |
 | key poses | `body.json` exists, `poses/poses.glb` is newer than it, no `poses_approved.json` | `<work>/<action>/poses_approved.json` `{"glb": <picked poses GLB>}`; the pick is one of `poses/poses.glb`, `poses_*/poses.glb` |
-| motion | `poses_approved.json` exists and `choice.json` is newer than the motion file, `rig_ai.glb` and the approval | `actions.<action>.approved = {"bvh", "score", "date", "npz"}` from `choice.json` |
+| motion | `poses_approved.json` exists and `choice.json` is newer than the motion file, `rig_ai.glb` and the approval | `actions.<action>.approved = {"bvh", "score", "date"}` from `choice.json` |
 
 ## Verdicts (`verdicts.py`, `json_edit.py`)
 

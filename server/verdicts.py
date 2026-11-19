@@ -89,7 +89,6 @@ def _plan(cfg_path: str, cid: str, req: VerdictRequest) -> tuple[VerdictPlan, li
                 [_Write(target, text.encode("utf-8"), must_not_exist=True)])
     ch = read_json(os.path.join(D, "choice.json")) or {}
     value = {"bvh": norm(ch["bvh"]).replace("\\", "/"), "score": ch["score"], "date": date.today().isoformat()}
-    if ch.get("npz"): value["npz"] = norm(ch["npz"]).replace("\\", "/")
     before_text = raw.decode("utf-8")
     after_text = set_member(before_text, ["actions", n], "approved", value)
     bad = schema_problems(json.loads(after_text), "character")

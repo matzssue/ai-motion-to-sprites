@@ -45,7 +45,7 @@ def test_approve_motion_writes_only_the_approved_member(ws):
     ch = plan.changes[0]
     assert ch.json_path == "$.actions.attack.approved" and ch.before is None
     assert ch.after["score"] == 6.21 and ch.after["bvh"].endswith("attack/kf/kf_s1.bvh") and "\\" not in ch.after["bvh"]
-    assert list(ch.after) == ["bvh", "score", "date", "npz"]
+    assert list(ch.after) == ["bvh", "score", "date"]   # exactly what character.py's STOP message asks for
     res = verdicts.apply(ws.cfg, "tester", MOTION_OK.model_copy(update={"expected_config_sha": plan.config_sha}), "me")
     after = ws.text()
     i = before.index('"loop": false') + len('"loop": false')
