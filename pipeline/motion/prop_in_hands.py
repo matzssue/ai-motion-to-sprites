@@ -10,6 +10,7 @@ from mathutils import Matrix, Vector, Quaternion
 from mathutils.bvhtree import BVHTree
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from collisions import dominant, labels, vertices, inside, joint_angles, FINGER_PREFIX
+from grip_words import AXES, PALM_SIDE, nearest, grip_from_words, grip_in_words
 
 ap = argparse.ArgumentParser(description="Put the prop in both hands: prop pose, two-arm IK, finger wrap, recoil.")
 ap.add_argument("--glb", required=True); ap.add_argument("--rig-data", required=True)
@@ -79,35 +80,11 @@ def r_at(x):
 
 
 # ---------- grip: character words <-> vectors in the prop frame (X forward along the stock, Y to the character's LEFT, Z up) ----------
-AXES = {"forward": (1, 0, 0), "back": (-1, 0, 0), "left": (0, 1, 0), "right": (0, -1, 0), "up": (0, 0, 1), "down": (0, 0, -1)}
-# side of the prop the hand is on -> where its palm faces
-PALM_SIDE = {"from below": (0, 0, 1), "from above": (0, 0, -1), "from the right": (0, 1, 0), "from the left": (0, -1, 0),
-             "from behind": (1, 0, 0), "from the front": (-1, 0, 0)}
 SIDE_NAME = {"Right": "right", "Left": "left"}
 
 
-def nearest(tab, v):
-    v = Vector(v).normalized(); return max(tab, key=lambda k: v.dot(Vector(tab[k])))
-
-
-def grip_from_words(g):
-    """`palm`: "from below", `fingers`: "left", `fingers_tilt`: ["forward", 18] -> palm_normal, direction (when given in words)."""
-    if "palm" in g: g["palm_normal"] = list(PALM_SIDE[g["palm"]])
-    if "fingers" in g:
-        d = Vector(AXES[g["fingers"]]); toward, deg = g.get("fingers_tilt", ("forward", 0))
-        g["direction"] = list(d * math.cos(math.radians(deg)) + Vector(AXES[toward]) * math.sin(math.radians(deg)))
-    return g
-
-
-def grip_in_words(g):
-    d = Vector(g["direction"]).normalized(); a = nearest(AXES, d); rest = d - Vector(AXES[a]) * d.dot(Vector(AXES[a]))
-    tilt = math.degrees(math.asin(min(1.0, rest.length)))
-    return "palm %s, fingers %s%s, %.0f cm in front of the butt" % (
-        nearest(PALM_SIDE, g["palm_normal"]), a, " and %.0f deg %s" % (tilt, nearest(AXES, rest)) if tilt > 3 else "", 100 * (g["x"] - BUTT))
-
-
 GR = {"Right": grip_from_words(GP["right"]), "Left": grip_from_words(GP["left"])}
-for s_ in GR: print("grip %s: %s" % (SIDE_NAME[s_], grip_in_words(GR[s_])))
+for s_ in GR: print("grip %s: %s" % (SIDE_NAME[s_], grip_in_words(GR[s_], BUTT)))
 RS = {s: r_at(GR[s]["x"]) for s in GR}
 print("stock: butt %.3f, radius at grips R %.3f / L %.3f" % (BUTT, RS["Right"], RS["Left"]))
 # fingers wrap around the real surface: a stock is not a cylinder (left hand: 7 cm down, 3-5 cm to the sides);

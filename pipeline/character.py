@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 from config import KIMODO_PYTHON, script_path
 from chain import blender, merge, audit, chain
 from schema_check import load_character
+from stages import fresh, keys
 
 STAGES = ["prepare", "rig", "rig_ai", "calibration", "ai", "merge", "preview"]
 ap = argparse.ArgumentParser(description="Run the whole pipeline for one character, stopping at human review gates.")
@@ -33,11 +34,6 @@ WALK = r(C.get("walk_clip") or C["actions"]["walk"]["library"])
 OUTPUT = r(C["output"])
 start = STAGES.index(A.start) if A.start else None
 end = STAGES.index(A.end)
-
-
-def fresh(out, *inputs):
-    if not os.path.exists(out): return False
-    return all(os.path.getmtime(out) >= os.path.getmtime(w) for w in inputs if os.path.exists(w))
 
 
 def stage(n, out, *inputs):
@@ -105,16 +101,6 @@ def pose_frames(R, motion):
     PK = R.get("key_poses")
     if not PK: stop("%s: no 'key_poses' (e.g. {\"hold\": 0, \"aim\": 44}, frames at 24 fps; the first = start and end)" % motion)
     return [int(v) for k, v in PK.items() if not k.startswith("_")]
-
-
-def keys(R, fr, loop=True):
-    """Kimodo frame (30 fps) : pose frame (24 fps); the last key = the first pose so the clip loops.
-    A one-shot action ("loop": false, e.g. picking up loot) holds the last pose at the end."""
-    last = int(round(sum(f["duration"] for f in R["phases"]) * 30)) - 1
-    ks = ["%d:%d" % (int(round(f * 30 / 24)), f) for f in fr]
-    if loop: ks.append("%d:%d" % (last, fr[0]))
-    elif int(round(fr[-1] * 30 / 24)) < last: ks.append("%d:%d" % (last, fr[-1]))
-    return ",".join(ks)
 
 
 def best_of(bvhs, motion, with_prop, out, loop=True):
