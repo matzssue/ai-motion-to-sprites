@@ -96,6 +96,26 @@ Measured on the game's characters (assets are not included):
 - A Kimodo clip stood 0.5 m lower than the library walk, so in game the sprite jumped ~35 px on every clip change.
   `combine_actions.py` grounds every action on the walk.
 
+## Limitations
+
+- **Bipedal humanoids only.** The auto-rig expects an A/T pose facing −Y with two arms and two legs, and Kimodo generates
+  human motion. Quadrupeds, spiders, snakes and other body plans are not supported.
+- **Mixamo skeleton naming.** Retarget and audit use a fixed set of `mixamorig:*` bones. A rig with other bone names, or
+  without one of them, fails.
+- **No foot IK.** Retarget copies rotations and scales the root motion by leg length. A character whose proportions are
+  far from human can slide or float its feet, and the audit has no foot-contact metric yet.
+- **One prop, held in both hands**, with a stock-like long axis (crossbow, bow, staff). One-handed props (sword, shield,
+  torch) are not supported.
+- **Fingers come from the prop grip only.** Finger bones are grown out of fused claws with per-character thresholds
+  measured by hand. Kimodo's own finger motion is dropped.
+- **No sprite sheets yet.** The repo ends at an audited GLB and an 8-direction preview. Rendering the sheets is left to
+  your own renderer.
+- **No runnable demo.** `examples/` describe a character whose assets are not included, and the first run needs Kimodo
+  plus the gated Llama 3 encoder (~20 GB).
+- **Windows only so far.** Paths are handled for Linux and macOS, but nothing was run there.
+- **Checkpoint licenses differ.** The default `Kimodo-SOMA-*` checkpoints allow commercial use. `Kimodo-SMPLX-RP-v1` is
+  under the NVIDIA R&D Model License. `KIMODO_MODEL` does not check this for you.
+
 ## Setup
 
 - **Blender 4.4+** (actions with layers/slots). Set `BLENDER` to its executable, or put `blender` on `PATH`.
