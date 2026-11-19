@@ -104,6 +104,8 @@ def set_prop(C4, f):
 NPALM = {s: Vector(RD["palm"][s]["local_normal"]) for s in RD["palm"]}
 hand_rest = {s: AW @ bone(BN[s]["hand"]).matrix_local for s in ("Left", "Right")}
 FING = {}
+# bones the finger wrap animates: finger_* grown by prepare_rig, or the rig's own finger chains it kept (own skeleton)
+FING_NAMES = {n for chains in RD["fingers"].values() for ch in chains for n in ch}
 if RD["fingers"] and not PROF.has("fingers"): print("fingers: skipped (skeleton '%s' has no fingers): no finger wrap" % PROF.name)
 for s, chains in (RD["fingers"] if PROF.has("fingers") else {}).items():
     FING[s] = [([AW @ bone(n).head_local for n in ch] + [AW @ bone(ch[-1]).tail_local], ch, k in RD["thumbs"].get(s, []))
@@ -430,7 +432,7 @@ def path(side, CP, TR):
 def place(f, C4, prevs, tr):
     sc.frame_set(f)
     for b_ in arm.pose.bones:
-        if b_.name.startswith(FINGER_PREFIX): b_.rotation_quaternion = (1, 0, 0, 0); b_.location = (0, 0, 0)
+        if b_.name.startswith(FINGER_PREFIX) or b_.name in FING_NAMES: b_.rotation_quaternion = (1, 0, 0, 0); b_.location = (0, 0, 0)
     bpy.context.view_layer.update()
     set_prop(C4, f); out = {}
     for side in ("Right", "Left"):
@@ -512,7 +514,7 @@ def smooth_curves(match, window):
     return len(groups)
 
 
-if not A.frames: print("smoothed: fingers", smooth_curves(lambda d: d.startswith('pose.bones["' + FINGER_PREFIX), 3))
+if not A.frames: print("smoothed: fingers", smooth_curves(lambda d: d.startswith('pose.bones["' + FINGER_PREFIX) or d.split('"')[1] in FING_NAMES, 3))
 
 json.dump({str(f): v for f, v in WR.items()}, open(A.out.replace(".glb", "_arms.json"), "w"), indent=0)
 bpy.ops.export_scene.gltf(filepath=A.out, export_format="GLB", export_animations=True)
