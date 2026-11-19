@@ -43,7 +43,8 @@ export function Timeline() {
   });
 
   if (!audit) return null;
-  if (audit.tracks.length === 0) return <p className="muted">Every metric is 0 in this audit.</p>;
+  const lanes = audit.tracks.filter((t) => t.skipped === null);   // skipped metrics have no values: the table lists them
+  if (lanes.length === 0) return <p className="muted">Every metric is 0 in this audit.</p>;
 
   function scrub(e: PointerEvent<HTMLDivElement>) {
     if (e.buttons !== 1) return;
@@ -66,7 +67,7 @@ export function Timeline() {
           ))}
         </div>
         {GROUPS.map((group) => {
-          const tracks = audit.tracks.filter((t) => t.group === group);
+          const tracks = lanes.filter((t) => t.group === group);
           if (tracks.length === 0) return null;
           const score = audit.report.scores[group];
           return (

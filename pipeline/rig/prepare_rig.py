@@ -2,16 +2,19 @@
 finger bones are grown out of the claws with weights, debris left by the cut is removed. Output = base for
 soma_to_mixamo / merge_actions (--base) and the audit. Next to it `<out>_data.json` for prop_in_hands.
 blender -b --python pipeline/rig/prepare_rig.py -- --rig rig_base.fbx --config <character>/rig.json --out rig_ai.glb [--preview]
-Paths inside the config are relative to the config file."""
+    [--skeleton mixamo|profile.json]
+Paths inside the config are relative to the config file. `prop.parent` is a bone name without the skeleton prefix.
+The joints file comes from auto_rig.py and keeps its Mixamo keys (RightHand, LeftTip, Head)."""
 import bpy, bmesh, sys, os, math, json, argparse
 import numpy as np
 from mathutils import Matrix, Vector
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from collisions import dominant, FINGER_PREFIX
+from collisions import dominant, rig_of, FINGER_PREFIX
 
 ap = argparse.ArgumentParser(description="Cut the prop onto its own bone and grow finger bones out of the claws.")
 ap.add_argument("--rig", required=True); ap.add_argument("--config", required=True); ap.add_argument("--out", required=True)
 ap.add_argument("--preview", action="store_true", help="control render: prop red, fingers coloured, thumb red")
+ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
 CF = json.load(open(A.config, encoding="utf-8"))
 JOINTS_PATH = os.path.join(os.path.dirname(os.path.abspath(A.config)), CF["joints"])
@@ -25,7 +28,8 @@ if arm.animation_data: arm.animation_data.action = None
 for b in arm.pose.bones: b.matrix_basis = Matrix()
 bpy.context.view_layer.update()
 body = max((o for o in bpy.data.objects if o.type == "MESH"), key=lambda o: len(o.data.vertices))
-P = next((b.name.split(":")[0] + ":" for b in arm.data.bones if ":" in b.name), "")
+PROF = rig_of(arm, A.skeleton).prof; P = PROF.prefix
+HAND = {s: PROF.bone("hand", s) for s in ("Left", "Right")}
 AW = arm.matrix_world; AWi = AW.inverted(); mw = body.matrix_world
 
 
@@ -33,8 +37,8 @@ def coords(): return np.array([tuple(mw @ v.co) for v in body.data.vertices])
 
 
 # check: joints from auto_rig must sit on the bones (otherwise the import uses a different frame than the config)
-for n in ("RightHand", "LeftHand", "Head"):
-    d = ((AW @ arm.data.bones[P + n].head_local) - Vector(JOINTS[n])).length
+for n, b in (("RightHand", HAND["Right"]), ("LeftHand", HAND["Left"]), ("Head", PROF.bone("head"))):
+    d = ((AW @ arm.data.bones[b].head_local) - Vector(JOINTS[n])).length
     if d > 0.02: raise SystemExit("prepare_rig: %s is %.1f cm from the joint in %s - different coordinate frame" % (n, d * 100, CF["joints"]))
 
 
@@ -156,7 +160,7 @@ FING = {}
 if FC:
     for side in ("Right", "Left"):
         w0 = np.array(JOINTS[side + "Hand"]); ax = np.array(JOINTS[side + "Tip"]) - w0; ax /= np.linalg.norm(ax)
-        hm = np.where(dom == side + "Hand")[0]
+        hm = np.where(dom == HAND[side])[0]
         t = (co0[hm] - w0) @ ax
 
         def components(thr):
@@ -230,11 +234,11 @@ if PC:
     up = Vector(U["up"]); up = (up - fa * up.dot(fa)).normalized()
     Cr = Matrix((fa, up.cross(fa), up)).transposed().to_4x4(); Cr.translation = Or
     kb = eb.new(PC["name"]); kb.head = AWi @ Or; kb.tail = AWi @ (Or + fa * 0.2)
-    kb.align_roll(AWi.to_3x3() @ up); kb.parent = eb[P + PC["parent"]]; kb.use_deform = True
+    kb.align_roll(AWi.to_3x3() @ up); kb.parent = eb[P + PC["parent"] if P + PC["parent"] in eb else PC["parent"]]; kb.use_deform = True
 NAMES = {}
 for side, (fl, ax, w0) in FING.items():
     for k, (J, verts, s_, tv, kc) in enumerate(fl):
-        prev = eb[P + side + "Hand"]; nn = []
+        prev = eb[HAND[side]]; nn = []
         for b in range(3):
             e = eb.new("%s%s%d_%d" % (FINGER_PREFIX, side[0], k, b + 1))
             e.head = AWi @ J[b]; e.tail = AWi @ J[b + 1]; e.parent = prev; e.use_connect = b > 0; e.use_deform = True
@@ -246,7 +250,7 @@ for b in arm.pose.bones: b.rotation_mode = "QUATERNION"
 # ---------- 4. weights ----------
 p0, pw = FC["weight_blend"] if FC else (0, 1)
 for side, (fl, ax, w0) in FING.items():
-    hg = body.vertex_groups[P + side + "Hand"]
+    hg = body.vertex_groups[HAND[side]]
     for k, (J, verts, s_, tv, kc) in enumerate(fl):
         gs = [body.vertex_groups.new(name=n) for n in NAMES[side][k]]
         for vi, sv, t_ in zip(verts, s_, tv):
@@ -268,7 +272,7 @@ if PC:
     data["prop"] = {"name": PC["name"], "frame_in_bone": [list(r) for r in (KB.inverted() @ Cr)],
                     "frame_world": [list(r) for r in Cr]}
 for side, (fl, ax, w0) in FING.items():
-    hm = np.where(dom == side + "Hand")[0]; t = (co0[hm] - w0) @ ax
+    hm = np.where(dom == HAND[side])[0]; t = (co0[hm] - w0) @ ax
     c = co0[hm[(t > 0.03) & (t < FC["base"])]]; c = c - c.mean(0); c = c - np.outer(c @ ax, ax)
     n = np.linalg.svd(c, full_matrices=False)[2][1]; n = n - ax * (n @ ax); n /= np.linalg.norm(n)
     curl = np.zeros(3)
@@ -287,7 +291,7 @@ for side, (fl, ax, w0) in FING.items():
     ch_ = np.cross(ax, n) if side == "Right" else np.cross(n, ax)
     if ch_ @ tk < 0:
         n = -n; print(side, "palm flipped (claw curl pointed at the back of the hand)")
-    R = (AW @ arm.data.bones[P + side + "Hand"].matrix_local).to_3x3().normalized()
+    R = (AW @ arm.data.bones[HAND[side]].matrix_local).to_3x3().normalized()
     data["palm"][side] = {"local_normal": list((R.transposed() @ Vector(n)).normalized()),
                           "axis_vs_bone_deg": round(math.degrees(Vector((0, 1, 0)).angle(R.transposed() @ Vector(ax))), 1)}
     print(side, "hand axis vs bone Y: %.1f deg" % data["palm"][side]["axis_vs_bone_deg"])

@@ -31,6 +31,8 @@ describe("audit parsing", () => {
     const report = parseReport("audit.json", older);
     expect(report.scores).toEqual({});
     expect(report.no_limit).toEqual([]);
+    expect(report.skipped).toEqual({});
+    expect(report.skeleton).toBeUndefined();
   });
 
   it("explains a file from another tool", () => {

@@ -15,6 +15,8 @@
   "output": {"type": "string"},
   "walk_clip": {"type": "string"},
   "auto_rig_template": {"type": "string"},
+  "skeleton": {"type": "string", "minLength": 1,
+               "description": "skeleton profile of `rig`: a built-in name (skeletons/*.json: mixamo, soma) or a .json path; default mixamo (what auto_rig builds)"},
   "actions": {
    "type": "object",
    "description": "action name -> action; every key is an action (no _ comments here)",
@@ -37,7 +39,7 @@
   "action": {
    "type": "object",
    "properties": {
-    "library": {"type": "string", "description": "Mixamo-skeleton clip (FBX/GLB)"},
+    "library": {"type": "string", "description": "Mixamo-skeleton clip (FBX/GLB); on a rig of another skeleton its bones go by role"},
     "ai": {"type": "string", "description": "motion file generated with Kimodo"},
     "motion": {"type": "string", "description": "grip-only motion file for a library action with a prop"},
     "prop": {"type": "boolean"},

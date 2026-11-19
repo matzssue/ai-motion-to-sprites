@@ -12,6 +12,8 @@
   `penetration`, `joints`, `smoothness`, `grip`. Compare versions by group and metric, not the sum: a new metric changes the sum.
 - `score_area` = the same averaged over samples: one bad frame does not dominate.
 - `no_limit`: metrics for information (no bad sample to calibrate against yet) – read them, they do not decide OK.
+- `skipped`: metric -> reason, for metrics whose skeleton roles are absent (`NEEDS` in `pipeline/lib/audit_metrics.py`);
+  not measured, not in `maxima`, not scored. `skeleton`: the profile used.
 
 ## How "inside" is decided
 The body without arms (from the upper arm down) is one almost closed volume; every face has a region from weights

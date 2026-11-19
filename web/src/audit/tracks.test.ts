@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REPORT, SAMPLE_ROWS } from "./fixtures";
+import { REPORT, REPORT_SKIPPED, SAMPLE_ROWS } from "./fixtures";
 import { parseReport, parseSamples } from "./parse";
 import { buildTracks, failRanges, nearestSampleIndex, worstSampleInRange } from "./tracks";
 
@@ -39,6 +39,15 @@ describe("timeline tracks", () => {
   it("falls back to the error range without samples", () => {
     const tracks = buildTracks(report, null);
     expect(tracks.find((t) => t.key === "hands_in_head")?.failRanges).toEqual([[70.5, 71.5]]);
+  });
+
+  it("lists a skipped metric with its reason and no values", () => {
+    const tracks = buildTracks(parseReport("audit.json", REPORT_SKIPPED), samples);
+    expect(tracks.map((t) => t.key)).toEqual(["hands_in_head", "fingers_in_prop", "wrist_bend_L", "finger_jump", "prop_rot_jump"]);
+    const fingers = tracks.find((t) => t.key === "fingers_in_prop")!;
+    expect(fingers.skipped).toBe("skeleton 'mixamo_nofingers' has no fingers");
+    expect([fingers.values, fingers.failRanges, fingers.limit, fingers.error]).toEqual([[], [], null, null]);
+    expect(buildTracks(report, samples).every((t) => t.skipped === null)).toBe(true);
   });
 
   it("finds the nearest sample", () => {

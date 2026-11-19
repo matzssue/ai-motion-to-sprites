@@ -48,3 +48,8 @@
 .selected td {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
+
+.skipped td {
+  color: var(--muted);
+  font-style: italic;
+}

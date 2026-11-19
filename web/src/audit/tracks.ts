@@ -34,15 +34,31 @@ export function failRanges(times: number[], values: number[], limit: number): [n
   return ranges;
 }
 
-/** One track per metric that has data: a non-zero value in any sample, a non-zero maximum, or an error. */
+/** One track per metric that has data (a non-zero value in any sample, a non-zero maximum, or an error) and one per
+ *  skipped metric (no values: the skeleton lacks a role it needs). */
 export function buildTracks(report: AuditReport, samples: AuditSample[] | null): MetricTrack[] {
-  const keys = new Set([...Object.keys(report.maxima), ...Object.keys(report.errors)]);
+  const keys = new Set([...Object.keys(report.maxima), ...Object.keys(report.errors), ...Object.keys(report.skipped)]);
   if (samples) sampleMetricKeys(samples).forEach((k) => keys.add(k));
   const noLimit = new Set(report.no_limit);
   const times = samples ? samples.map((row) => row.t) : [];
 
   const tracks: MetricTrack[] = [];
   for (const key of [...keys].sort(compareMetrics)) {
+    const why = report.skipped[key];
+    if (why !== undefined) {
+      tracks.push({
+        ...describe(key),
+        limit: null,
+        reportedOnly: false,
+        max: 0,
+        times: [],
+        values: [],
+        failRanges: [],
+        error: null,
+        skipped: why,
+      });
+      continue;
+    }
     const values = samples ? samples.map((row) => sampleValue(row, key)) : [];
     const error = report.errors[key] ?? null;
     const max = Math.max(report.maxima[key] ?? 0, ...values);
@@ -52,10 +68,7 @@ export function buildTracks(report: AuditReport, samples: AuditSample[] | null):
     if (limit !== null && samples) ranges = failRanges(times, values, limit);
     else if (error) ranges = [error.range];
     tracks.push({
-      key,
-      label: metricLabel(key),
-      group: metricGroup(key),
-      unit: metricUnit(key),
+      ...describe(key),
       limit,
       reportedOnly: noLimit.has(key),
       max,
@@ -63,9 +76,14 @@ export function buildTracks(report: AuditReport, samples: AuditSample[] | null):
       values,
       failRanges: ranges,
       error,
+      skipped: null,
     });
   }
   return tracks;
+}
+
+function describe(key: string) {
+  return { key, label: metricLabel(key), group: metricGroup(key), unit: metricUnit(key) };
 }
 
 /** Where a click on a failing range jumps: the audit's `at_frame` when it lies in the range, else the range's worst sample. */

@@ -1,0 +1,27 @@
+{
+ "name": "soma",
+ "description": "SOMA77 skeleton of Kimodo-SOMA BVH output (no prefix): the retarget source. Names checked against a Kimodo-SOMA-RP-v1.1 BVH. Watch out: `LeftLeg` is the upper leg here and the lower leg in Mixamo.",
+ "prefix": "",
+ "bones": {
+  "hips": "Hips",
+  "spine": ["Spine1", "Spine2", "Chest"],
+  "neck": "Neck1",
+  "head": "Head",
+  "head_end": "HeadEnd",
+  "left": {
+   "shoulder": "LeftShoulder", "upper_arm": "LeftArm", "forearm": "LeftForeArm", "hand": "LeftHand", "fingers": "LeftHandMiddle1",
+   "upper_leg": "LeftLeg", "lower_leg": "LeftShin", "foot": "LeftFoot", "toe": "LeftToeBase", "toe_end": "LeftToeEnd"
+  },
+  "right": {
+   "shoulder": "RightShoulder", "upper_arm": "RightArm", "forearm": "RightForeArm", "hand": "RightHand", "fingers": "RightHandMiddle1",
+   "upper_leg": "RightLeg", "lower_leg": "RightShin", "foot": "RightFoot", "toe": "RightToeBase", "toe_end": "RightToeEnd"
+  }
+ },
+ "absent": [],
+ "regions": {
+  "head": ["head", "neck", "head_end"],
+  "torso": ["spine", "hips"],
+  "clavicles": ["shoulder"],
+  "legs": ["upper_leg", "lower_leg"]
+ }
+}

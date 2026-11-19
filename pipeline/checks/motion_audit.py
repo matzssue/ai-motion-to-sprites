@@ -2,41 +2,17 @@
 forearms into the body; fingers into the prop), joints (wrists, arm skin twist), smoothness (jumps, loop seam), grip (prop above
 the head, hand without contact, loose fingers). Over a limit it renders close-ups (5 sides) at the deepest point.
 blender -b --python pipeline/checks/motion_audit.py -- --glb X.glb --action attack --out dir [--prop crossbow] [--limits l.json]
-    [--frames 10,45,56] [--no-loop] [--rest-is-normal]
-Limits and where they come from: README, "Quality gates"."""
+    [--frames 10,45,56] [--no-loop] [--rest-is-normal] [--skeleton mixamo|profile.json]
+Limits and where they come from: README, "Quality gates". A metric whose skeleton role is absent is listed in `skipped`."""
 import bpy, sys, os, math, json, argparse, re
 import numpy as np
 from mathutils import Matrix, Vector
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
-from collisions import dominant, masks, vertices, bvh, depth, joint_angles, labels, body_tree, depths, bone_side, FINGER_PREFIX
+from collisions import dominant, masks, vertices, bvh, depth, joint_angles, labels, body_tree, depths, rig_of, FINGER_PREFIX
+import skeleton
 import skin
+from audit_metrics import METRICS, NEEDS, judge
 
-# (limit, unit, group); "m" = metres for a ~1.8 m character (scaled by height), "deg" = degrees, "frac" = 0..1;
-# jumps per 1/4 frame. Limit None = reported only (no bad sample yet to calibrate against).
-METRICS = {
-    "prop_in_head": (0.005, "m", "penetration"), "prop_in_torso": (0.015, "m", "penetration"),
-    "prop_in_legs": (0.015, "m", "penetration"), "prop_in_clavicles": (0.03, "m", "penetration"),
-    "hands_in_head": (0.005, "m", "penetration"), "hands_in_torso": (0.02, "m", "penetration"),
-    "forearms_in_head": (0.01, "m", "penetration"), "forearms_in_torso": (0.045, "m", "penetration"),
-    "fingers_in_prop": (0.008, "m", "penetration"),
-    "wrist_bend_L": (85, "deg", "joints"), "wrist_bend_R": (85, "deg", "joints"),
-    "wrist_twist_L": (60, "deg", "joints"), "wrist_twist_R": (60, "deg", "joints"),
-    # elbow: raw Kimodo 1.6 cm; 0.08 let through 15 cm per frame
-    "elbow_jump": (0.03, "m", "smoothness"), "prop_jump": (0.10, "m", "smoothness"),
-    # raw Kimodo: hand up to 4.8 deg, fingers 0 deg. Per-frame grip choice: hand 15 deg, fingers 24 deg
-    "hand_jump": (8, "deg", "smoothness"), "finger_jump": (6, "deg", "smoothness"),
-    "head_jump": (4, "deg", "smoothness"), "prop_rot_jump": (None, "deg", "smoothness"),
-    # seam: last frame vs first. Library walk 1.8 deg / 1.4 cm; a 26 deg head pop was reported by eye
-    "loop_seam_deg": (15, "deg", "smoothness"), "loop_seam_m": (0.12, "m", "smoothness"),
-    # with the grip solver 0-0.1 cm, without it (raw Kimodo) 50-62 cm
-    "hand_to_prop_L": (0.03, "m", "grip"), "hand_to_prop_R": (0.03, "m", "grip"),
-    "prop_above_head": (None, "m", "grip"), "loose_fingers": (None, "frac", "grip"),
-    # growth of body mesh edges vs rest: a wrong bone weight gives a "stick" (a claw weighted to the foot: 2 cm -> 85 cm).
-    # Walk: broken rig 94 cm, fixed 4; a rag between the legs 18 cm. A length ratio did not separate them (short decimated edges)
-    "stretch": (0.30, "m", "joints"),
-    # arm skin "candy wrapper" twist (skin.py): broken overhead swing 210-260 deg / spread 0.45-0.80; approved up to 60 / 0.41
-    "skin_twist": (skin.TWIST_MAX, "deg", "joints"), "skin_spread": (skin.SPREAD_MAX, "frac", "joints"),
-}
 LOOSE_FINGER = 0.02   # m: a finger whose nearest point is farther from the prop does not hold it
 
 ap = argparse.ArgumentParser(description="Audit one action of a skinned GLB every 1/4 frame.")
@@ -46,9 +22,8 @@ ap.add_argument("--step", type=float, default=0.25); ap.add_argument("--no-close
 ap.add_argument("--rest-is-normal", action="store_true", help="prop carried where it was modelled (not in the hands)")
 ap.add_argument("--frames", default=None, help="only these frames (quick grip try): no smoothness metrics")
 ap.add_argument("--no-loop", action="store_true", help="one-shot action: no loop seam metric")
+ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
-LIMITS = {k: v[0] for k, v in METRICS.items()}
-if A.limits: LIMITS.update(json.load(open(A.limits, encoding="utf-8")))
 UNIT = {k: v[1] for k, v in METRICS.items()}; GROUP = {k: v[2] for k, v in METRICS.items()}
 os.makedirs(A.out, exist_ok=True)
 
@@ -63,9 +38,14 @@ prop = next((o for o in skinned if A.prop and o.name.startswith(A.prop)), None)
 body = max((o for o in skinned if o is not prop), key=lambda o: len(o.data.vertices))
 for o in bpy.data.objects:
     if o.type == "MESH" and o not in skinned: o.hide_render = True
-P = next((b.name.split(":")[0] + ":" for b in arm.data.bones if ":" in b.name), "")
+RIG = rig_of(arm, A.skeleton, exclude=(A.prop,) if A.prop else ()); PROF = RIG.prof
+SKIP = PROF.skipped(NEEDS)   # {metric: reason}: not measured, not scored
+LIMITS = {k: v[0] for k, v in METRICS.items() if k not in SKIP}
+if A.limits: LIMITS.update({k: v for k, v in json.load(open(A.limits, encoding="utf-8")).items() if k not in SKIP})
+B = {s: {r: PROF.bone(r, s) for r in ("forearm", "hand")} for s in skeleton.SIDES}
+HEAD = PROF.bone("head")
 AW = arm.matrix_world
-dom = dominant(body); M = masks(dom); LAB = labels(dom)
+dom = dominant(body); M = masks(dom, RIG); LAB = labels(dom, RIG)
 tris = np.array([p.vertices[:3] for p in body.data.polygons])
 EDGES = np.array([e.vertices[:] for e in body.data.edges])
 ptris = np.array([p.vertices[:3] for p in prop.data.polygons]) if prop else None
@@ -78,21 +58,22 @@ H = float(co_rest[:, 2].max() - co_rest[:, 2].min())
 SCALE = H / 1.8
 LIM = {k: (v * SCALE if UNIT[k] == "m" else v) for k, v in LIMITS.items() if v is not None}
 IN_HANDS = prop is not None and not A.rest_is_normal
-SIDE = np.array([bone_side(d) for d in dom])
-FINGERS = {}   # finger -> vertex indices (`finger_R0_1` and `LeftHandIndex1` -> one finger)
-for i in np.where(M["fingers"])[0]: FINGERS.setdefault(re.sub(r"_?\d+$", "", dom[i]), []).append(i)
+SIDE = np.array([RIG.bone_side(d) for d in dom])
+FINGERS = {}   # finger (a chain below the hand) -> vertex indices; named by its first bone without the number
+for i in np.where(M["fingers"])[0]: FINGERS.setdefault(re.sub(r"_?\d+$", "", PROF.short(RIG.finger_root[dom[i]])), []).append(i)
 HAND = {s: np.where((M["hands"] | M["fingers"]) & (SIDE == s))[0] for s in "LR"}
 I_HAND = np.where(M["hands"] & ~M["fingers"])[0][::2]; I_FORE = np.where(M["forearms"])[0][::2]
-HEADS0 = {b.name[len(P):]: np.array(AW @ b.head_local) for b in arm.data.bones if b.name.startswith(P)}
+HEADS0 = {b.name: np.array(AW @ b.head_local) for b in arm.data.bones}
 arm.data.pose_position = "REST"; bpy.context.view_layer.update()          # skin twist measured from the rig rest pose (heads from head_local)
 CO_REST = vertices(body, bpy.context.evaluated_depsgraph_get()); arm.data.pose_position = "POSE"; bpy.context.view_layer.update()
-DOM_S = np.array([str(d) for d in dom]); SKIN = {s: skin.select(DOM_S, CO_REST, HEADS0, s) for s in ("Left", "Right")}
-TORSO = next((n for n in ("Spine2", "Spine1", "Spine") if P + n in arm.data.bones), None)
+DOM_S = np.array([str(d) for d in dom]); SEGS = {s: skin.segments(PROF, s) for s in skeleton.SIDES}
+SKIN = {s: skin.select(DOM_S, CO_REST, HEADS0, SEGS[s]) for s in skeleton.SIDES} if "skin_twist" not in SKIP else {}
+TORSO = PROF.spine[-1]
 
 
-def rr(n): return arm.data.bones[P + n].matrix_local.to_3x3().normalized()
-def pr(n): return arm.pose.bones[P + n].matrix.to_3x3().normalized()
-def head(n): return AW @ arm.pose.bones[P + n].matrix.translation
+def rr(n): return arm.data.bones[n].matrix_local.to_3x3().normalized()
+def pr(n): return arm.pose.bones[n].matrix.to_3x3().normalized()
+def head(n): return AW @ arm.pose.bones[n].matrix.translation
 def ang(a, b): return (lambda x: min(x, 360 - x))(math.degrees(a.rotation_difference(b).angle))
 
 
@@ -127,37 +108,39 @@ for t in times:
         pc = vertices(prop, dg)
         measure("prop", pc[rng.choice(len(pc), min(700, len(pc)), replace=False)])
         PB = bvh(pc, ptris)
-        if M["fingers"].any():
+        if M["fingers"].any() and "fingers_in_prop" not in SKIP:
             d, i = depth(PB, co[M["fingers"]])
             row["fingers_in_prop"] = round(d, 4)
             if i >= 0: where["fingers_in_prop"] = [float(x) for x in co[M["fingers"]][i]]
         cen = pc.mean(0)
         if IN_HANDS:
             dist = lambda ii: min(PB.find_nearest(Vector(co[j]))[3] for j in ii)
-            row["prop_above_head"] = round(max(0.0, float(cen[2] - co[LAB == "head"][:, 2].max())), 4)
+            if "prop_above_head" not in SKIP: row["prop_above_head"] = round(max(0.0, float(cen[2] - co[LAB == "head"][:, 2].max())), 4)
             for s in "LR":
-                if len(HAND[s]): row["hand_to_prop_" + s] = round(dist(HAND[s][::2]), 4)
-            if FINGERS:
+                if len(HAND[s]) and "hand_to_prop_" + s not in SKIP: row["hand_to_prop_" + s] = round(dist(HAND[s][::2]), 4)
+            if FINGERS and "loose_fingers" not in SKIP:
                 loose = [n for n, ii in FINGERS.items() if dist(ii[::2]) > LOOSE_FINGER * SCALE]
                 row["loose_fingers"] = round(len(loose) / len(FINGERS), 2); row["_loose_fingers"] = loose
     for s, k in (("Left", "L"), ("Right", "R")):
-        bend, tw = joint_angles(rr(s + "ForeArm"), rr(s + "Hand"), pr(s + "ForeArm"), pr(s + "Hand"))
+        bend, tw = joint_angles(rr(B[s]["forearm"]), rr(B[s]["hand"]), pr(B[s]["forearm"]), pr(B[s]["hand"]))
         row["wrist_bend_" + k] = round(bend, 1); row["wrist_twist_" + k] = round(abs(tw), 1)
-    if TORSO and t >= f0:          # arm skin twist relative to the torso (skin.py)
-        Rt = np.array((AW @ arm.pose.bones[P + TORSO].matrix @ arm.data.bones[P + TORSO].matrix_local.inverted() @ AW.inverted()).to_3x3())
+    if SKIN and t >= f0:          # arm skin twist relative to the torso (skin.py)
+        Rt = np.array((AW @ arm.pose.bones[TORSO].matrix @ arm.data.bones[TORSO].matrix_local.inverted() @ AW.inverted()).to_3x3())
         for s_, seg in SKIN.items():
-            for k_, end_, _ in skin.SEGMENTS:
-                if s_ + k_ not in seg: continue
-                b_, r_ = skin.twist(CO_REST, co, seg[s_ + k_], HEADS0[s_ + k_], HEADS0[s_ + end_], np.array(head(s_ + k_)), np.array(head(s_ + end_)), Rt)
+            for a_, end_, _ in SEGS[s_]:
+                if a_ not in seg: continue
+                b_, r_ = skin.twist(CO_REST, co, seg[a_], HEADS0[a_], HEADS0[end_], np.array(head(a_)), np.array(head(end_)), Rt)
                 for kk, v_ in (("skin_twist", abs(b_)), ("skin_spread", round(r_, 2))):
-                    if v_ > row.get(kk, -1): row[kk] = v_; where[kk] = [float(x) for x in co[seg[s_ + k_]].mean(0)]; side[kk] = s_[0]
+                    if v_ > row.get(kk, -1): row[kk] = v_; where[kk] = [float(x) for x in co[seg[a_]].mean(0)]; side[kk] = s_[0]
     row["_where"] = where; row["_side"] = side
     if t < f0:
         rest_row = row; continue
-    now = {"L": head("LeftForeArm"), "R": head("RightForeArm"), "p": Vector(cen) if prop else None,
-           "qL": pr("LeftHand").to_quaternion(), "qR": pr("RightHand").to_quaternion(), "qH": pr("Head").to_quaternion(),
+    now = {"L": head(B["Left"]["forearm"]), "R": head(B["Right"]["forearm"]), "p": Vector(cen) if prop else None,
+           "qL": pr(B["Left"]["hand"]).to_quaternion(), "qR": pr(B["Right"]["hand"]).to_quaternion(), "qH": pr(HEAD).to_quaternion(),
            "qP": arm.pose.bones[A.prop].matrix.to_quaternion() if prop and A.prop in arm.pose.bones else None,
-           "fing": {b.name: b.matrix_basis.to_quaternion() for b in arm.pose.bones if b.name.startswith(FINGER_PREFIX)}}
+           # the finger_* bones the grip solver animates (rig fingers without curves stay at rest)
+           "fing": {b.name: b.matrix_basis.to_quaternion() for b in arm.pose.bones if b.name.startswith(FINGER_PREFIX)}
+           if "finger_jump" not in SKIP else {}}
     if prev and not FR:
         row["hand_jump"] = round(max(ang(now[k], prev[k]) for k in ("qL", "qR")), 1)
         row["head_jump"] = round(ang(now["qH"], prev["qH"]), 1)
@@ -176,24 +159,12 @@ if not FR and not A.no_loop and len(samples) > 1:
 if A.rest_is_normal:
     for k in LIM:
         if GROUP[k] == "penetration" and rest_row.get(k, 0) > 0: LIM[k] = LIM[k] + rest_row[k]
-errors = {}
-for k, lim in LIM.items():
-    bad = [r for r in samples if r.get(k, 0) > lim]
-    if bad:
-        worst = max(bad, key=lambda r: r[k])
-        errors[k] = {"limit": round(lim, 4), "max": worst[k], "at_frame": worst["t"], "samples": len(bad),
-                     "share": round(len(bad) / len(samples), 2), "range": [bad[0]["t"], bad[-1]["t"]],
-                     "where": worst["_where"].get(k), "side": worst["_side"].get(k),
-                     # area: mean excess over all samples, so one frame does not dominate (the score takes the maximum)
-                     "area": round(sum(r[k] / lim - 1 for r in bad) / len(samples), 3)}
-maxima = {k: max(r.get(k, 0) for r in samples) for k in METRICS}
-scores = {}
-for k, v in errors.items(): scores[GROUP[k]] = round(scores.get(GROUP[k], 0) + v["max"] / max(v["limit"], 1e-9) - 1, 2)
-score = round(sum(v["max"] / max(v["limit"], 1e-9) - 1 for v in errors.values()), 2)   # 0 = OK; used to pick a sample
+errors, scores, score, score_area = judge(samples, LIM, GROUP)
+maxima = {k: max(r.get(k, 0) for r in samples) for k in METRICS if k not in SKIP}
 report = {"result": "OK" if not errors else "FAIL", "score": score, "scores": scores,
-          "score_area": round(sum(v["area"] for v in errors.values()), 3), "height_m": round(H, 3), "errors": errors,
-          "maxima": maxima, "rest": {k: rest_row.get(k, 0) for k in METRICS}, "limits": {k: round(v, 4) for k, v in LIM.items()},
-          "no_limit": [k for k, v in LIMITS.items() if v is None], "frames": FR}
+          "score_area": score_area, "height_m": round(H, 3), "errors": errors,
+          "maxima": maxima, "rest": {k: rest_row.get(k, 0) for k in maxima}, "limits": {k: round(v, 4) for k, v in LIM.items()},
+          "no_limit": [k for k, v in LIMITS.items() if v is None], "frames": FR, "skeleton": PROF.name, "skipped": SKIP}
 json.dump(report, open(os.path.join(A.out, "audit.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 json.dump(samples, open(os.path.join(A.out, "audit_samples.json"), "w", encoding="utf-8"), ensure_ascii=False)
 print("AUDIT %s (height %.2f m, %d samples)" % (report["result"], H, len(samples)))
@@ -209,6 +180,7 @@ for k, v in sorted(errors.items(), key=lambda kv: -kv[1]["max"] / max(kv[1]["lim
         k, fmt(k, v["max"]), fmt(k, v["limit"]).strip(), v["at_frame"], v["range"][0], v["range"][1], round(100 * v["share"]),
         {"L": ", left", "R": ", right"}.get(v["side"], "")))
 print("  no limit:", ", ".join("%s %s" % (k, fmt(k, maxima[k]).strip()) for k in report["no_limit"] if maxima[k]))
+if SKIP: print("  skipped:", "; ".join("%s (%s)" % kv for kv in SKIP.items()))
 
 # close-ups of the worst spots
 if errors and not A.no_closeups:

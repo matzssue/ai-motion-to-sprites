@@ -6,7 +6,7 @@ import numpy as np
 
 TWIST_MAX = 120.0      # deg per segment length. Approved clips: up to 60; broken overhead swing: 210-260
 SPREAD_MAX = 0.5       # 1 - coherence. Approved: 0.41 and below; broken swing: 0.45-0.80
-SEGMENTS = (("Arm", "ForeArm", ("Arm", "Shoulder")), ("ForeArm", "Hand", ("ForeArm",)))   # segment, end bone, vertex bones
+SEGMENTS = (("upper_arm", "forearm", ("upper_arm", "shoulder")), ("forearm", "hand", ("forearm",)))   # segment, end, vertex roles
 _GRID = np.radians(np.arange(-600, 601, 10))
 _rng = np.random.default_rng(0)
 
@@ -20,14 +20,21 @@ def _minrot(a, b):
     return np.eye(3) + np.sin(th) * K + (1 - np.cos(th)) * K @ K
 
 
-def select(dom, rest, heads0, side, samples=600):
-    """vertex indices of each arm segment; dom = dominant bone name per vertex (no prefix), heads0 = {bone: rest head}"""
+def segments(prof, side):
+    """[(segment bone, end bone, vertex bones)] of one arm from the skeleton profile; a missing role drops the segment
+    (shoulder: only from the vertex bones)."""
+    return [(prof.bone(a, side), prof.bone(b, side), [prof.bone(x, side) for x in xs if prof.has(x, side)])
+            for a, b, xs in SEGMENTS if prof.has(a, side) and prof.has(b, side)]
+
+
+def select(dom, rest, heads0, segs, samples=600):
+    """vertex indices of each arm segment {segment bone: indices}; dom = dominant bone per vertex, heads0 = {bone: rest head},
+    segs = segments(prof, side)"""
     out = {}
-    for k, end, bones in SEGMENTS:
-        a, b = side + k, side + end
+    for a, b, bones in segs:
         if a not in heads0 or b not in heads0: continue
         a0, b0 = heads0[a], heads0[b]; L = np.linalg.norm(b0 - a0); d0 = (b0 - a0) / L
-        ii = np.where(np.isin(dom, [side + x for x in bones]))[0]
+        ii = np.where(np.isin(dom, bones))[0]
         p = rest[ii] - a0; t = p @ d0 / L; R = np.linalg.norm(p - np.outer(p @ d0, d0), axis=1)
         ii = ii[(t > -0.35) & (t < 1.05) & (R > 0.02 * L)]
         if len(ii) > samples: ii = np.sort(_rng.choice(ii, samples, replace=False))

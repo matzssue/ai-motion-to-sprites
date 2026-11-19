@@ -7,7 +7,8 @@ import { focusMetric, useReview } from "@/state/store";
 import { usePlayheadEffect } from "@/state/usePlayheadEffect";
 import styles from "./MetricTable.module.css";
 
-/** Every metric with data: value at the playhead, clip maximum, limit, share of samples over the limit. */
+/** Every metric with data: value at the playhead, clip maximum, limit, share of samples over the limit; skipped metrics
+ *  (the skeleton lacks a role) with the reason. */
 export function MetricTable() {
   const audit = useReview((s) => s.audit);
   const selected = useReview((s) => s.selectedMetric);
@@ -40,32 +41,48 @@ export function MetricTable() {
           </tr>
         </thead>
         <tbody>
-          {audit.tracks.map((track) => (
-            <tr key={track.key} className={track.key === selected ? styles.selected : undefined}>
-              <td>
-                <button
-                  type="button"
-                  className={track.error ? `${styles.name} ${styles.bad}` : styles.name}
-                  onClick={() => focusMetric(track.key, track.error ? track.error.at_frame : null)}
-                >
-                  {track.label}
-                </button>
-              </td>
-              {hasSamples && (
-                <td
-                  ref={(cell) => {
-                    if (cell) nowCells.current.set(track.key, cell);
-                    else nowCells.current.delete(track.key);
-                  }}
-                />
-              )}
-              <td className={track.error ? styles.bad : undefined}>{formatValue(track.key, track.max)}</td>
-              <td>{formatLimit(track)}</td>
-              <td>{track.error ? formatShare(track.error.share) : ""}</td>
-            </tr>
-          ))}
+          {audit.tracks.map((track) =>
+            track.skipped !== null ? (
+              <SkippedRow key={track.key} label={track.label} reason={track.skipped} hasSamples={hasSamples} />
+            ) : (
+              <tr key={track.key} className={track.key === selected ? styles.selected : undefined}>
+                <td>
+                  <button
+                    type="button"
+                    className={track.error ? `${styles.name} ${styles.bad}` : styles.name}
+                    onClick={() => focusMetric(track.key, track.error ? track.error.at_frame : null)}
+                  >
+                    {track.label}
+                  </button>
+                </td>
+                {hasSamples && (
+                  <td
+                    ref={(cell) => {
+                      if (cell) nowCells.current.set(track.key, cell);
+                      else nowCells.current.delete(track.key);
+                    }}
+                  />
+                )}
+                <td className={track.error ? styles.bad : undefined}>{formatValue(track.key, track.max)}</td>
+                <td>{formatLimit(track)}</td>
+                <td>{track.error ? formatShare(track.error.share) : ""}</td>
+              </tr>
+            ),
+          )}
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** A metric the audit did not measure: the skeleton lacks a role it needs. */
+function SkippedRow({ label, reason, hasSamples }: { label: string; reason: string; hasSamples: boolean }) {
+  return (
+    <tr className={styles.skipped}>
+      <td>{label}</td>
+      {hasSamples && <td />}
+      <td>skipped</td>
+      <td colSpan={2}>{reason}</td>
+    </tr>
   );
 }

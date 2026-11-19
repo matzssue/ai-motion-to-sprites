@@ -8,7 +8,7 @@ All actions are put on the ground of the `walk` action (or, without one, of the 
 import argparse, glob, json, os, shutil, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from config import KIMODO_PYTHON, script_path
-from chain import blender, merge, audit, chain
+from chain import blender, merge, audit, chain, skel
 from schema_check import load_character
 from stages import NOISE, STAGES, fresh, keys
 
@@ -31,6 +31,9 @@ MERGED = os.path.join(WORK, "%s_merged.glb" % C["name"])
 READY = os.path.join(WORK, "%s_ai.glb" % C["name"])
 WALK = r(C.get("walk_clip") or C["actions"]["walk"]["library"])
 OUTPUT = r(C["output"])
+# skeleton profile of `rig` (built-in name or path); None = Mixamo, and the scripts get no --skeleton (as before profiles)
+SKEL = C.get("skeleton") and (r(C["skeleton"]) if C["skeleton"].lower().endswith(".json") else C["skeleton"])
+SK = skel(SKEL)
 start = STAGES.index(A.start) if A.start else None
 end = STAGES.index(A.end)
 
@@ -73,7 +76,7 @@ if stage("rig", r(C["rig"]), r(C["rig_input"])):
            "--template=" + r(C.get("auto_rig_template") or WALK))
 # 3. AI rig: prop on its own bone, fingers from claws. A new one = look at the preview before going on
 if stage("rig_ai", RIG_AI, r(C["rig"]), r(C["rig_config"]), script_path("prepare_rig.py")):
-    blender("prepare_rig.py", "RIG OK", "--rig", r(C["rig"]), "--config", r(C["rig_config"]), "--out", RIG_AI, "--preview")
+    blender("prepare_rig.py", "RIG OK", "--rig", r(C["rig"]), "--config", r(C["rig_config"]), "--out", RIG_AI, "--preview", *SK)
     stop("new AI rig. Look at %s (the whole prop red, the thumb red = really the thumb), then run again."
          % os.path.join(WORK, "rig_ai_preview_*.png"))
 if end < STAGES.index("rig_ai"):
@@ -84,10 +87,10 @@ PROP = DATA.get("prop", {}).get("name")
 # 4. calibration: library actions on the AI rig must pass the audit (prop where it was modelled)
 CAL = os.path.join(WORK, "calibration.glb")
 if LIB_ACTIONS and stage("calibration", os.path.join(WORK, "calibration_ok.json"), RIG_AI):
-    merge(RIG_AI, LIB_ACTIONS, CAL)
+    merge(RIG_AI, LIB_ACTIONS, CAL, SKEL)
     bad = {}
     for n, _ in LIB_ACTIONS:
-        rep = audit(CAL, n, os.path.join(WORK, "calibration_" + n), PROP, rest_is_normal=True)
+        rep = audit(CAL, n, os.path.join(WORK, "calibration_" + n), PROP, rest_is_normal=True, skeleton=SKEL)
         if rep["result"] != "OK": bad[n] = rep["errors"]
     if bad: stop("calibration FAIL (%s) - a library motion penetrates on this rig; fix the rig/measurement first, not the AI motion." % ", ".join(bad))
     json.dump({"ok": True}, open(os.path.join(WORK, "calibration_ok.json"), "w"))
@@ -104,7 +107,7 @@ def pose_frames(R, motion):
 def best_of(bvhs, motion, with_prop, out, loop=True):
     scores = []
     for bvh in bvhs:
-        glb, rep = chain(RIG_AI, motion, bvh, out, WALK, with_prop=with_prop, loop=loop)
+        glb, rep = chain(RIG_AI, motion, bvh, out, WALK, with_prop=with_prop, loop=loop, skeleton=SKEL)
         scores.append((rep["score"], bvh, glb)); print("   %s: %s, score %.2f" % (os.path.basename(bvh), rep["result"], rep["score"]))
     return min(scores), scores
 
@@ -145,11 +148,11 @@ def ai_action(n, a):
     if not os.path.exists(appr):
         P = os.path.join(D, "poses"); os.makedirs(P, exist_ok=True); g = os.path.join(P, "poses.glb"); ks = ",".join(map(str, fr))
         if with_prop:
-            blender("prop_in_hands.py", "OK ", "--glb", BD["merged"], "--rig-data", RIG_DATA, "--motion", motion, "--out", g, "--frames", ks)
+            blender("prop_in_hands.py", "OK ", "--glb", BD["merged"], "--rig-data", RIG_DATA, "--motion", motion, "--out", g, "--frames", ks, *SK)
         else:
             shutil.copy(BD["merged"], g)
         blender("preview_8.py", "PREVIEW OK", "--glb", g, "--actions", n, "--frames", ks, "--out", os.path.join(P, "preview"))
-        if with_prop: blender("hand_closeups.py", "CLOSEUPS OK", "--glb", g, "--action", n, "--frames", ks, "--out", os.path.join(P, "closeups"))
+        if with_prop: blender("hand_closeups.py", "CLOSEUPS OK", "--glb", g, "--action", n, "--frames", ks, "--out", os.path.join(P, "closeups"), *SK)
         stop("action '%s': key poses (fr. %s) on sample %s (score %.2f) for review: %s. Tune the grip and head with "
              "`variants.py --merged %s --frames %s`. After the verdict write %s with {\"glb\": <approved poses>} "
              "(the variant's parameters copied into the motion file) and run again."
@@ -158,7 +161,7 @@ def ai_action(n, a):
     # 5c. motion through the poses: every sample through the chain, best by audit -> review_page.py -> STOP for the verdict
     if not stage("ai", choice, motion, RIG_AI, appr): return verdict(n, json.load(open(choice, encoding="utf-8")), D, with_prop)
     kf = os.path.join(D, "kf"); os.makedirs(kf, exist_ok=True); pj = os.path.join(kf, "poses.json")
-    blender("keyposes_to_kimodo.py", "POSES OK", poses_glb, BD["merged"], BD["bvh"], pj, ",".join(map(str, fr)), n)
+    blender("keyposes_to_kimodo.py", "POSES OK", poses_glb, BD["merged"], BD["bvh"], pj, ",".join(map(str, fr)), n, *SK)
     if not os.path.exists(emb): python(script_path("kimodo_text.py"), "--motion", motion, "--out", emb, exe=KIMODO_PYTHON)
     python(script_path("kimodo_keyposes.py"), "--motion", motion, "--emb", emb, "--base", "%s:%d" % (os.path.join(e1, "body.npz"), BD["idx"]),
            "--poses", pj, "--keys", keys(R, fr, lp), "--out", kf, "--name", "kf", "--samples", count, "--seed", seed, exe=KIMODO_PYTHON)
@@ -175,7 +178,7 @@ def verdict(n, w, D, with_prop):
     pg = os.path.join(D, "review")
     python(script_path("review_page.py"), "--glb", w["glb"], "--action", n, "--out", pg, "--title", "%s %s" % (C["name"], n),
            "--hand-frames", ",".join(map(str, w["pose_frames"])), *(["--prop", PROP] if with_prop else []),
-           *([] if C["actions"][n].get("loop", True) else ["--no-loop"]))
+           *([] if C["actions"][n].get("loop", True) else ["--no-loop"]), *SK)
     stop("action '%s': best sample %s, score %.2f (all: %s). Review page: %s. "
          "After approval set actions.%s.approved = {\"bvh\": \"%s\", \"score\": %.2f, \"date\": \"YYYY-MM-DD\"} in character.json "
          "and keep the BVH and %s." % (n, os.path.basename(w["bvh"]), w["score"], ", ".join("%.2f" % o for o, _ in w["all"]),
@@ -187,12 +190,12 @@ CHOICE = {n: ai_action(n, a) for n, a in AI_ACTIONS.items()} if end >= STAGES.in
 # 6. merge all actions, prop in hands per action, audit of every action
 if (CHOICE or LIB_ACTIONS or PROP_MOTION) and end >= STAGES.index("merge") and stage("merge", READY, RIG_AI, *[w["clip"] for w in CHOICE.values()],
                                                                      *PROP_MOTION.values()):
-    merge(RIG_AI, LIB_ACTIONS + [(n, w["clip"]) for n, w in CHOICE.items()], MERGED)
+    merge(RIG_AI, LIB_ACTIONS + [(n, w["clip"]) for n, w in CHOICE.items()], MERGED, SKEL)
     # every action from the same MERGED, not chained: an export reorders vertices and the grip depends on it (combine_actions.py)
     after = {}
     for n, motion in PROP_MOTION.items():
         after[n] = os.path.join(WORK, "%s_after_%s.glb" % (C["name"], n))
-        blender("prop_in_hands.py", "OK ", "--glb", MERGED, "--rig-data", RIG_DATA, "--motion", motion, "--out", after[n])
+        blender("prop_in_hands.py", "OK ", "--glb", MERGED, "--rig-data", RIG_DATA, "--motion", motion, "--out", after[n], *SK)
     cur = os.path.join(WORK, "%s_with_prop.glb" % C["name"])
     # always, also without a prop: combine_actions puts every action on the walk's ground (a Kimodo clip stood 0.5 m lower)
     if GROUND != "walk": print("== merge: no 'walk' action, grounding on '%s'" % (GROUND or "nothing"))
@@ -201,7 +204,7 @@ if (CHOICE or LIB_ACTIONS or PROP_MOTION) and end >= STAGES.index("merge") and s
     report = {}
     for n in C["actions"]:
         report[n] = audit(cur, n, os.path.join(WORK, "audit_" + n), PROP, rest_is_normal=n not in PROP_MOTION,
-                          loop=C["actions"][n].get("loop", True))   # "loop": false for a one-shot action (death)
+                          loop=C["actions"][n].get("loop", True), skeleton=SKEL)   # "loop": false for a one-shot action (death)
     json.dump({n: {"result": v["result"], "score": v["score"]} for n, v in report.items()},
               open(os.path.join(WORK, "report.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     # an approved action may have audit FAIL, but not worse than at the verdict

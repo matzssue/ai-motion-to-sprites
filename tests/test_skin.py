@@ -4,6 +4,7 @@ import os, sys
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "pipeline", "lib"))
+import skeleton
 import skin
 
 HEADS = {"LeftShoulder": np.array([0.10, 0, 1.45]), "LeftArm": np.array([0.18, 0, 1.45]),
@@ -29,7 +30,7 @@ def rotate_about(p, a, d, ang):
 
 
 def measure(posed, rest, dom):
-    sel = skin.select(dom, rest, HEADS, "Left")
+    sel = skin.select(dom, rest, HEADS, skin.segments(skeleton.load("soma"), "Left"))   # soma: unprefixed arm names
     seg = sel["LeftForeArm"]
     return skin.twist(rest, posed, seg, HEADS["LeftForeArm"], HEADS["LeftHand"], HEADS["LeftForeArm"], HEADS["LeftHand"], np.eye(3))
 

@@ -26,6 +26,9 @@ python pipeline/character.py --character <dir>/character.json [--from stage] [--
 | merge | every action in one GLB, prop in hands, audit of each | FAIL = STOP (approved action: worse than at the verdict) |
 | preview | `preview_8.py`: 8 directions × 8 frames per action into `output` | review (§4) |
 
+Bones after the rig stage are found by role through a skeleton profile (`skeletons/<name>.json`, schema
+`schemas/skeleton.schema.json`): `character.json` `"skeleton"` (built-in name or path), every Blender script `--skeleton`.
+No key = `mixamo`, and optional bones the rig lacks count as absent (configs from before profiles run unchanged).
 Exit code 2 = a human gate. Finished stages are skipped (output newer than inputs). A run is long (Kimodo + several
 samples at ~1.5 min each: prop 34 s, audit 31 s, retarget and merge): run it as a detached process, not inside a tool call
 with a timeout.
@@ -171,6 +174,8 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - A Kimodo clip stands at another height than the library walk (0.5 m lower once): in game the sprite jumps on every clip
   change and the audit does not see it. `combine_actions.py` grounds every action on the walk (`--ground`).
 - The auto-rig stands in an A-pose: without the CORR rest correction in `soma_to_mixamo.py` the arms go sideways.
+- `LeftLeg` is the upper leg in SOMA and the lower leg in Mixamo: never match bones by name across skeletons, only by role.
+  Library clips are copied by role too (`merge_actions.py --skeleton`); without it, by name only (as before).
 - Bone lengths from GLB are meaningless: Blender IK does not work; IK is computed from bone heads.
 - GLB splits vertices on UV seams: count connectivity and islands after welding positions. A mesh where the prop is fused
   with the body is one island: select by rules, not by island.
