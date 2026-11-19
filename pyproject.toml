@@ -33,3 +33,13 @@ packages = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 150
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+# real errors only: pyflakes and syntax errors. The dense style (semicolon chains, one-line ifs, lambdas, `l` names,
+# long lines) is deliberate. bpy/mathutils are never imported by ruff, so the host needs no Blender.
+select = ["F", "E9"]
+ignore = ["E501", "E701", "E702", "E731", "E741"]

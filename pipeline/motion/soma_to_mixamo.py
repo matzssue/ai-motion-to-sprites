@@ -3,7 +3,7 @@ for merge_actions. Rest-pose correction (CORR): the auto-rig stands in an A-pose
 blender -b --python pipeline/motion/soma_to_mixamo.py -- src.bvh rig.(fbx|glb) out.glb action_name [loop_blend_s]
 loop_blend_s > 0: the last N s blend smoothly back to the frame-0 pose (Kimodo does not return: a head popped 26 deg at the loop seam)."""
 import bpy, sys, math
-from mathutils import Matrix, Quaternion, Vector
+from mathutils import Matrix, Quaternion
 
 a = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 if len(a) < 4 or a[0] in ("-h", "--help"):

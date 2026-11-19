@@ -4,7 +4,7 @@ python pipeline/review/review_page.py --glb X.glb --action attack --out dir --ti
     [--previous dir_of_previous_review] [--hand-frames 10,45,56,85] [--px 360] [--note "what changed"]
     [--rest-is-normal] [--no-loop]   (library walk/idle: prop on the back; without it "hand to prop" 50 cm = FAIL)
 Finished steps (audit, frames, close-ups) are skipped when their output is newer than the GLB."""
-import argparse, base64, glob, html, io, json, os, sys
+import argparse, base64, glob, html, json, os, sys
 from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))

@@ -3,7 +3,7 @@ and a stand-in text encoder that serves precomputed sentence embeddings from kim
 import os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config import KIMODO_DIR, KIMODO_MODEL  # noqa: E402
+from config import KIMODO_DIR, KIMODO_MODEL  # noqa: E402, F401  (KIMODO_MODEL is read as kimodo_common.KIMODO_MODEL)
 
 os.environ.setdefault("HF_HOME", os.path.join(KIMODO_DIR, "hf"))
 sys.path.insert(0, os.path.join(KIMODO_DIR, "repo"))

@@ -10,7 +10,7 @@ from mathutils import Matrix, Vector, Quaternion
 from mathutils.bvhtree import BVHTree
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from collisions import dominant, labels, vertices, inside, joint_angles, FINGER_PREFIX
-from grip_words import AXES, PALM_SIDE, nearest, grip_from_words, grip_in_words
+from grip_words import grip_from_words, grip_in_words
 
 ap = argparse.ArgumentParser(description="Put the prop in both hands: prop pose, two-arm IK, finger wrap, recoil.")
 ap.add_argument("--glb", required=True); ap.add_argument("--rig-data", required=True)
