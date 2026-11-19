@@ -36,7 +36,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 150
-extend-exclude = [".venv"]
+extend-exclude = [".venv", "runtime"]
 
 [tool.ruff.lint]
 # real errors only: pyflakes and syntax errors. The dense style (semicolon chains, one-line ifs, lambdas, `l` names,

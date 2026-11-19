@@ -15,8 +15,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install
@@ -25,12 +25,12 @@ jobs:
         run: ruff check .
       - name: Test
         run: python -m pytest
-      # Runtime dependencies only (a fresh venv without the dev tools): GPL, AGPL and non-commercial licenses fail.
+      # Runtime dependencies only (a fresh venv without the dev tools): every SPDX identifier must be on the allowlist
+      # in tools/check_licenses.py (permissive, commercial use); GPL, AGPL, LGPL, MPL, non-commercial and unknown fail.
       - name: License scan
-        env:
-          ALLOWED: "MIT;MIT License;MIT-CMU;HPND;BSD License;BSD-2-Clause;BSD-3-Clause;Apache-2.0;Apache Software License;ISC;PSF-2.0;Python Software Foundation License"
         run: |
           python -m venv runtime
           if [ -d runtime/Scripts ]; then BIN=runtime/Scripts; else BIN=runtime/bin; fi
           "$BIN/python" -m pip install . "pip-licenses>=4.4"
-          "$BIN/pip-licenses" --from=mixed --allow-only="$ALLOWED"
+          "$BIN/pip-licenses" --from=mixed --format=json > runtime/licenses.json
+          "$BIN/python" tools/check_licenses.py runtime/licenses.json
