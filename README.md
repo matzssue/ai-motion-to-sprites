@@ -167,9 +167,17 @@ python -m pytest            # auto-rig, grip words, stage helpers, config schema
 ruff check .                # pyflakes and syntax errors only; the dense style is deliberate
 ```
 
-CI runs the same on Ubuntu and Windows, plus a license scan of the runtime dependencies (GPL, AGPL and non-commercial
+CI runs the same on Ubuntu and Windows (and lint, typecheck, tests and build of `web/` on Ubuntu), plus a license scan of the runtime dependencies (GPL, AGPL and non-commercial
 licenses fail; see [LICENSES.md](LICENSES.md)). `AMTS_EXTRA_CONFIGS="<glob>;<glob>"` makes the schema test also check
 your own `character.json`, rig and motion files.
+
+## Web viewer
+
+[`web/`](web/) is a browser viewer for one audited motion (Next.js, React, react-three-fiber). Drop the GLB the audit
+ran on plus `audit.json` (and `audit_samples.json`) onto the page: it plays the clip in 3D with the 8 game directions,
+draws every metric over time against its limit, and clicking a failure jumps to that frame with a marker on the audit
+point. Files are read in the browser, so the static build needs no server. Setup, data flow and the Blender to three.js
+coordinate and frame conversions (with the measurements behind them) are in [web/README.md](web/README.md).
 
 ## Known traps (each cost a version)
 

@@ -34,3 +34,26 @@ permissive allowlist: GPL, AGPL, LGPL, MPL, non-commercial and unknown licenses 
 | `jsonschema` (+ `attrs`, `referencing`, `rpds-py`, `jsonschema-specifications`) | MIT | yes | host Python, config validation (`schemas/`) |
 | `psutil` | BSD-3-Clause | yes | optional, `variants.py` free-RAM probe |
 | `pytest`, `ruff`, `pip-licenses` | MIT | yes | development only |
+
+## Web viewer (`web/`)
+
+npm packages, checked by `web/scripts/check-licenses.mjs` over every production package in `web/package-lock.json`
+(88 packages, all platforms' optional binaries included). Same allowlist as `tools/check_licenses.py`, plus CC-BY-4.0
+for browser-support data.
+
+| Dependency | License | Commercial use | Note |
+|---|---|---|---|
+| `next` (+ `@next/swc-*` binaries, `@next/env`, `styled-jsx`, `postcss`) | MIT | yes | static export only |
+| `@swc/helpers` | Apache-2.0 | yes | via Next.js |
+| `caniuse-lite` | CC-BY-4.0 | yes (attribution) | browser-support data used at build time |
+| `react`, `react-dom` | MIT | yes | |
+| `three` | MIT | yes | |
+| `@react-three/fiber`, `@react-three/drei` (+ `three-stdlib`, `three-mesh-bvh`, `camera-controls`, `troika-three-text`) | MIT | yes | |
+| `@mediapipe/tasks-vision`, `hls.js`, `draco3d`, `@dimforge/rapier3d-compat`, `promise-worker-transferable` | Apache-2.0 | yes | pulled in by drei and three-stdlib, unused here |
+| the remaining small packages (`tslib`, `which`, `ieee754`, …) | MIT, ISC, BSD-3-Clause, 0BSD | yes | full list: `npm run licenses` in `web/` |
+| `webgl-constants` | MIT (LICENSE file; no `license` field) | yes | via drei; listed by hand in the license script |
+| `zustand` | MIT | yes | state |
+| `zod` | MIT | yes | audit file validation |
+| `sharp` | replaced by an empty MIT stub (`web/stubs/sharp`) | yes | Next.js's optional image optimizer; the real package bundles libvips (LGPL-3.0) and is never installed |
+| `typescript` | Apache-2.0 | yes | development only |
+| `eslint`, `eslint-config-next`, `vitest`, `@types/*` | MIT | yes | development only |
