@@ -107,9 +107,29 @@ FING = {}
 # bones the finger wrap animates: finger_* grown by prepare_rig, or the rig's own finger chains it kept (own skeleton)
 FING_NAMES = {n for chains in RD["fingers"].values() for ch in chains for n in ch}
 if RD["fingers"] and not PROF.has("fingers"): print("fingers: skipped (skeleton '%s' has no fingers): no finger wrap" % PROF.name)
+
+
+def chain_end(n):
+    """Where a finger chain ends: its leaf child (the own skeleton's *_end bone); a GLB keeps no bone tails."""
+    b = bone(n); return b.children[0].head_local if b.children else b.tail_local
+
+
 for s, chains in (RD["fingers"] if PROF.has("fingers") else {}).items():
-    FING[s] = [([AW @ bone(n).head_local for n in ch] + [AW @ bone(ch[-1]).tail_local], ch, k in RD["thumbs"].get(s, []))
+    FING[s] = [([AW @ bone(n).head_local for n in ch] + [AW @ (chain_end(ch[-1]) if not ch[0].startswith(FINGER_PREFIX)
+                                                               else bone(ch[-1]).tail_local)], ch, k in RD["thumbs"].get(s, []))
                for k, ch in enumerate(chains)]
+# the rig's own finger chains bend about an axis fixed in each bone (the own skeleton: local X, its Z is the palm normal),
+# carried by the bones above it. With one axis from the hand's palm normal for every bone, a finger bent ~90 deg at the
+# knuckle points along that normal, the next axis degenerates and the rest of the finger stood up beside the stock
+# (Kusznik). The grown finger_* bones (Mixamo template) keep the hand's palm normal: their wrap is approved as it is.
+CURL = {}
+for s, fl in FING.items():
+    n_rest = (hand_rest[s].to_3x3().normalized() @ Vector(RD["palm"][s]["local_normal"])).normalized()
+    for J, names, thumb in fl:
+        if names[0].startswith(FINGER_PREFIX): continue
+        for b in range(3):
+            ax = (J[b + 1] - J[b]).normalized().cross(n_rest)
+            if ax.length > 1e-6: CURL[names[b]] = (rest_rot(names[b]).transposed() @ ax).normalized()
 
 
 # knuckles (finger bases without the thumb) in the hand bone frame, from the rest pose
@@ -128,6 +148,20 @@ def hand_R(side, d, n):
 
 # ---------- body: collision trees per frame ----------
 dom = dominant(body); LAB = labels(dom, RIG)
+# skin thickness of every own finger bone (median distance of its skin from the bone at rest): the wrap keeps each bone that
+# far from the prop. One claw thickness for all let the thumb's metacarpal (~3 cm of skin on Kusznik) bend into the stock
+BONE_R = {}
+if CURL:
+    _co = np.array([tuple(body.matrix_world @ v.co) for v in body.data.vertices])
+    for s_, fl in FING.items():
+        for J, names, _ in fl:
+            for b, n in enumerate(names):
+                m = dom == n
+                if n not in CURL or m.sum() < 5: continue
+                a_, b_ = np.array(J[b]), np.array(J[b + 1]); ab = b_ - a_
+                u = np.clip(((_co[m] - a_) @ ab) / max(ab @ ab, 1e-12), 0, 1)
+                BONE_R[n] = float(np.median(np.linalg.norm(_co[m] - (a_ + u[:, None] * ab), axis=1)))
+    print("fingers: skin radius [cm]:", {k: round(100 * v, 1) for k, v in sorted(BONE_R.items())})
 tris = np.array([p.vertices[:3] for p in body.data.polygons])
 T_ALL = tris[(LAB[tris] != "").all(1)].tolist()
 T_CORE = tris[np.isin(LAB[tris], ("head", "torso")).all(1)].tolist()    # no clavicles: the upper arm always touches the shoulder
@@ -385,16 +419,23 @@ def wrap_fingers(C4):
         for J, names, thumb in fl:
             Jw = [T @ j for j in J]
             for b in range(3):
-                pivot = Jw[b]; axis = (Jw[b + 1] - Jw[b]).normalized().cross(npw)
+                pivot = Jw[b]
+                axis = wrot(names[b]) @ CURL[names[b]] if names[b] in CURL else (Jw[b + 1] - Jw[b]).normalized().cross(npw)
                 if axis.length < 1e-6: continue
                 axis.normalize(); best = (1e9, 0)
-                # the thumb opposes the fingers: it may bend both ways (it wrapped away from the stock)
-                for a in range(-90 if thumb else 0, 96, 5):
+                # the thumb opposes the fingers: it may bend both ways (it wrapped away from the stock). The own skeleton's bones
+                # bend about their own axis, so its thumb wraps one way too, and its first bone is the metacarpal: 0..45 deg
+                # (-90..95 zig-zagged the thumb: -50 / +75 / -70 deg; -45..45 put its base 3.2 cm into the stock, 0..45 2.3 cm)
+                own = names[b] in CURL; lo, hi = (-90, 95) if thumb else (0, 95)
+                if own: lo, hi = (0, 45) if thumb and b == 0 else (0, 95)
+                for a in range(lo, hi + 1, 5):
                     q = Quaternion(axis, math.radians(a))
                     pts = [pivot + q @ (Jw[j] - pivot) for j in range(b + 1, 4)]
                     mids = [pivot.lerp(pts[0], 0.5)] + [pts[i].lerp(pts[i + 1], 0.5) for i in range(len(pts) - 1)]
                     d_ = [sd(p) for p in pts + mids]
-                    c_ = abs(d_[0] - (g + 0.005)) + sum(10 + 100 * (g - x) for x in d_ if x < g)
+                    gl = [max(g, BONE_R.get(names[min(b + j, 2)], g)) for j in range(len(pts))] + [
+                        max(g, BONE_R.get(names[b + k], g)) for k in range(len(mids))]
+                    c_ = abs(d_[0] - (gl[0] + 0.005)) + sum(10 + 100 * (gg - x) for x, gg in zip(d_, gl) if x < gg)
                     c_ += GP.get("finger_change_penalty", 0.0015) * abs(a - PREV_F.get(names[b], a))   # 0.0015/deg ~ 1.5 mm per 1 deg
                     if c_ < best[0]: best = (c_, a)
                 PREV_F[names[b]] = best[1]; q = Quaternion(axis, math.radians(best[1]))
