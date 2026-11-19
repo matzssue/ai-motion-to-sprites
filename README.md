@@ -4,7 +4,7 @@
 
 Text-to-motion for 2D games. One command takes a generated 3D character to an animated, audited GLB ready for
 8-direction sprite rendering. Along the way it plans motion from sentences with [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo),
-retargets it to a Mixamo-style rig, puts a two-handed prop (a crossbow, a staff) into the hands with finger wrapping,
+retargets it to a rig with Mixamo-compatible bone naming, puts a two-handed prop (a crossbow, a staff) into the hands with finger wrapping,
 and checks every quarter frame for problems a human would reject.
 
 It was built for a real game: an isometric action roguelite with a few hundred enemy animations. In production, the AI motion
@@ -21,7 +21,7 @@ model.glb ─► prepare ─► auto-rig ─► AI rig ─► calibration ─►
 | Stage | Script | What happens |
 |---|---|---|
 | prepare | `prepare_for_rigging.py` | weld UV seams, decimate to ~25k tris, shrink and embed the texture |
-| rig | `auto_rig.py` + `auto_rig_blender.py` | silhouette-based joint detection (crotch, armpits, fingertips, robe/hunchback cases), Mixamo `mixamorig:*` skeleton, voxel-proxy bone-heat weights. Benchmarked against 18 rigs made by Mixamo (`--bench`) |
+| rig | `auto_rig.py` + `auto_rig_blender.py` | silhouette-based joint detection (crotch, armpits, fingertips, robe/hunchback cases), Mixamo-compatible `mixamorig:*` bone naming, voxel-proxy bone-heat weights. The bone hierarchy, rest orientations and finger bones still come from a Mixamo-skeleton FBX you supply (`--template`). Benchmarked against 18 rigs made by Mixamo (`--bench`) |
 | rig_ai | `prepare_rig.py` | cuts the prop out of the mesh onto its own bone (rule-based selection, island closure, thin-part growth for bow strings, debris cleanup), grows finger bones out of fused claws, finds the thumb and the palm side |
 | calibration | `merge_actions.py` + `motion_audit.py` | library clips must pass the audit on this rig, so a bad rig is not blamed on the AI motion |
 | ai | `kimodo_text.py`, `kimodo_motion.py`, `kimodo_keyposes.py`, `keyposes_to_kimodo.py` | one sentence per phase; body samples without hand constraints; key poses set on the best sample and reviewed; then Kimodo is constrained through those poses (`FullBodyConstraintSet`) |
@@ -137,8 +137,10 @@ Measured on the game's characters (assets are not included):
   `AMTS_GPU_THRESHOLD_MB` (default 2500) is the GPU memory in use above which a Kimodo script waits.
 - Host Python with `numpy`, `scipy`, `Pillow`, `jsonschema` (auto-rig, alpha check, review page, config validation, tests):
   `pip install -e .`
-- A Mixamo-skeleton FBX (any library clip) as the auto-rig template and the walk used for calibration. Download it yourself
-  from Mixamo. Clips are not redistributed here.
+- A Mixamo-skeleton FBX (any library clip): the auto-rig cannot build a rig without it today (`--template` gives the bone
+  hierarchy, rest orientations and finger bones), and the same clip is the walk used for calibration and grounding.
+  Download it yourself from Mixamo. Clips are not redistributed here, and Mixamo output must not be used to train or
+  test ML/AI systems (LICENSES.md).
 
 The files in `examples/` describe a real character whose assets are not in this repo: copy them next to your own model
 and clips, fix the paths, and measure the coordinates in `rig.example.json` on your model. `schemas/` describes every key;
@@ -221,3 +223,6 @@ Open `http://127.0.0.1:3000/characters/` (the web app binds to 127.0.0.1 too). E
 
 This repository: MIT. It contains **no** models, clips or weights. Every dependency and model it calls, with its license
 and whether it allows commercial use, is listed in [LICENSES.md](LICENSES.md).
+
+Mixamo is a trademark of Adobe. This project is not affiliated with or endorsed by Adobe; "Mixamo-compatible" refers
+to bone naming only.

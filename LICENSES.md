@@ -16,7 +16,7 @@ the `server` extra) is not on its permissive allowlist: GPL, AGPL, LGPL, MPL, no
 | `McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp` | MIT (Hugging Face license tag) | yes | adapter on top of Llama 3, whose license still applies to the base weights |
 | `McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised` | MIT (Hugging Face license tag, checked 2026-11-19) | yes | loaded by `kimodo_text.py`; same note on the base weights |
 | SOMA-X body models (MANO hands) | MANO license | **no** | must not be used; this pipeline does not load them |
-| Mixamo clips and rigs | Adobe Mixamo terms | yes, inside projects | raw FBX files must not be redistributed; not in this repo |
+| Mixamo clips and rigs | Adobe Mixamo terms | yes, inside projects | raw FBX files must not be redistributed; not in this repo. Mixamo output must not be used to create, train, test or improve ML/AI systems (Mixamo Additional Terms) nor to recreate the service (Adobe General Terms). Not affiliated with Adobe; "Mixamo-compatible" means bone naming only |
 
 ## Code
 
