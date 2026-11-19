@@ -1,26 +1,14 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { loadFiles, loadFromUrl } from "@/loading/load";
-import { applyLoad, useReview } from "@/state/store";
+import { loadFiles, loadFromUrl, loadIntoReview as load } from "@/loading/load";
+import { useReview } from "@/state/store";
 import { AuditHeader } from "./AuditHeader";
 import { EmptyState } from "./EmptyState";
-import { MetricTable } from "./MetricTable";
-import { PlaybackBar } from "./PlaybackBar";
 import styles from "./ReviewApp.module.css";
-import { Timeline } from "./Timeline";
+import { TopNav } from "./TopNav";
 import { useKeyboard } from "./useKeyboard";
-
-const Scene = dynamic(() => import("./scene/Scene"), {
-  ssr: false,
-  loading: () => <p className={styles.stageNote}>Starting the 3D view…</p>,
-});
-
-async function load(task: Promise<Parameters<typeof applyLoad>[0]>) {
-  useReview.setState({ loading: true });
-  applyLoad(await task);
-}
+import { ViewerWorkspace } from "./ViewerWorkspace";
 
 export function ReviewApp() {
   const model = useReview((s) => s.model);
@@ -69,6 +57,7 @@ export function ReviewApp() {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
+      <TopNav current="viewer" />
       <header className={styles.top}>
         <AuditHeader />
         <button type="button" onClick={() => fileInput.current?.click()}>
@@ -94,18 +83,7 @@ export function ReviewApp() {
       )}
 
       {model || audit ? (
-        <main className={styles.workspace}>
-          <section className={styles.stage} aria-label="Motion">
-            <div className={styles.viewport}>
-              {model ? <Scene /> : <p className={styles.stageNote}>Drop the GLB to see the motion.</p>}
-            </div>
-            <PlaybackBar />
-            <Timeline />
-          </section>
-          <aside className={styles.side}>
-            <MetricTable />
-          </aside>
-        </main>
+        <ViewerWorkspace />
       ) : (
         <EmptyState onOpen={() => fileInput.current?.click()} />
       )}

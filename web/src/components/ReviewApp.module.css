@@ -30,42 +30,6 @@
   background: var(--panel);
 }
 
-.workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 470px;
-  gap: 16px;
-  align-items: start;
-}
-
-.stage {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-
-.viewport {
-  position: relative;
-  height: min(58vh, 640px);
-  min-height: 300px;
-  border-radius: 6px;
-  background: var(--stage);
-  overflow: hidden;
-}
-
-.stageNote {
-  margin: 0;
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--muted);
-}
-
-.side {
-  min-width: 0;
-}
-
 .dropOverlay {
   position: fixed;
   inset: 12px;
@@ -78,14 +42,4 @@
   color: var(--accent);
   pointer-events: none;
   z-index: 50;
-}
-
-@media (max-width: 1100px) {
-  .workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .viewport {
-    height: 52vh;
-  }
 }

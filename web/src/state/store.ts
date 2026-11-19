@@ -36,7 +36,7 @@ type ReviewState = {
   view: { direction: DirectionName; focus: BlenderPoint | null; request: number };
 };
 
-export const useReview = create<ReviewState>(() => ({
+const initialReview: ReviewState = {
   title: null,
   model: null,
   audit: null,
@@ -49,7 +49,15 @@ export const useReview = create<ReviewState>(() => ({
   showSkeleton: false,
   selectedMetric: null,
   view: { direction: "s", focus: null, request: 0 },
-}));
+};
+
+export const useReview = create<ReviewState>(() => initialReview);
+
+/** Back to nothing loaded: the review page loads its own manifest and must not show the previous page's motion. */
+export function resetReview(): void {
+  useReview.setState({ ...initialReview, view: { ...initialReview.view, request: useReview.getState().view.request + 1 } });
+  seek(0);
+}
 
 export const usePlayhead = create<{ frame: number }>(() => ({ frame: 0 }));
 

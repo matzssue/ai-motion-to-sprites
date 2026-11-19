@@ -2,7 +2,7 @@
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { z } from "zod";
 import { AuditFileError, detectKind, parseReport, parseSamples, readJson } from "@/audit/parse";
-import type { LoadResult, LoadedModel } from "@/state/store";
+import { applyLoad, useReview, type LoadResult, type LoadedModel } from "@/state/store";
 
 export async function parseGlb(fileName: string, data: ArrayBuffer): Promise<LoadedModel> {
   try {
@@ -75,4 +75,10 @@ export async function loadFromUrl(data: string): Promise<LoadResult> {
     result.problems.push(problemText(e));
   }
   return result;
+}
+
+/** Shows "Loading…", then merges the result into the review store. */
+export async function loadIntoReview(task: Promise<LoadResult>): Promise<void> {
+  useReview.setState({ loading: true });
+  applyLoad(await task);
 }
