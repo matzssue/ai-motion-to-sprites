@@ -1,4 +1,5 @@
-"""Auto-rig without Mixamo: `mixamorig:*` skeleton (65 bones) + skin weights, from the mesh silhouette.
+"""Auto-rig: joints from the mesh silhouette + skin weights, on a skeleton with Mixamo-compatible `mixamorig:*` names (65 bones).
+The bone hierarchy, rest orientations and finger bones still come from a user-supplied Mixamo-skeleton FBX (--template).
 python pipeline/rig/auto_rig.py --src=<x>_for_rig.fbx --out=rig_base.fbx --template=<any Mixamo FBX with the standard skeleton>
 python pipeline/rig/auto_rig.py --bench --mesh-dir=<npz> --gt-dir=<json>   # against rigs made by Mixamo
 Joints (numpy/scipy/PIL) -> skeleton and weights in Blender (`auto_rig_blender.py`). Joints land in `<out>_joints.json`
