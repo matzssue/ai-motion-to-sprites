@@ -1,5 +1,7 @@
 # ai-motion-to-sprites
 
+[![CI](https://github.com/matzssue/ai-motion-to-sprites/actions/workflows/ci.yml/badge.svg)](https://github.com/matzssue/ai-motion-to-sprites/actions/workflows/ci.yml)
+
 Text-to-motion for 2D games. One command takes a generated 3D character to an animated, audited GLB ready for
 8-direction sprite rendering. Along the way it plans motion from sentences with [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo),
 retargets it to a Mixamo-style rig, puts a two-handed prop (a crossbow, a staff) into the hands with finger wrapping,
@@ -141,7 +143,7 @@ and clips, fix the paths, and measure the coordinates in `rig.example.json` on y
 python pipeline/character.py --character my_character/character.json
 blender -b --python pipeline/checks/motion_audit.py -- --glb out.glb --action attack --prop crossbow --out audit/
 blender -b --python pipeline/checks/skin_check.py -- --glb out.glb --action attack --out skin/
-python tests/test_skin.py && python tests/test_alpha.py      # or: python -m pytest tests (pytest not required)
+python -m pytest                        # see "Development"; every test file also runs alone: python tests/test_skin.py
 ```
 
 Every script prints its usage with `--help`. Blender scripts take their arguments after `--`.
@@ -154,6 +156,20 @@ The prop frame has +Y on the character's *left*, which makes sign mistakes easy.
 ```
 
 Every run prints the grip back in words (`grip right: palm from below, fingers left and 45 deg forward, 33 cm in front of the butt`).
+
+## Development
+
+Host Python 3.10+, no Blender or Kimodo needed:
+
+```bash
+pip install -e ".[dev]"     # numpy, scipy, Pillow, jsonschema + pytest, ruff, pip-licenses
+python -m pytest            # auto-rig, grip words, stage helpers, config schemas, skin and alpha checks
+ruff check .                # pyflakes and syntax errors only; the dense style is deliberate
+```
+
+CI runs the same on Ubuntu and Windows, plus a license scan of the runtime dependencies (GPL, AGPL and non-commercial
+licenses fail; see [LICENSES.md](LICENSES.md)). `AMTS_EXTRA_CONFIGS="<glob>;<glob>"` makes the schema test also check
+your own `character.json`, rig and motion files.
 
 ## Known traps (each cost a version)
 
