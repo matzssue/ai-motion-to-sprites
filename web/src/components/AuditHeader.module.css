@@ -1,0 +1,24 @@
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.header h1 {
+  margin: 0;
+  font: 600 24px/1.2 var(--font);
+  overflow-wrap: anywhere;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.warning {
+  margin: 0;
+  color: var(--bad);
+  font-size: 14px;
+}
