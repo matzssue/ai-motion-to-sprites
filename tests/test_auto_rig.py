@@ -33,15 +33,20 @@ def mesh(parts):
     return np.vstack(V), np.vstack(T)
 
 
-def humanoid(robe=False):
+def humanoid(robe=False, kneecap=None, palm=False):
     parts = [((-0.20, -0.10, CROTCH), (0.20, 0.10, 1.45)),            # torso
              ((-0.05, -0.05, 1.45), (0.05, 0.05, 1.55)),              # neck
              ((-0.10, -0.12, 1.55), (0.10, 0.10, H))]                 # head
     for s in (1, -1):
         x = sorted((s * 0.20, s * 0.85)); parts.append(((x[0], -0.05, ARM_LO), (x[1], 0.05, ARM_HI)))   # arm
-        x = sorted((s * 0.85, s * 0.95)); parts.append(((x[0], -0.04, 1.35), (x[1], 0.04, 1.41)))       # hand
+        x = sorted((s * 0.85, s * 0.95))
+        z = (1.30, 1.46) if palm else (1.35, 1.41)
+        parts.append(((x[0], -0.04, z[0]), (x[1], 0.04, z[1])))                                          # hand
+        if palm:
+            x = sorted((s * 0.95, s * 1.02)); parts.append(((x[0], -0.01, 1.37), (x[1], 0.01, 1.39)))    # finger
         x = sorted((s * 0.06, s * 0.18))
         if not robe: parts.append(((x[0], -0.07, 0.0), (x[1], 0.07, CROTCH)))                         # leg
+        if kneecap: parts.append(((x[0] + 0.03, -0.12, kneecap - 0.01), (x[1] - 0.03, -0.07, kneecap + 0.01)))
         parts.append(((x[0], -0.20, 0.0), (x[1], 0.07, 0.08)))                                          # foot
     if robe: parts.append(((-0.25, -0.12, 0.08), (0.25, 0.12, CROTCH)))                                 # robe to the feet
     return mesh(parts)
@@ -70,6 +75,23 @@ def test_legs_apart():
         assert np.linalg.norm(tip - hand) < 0.2 * H and abs(tip[0]) > 0.94    # wrist towards the fingertip
 
 
+def test_knee_from_contour():
+    j, f = auto_rig.solve(*humanoid())          # a straight column: no kneecap, SOMA's fraction
+    assert f["knee_from"] == "SOMA"
+    soma = j["LeftLeg"][2]
+    j, f = auto_rig.solve(*humanoid(kneecap=0.58))
+    assert f["knee_from"] == "contour" and abs(soma - 0.58) > 0.03 * H
+    for s in ("Left", "Right"):
+        assert abs(j[s + "Leg"][2] - 0.58) < 0.01 * H, j[s + "Leg"]
+
+
+def test_wrist_where_the_hand_widens():
+    j, _ = auto_rig.solve(*humanoid(palm=True))     # palm 16 cm tall on an arm 10 cm thick
+    for s in ("Left", "Right"):
+        assert abs(abs(j[s + "Hand"][0]) - 0.85) < 0.02, j[s + "Hand"]
+        assert abs(j[s + "Arm"][0]) < abs(j[s + "ForeArm"][0]) < abs(j[s + "Hand"][0])
+
+
 def test_robe_without_leg_gap():
     j, f = auto_rig.solve(*humanoid(robe=True))
     assert f["robe"]
@@ -96,6 +118,32 @@ def test_symmetry_gate():
     auto_rig.symmetry_gate(dict(j, LeftHandIndex1=j["LeftHandIndex1"] + np.array([0.0, 0.08, 0.0])), H, "x.json")
     with pytest.raises(SystemExit, match="Left/RightHandIndex1"):
         auto_rig.symmetry_gate(dict(j, LeftHandIndex1=j["LeftHandIndex1"] + np.array([0.0, 0.1, 0.0])), H, "x.json")
+
+
+def test_template_layout():
+    """Without a template the spine split and the clavicles are SOMA's (own_skeleton); with one they come from that
+    template's own joints, scaled onto the detected body, and nothing else moves."""
+    import own_skeleton as OS
+    j, _ = auto_rig.solve(*humanoid())
+    hips, neck = j["Hips"], j["Neck"]
+    for k, t in zip(("Spine", "Spine1", "Spine2"), OS.SPINE_SPLIT):
+        assert np.allclose(j[k], hips + t * (neck - hips))
+    T = {k: np.array(v, float) for k, v in {
+        "Hips": [0, 0, 1.0], "Neck": [0, 0.02, 1.5], "Spine": [0, 0, 1.1], "Spine1": [0, 0.01, 1.2], "Spine2": [0, 0.01, 1.35],
+        "LeftArm": [0.18, 0.02, 1.42], "RightArm": [-0.18, 0.02, 1.42],
+        "LeftShoulder": [0.06, 0.01, 1.43], "RightShoulder": [-0.06, 0.01, 1.43]}.items()}
+    lay = auto_rig.template_layout(T)
+    d = T["Neck"] - T["Hips"]
+    assert np.allclose(lay["spine"], [(T[k] - T["Hips"]) @ d / (d @ d) for k in ("Spine", "Spine1", "Spine2")])
+    assert abs(lay["clavicle_x"] - 1 / 3) < 1e-9
+    k = auto_rig.apply_layout(j, lay)
+    L = np.linalg.norm(neck - hips)
+    assert np.allclose(k["Spine1"], hips + lay["spine"][1] * (neck - hips))
+    for s in ("Left", "Right"):
+        assert abs(k[s + "Shoulder"][0] - j[s + "Arm"][0] / 3) < 1e-9
+        assert abs(k[s + "Shoulder"][2] - (j[s + "Arm"][2] + 0.01 / np.linalg.norm(d) * L)) < 1e-9
+        assert abs(k[s + "Shoulder"][1] - k["Spine2"][1]) < 1e-9
+    assert all(np.allclose(k[n], j[n]) for n in j if "Spine" not in n and "Shoulder" not in n)
 
 
 if __name__ == "__main__":

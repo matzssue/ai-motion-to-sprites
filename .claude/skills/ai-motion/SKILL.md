@@ -225,13 +225,12 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   back, folded over itself. Stray weight on another finger's outer bone goes to that bone (audit `finger_tip_fold`).
 - Cords hanging from a wrist wrap sit inside the finger tube of the thumb's/pinky's first bone: weighted to it, the grip
   pulled them 4 cm and they showed as strings across the crossbow. Thin mesh beside a finger's first bone goes to the hand.
-- `aim.head_back_deg` turns the neck back and the head forward. On Mixamo the `Neck` bone has no skin, so only the head
-  moved; bone heat gave the own skeleton's neck a third of the throat and the 50 deg tuned on Mixamo stretched it (amts throat
-  edges p95 1.5-1.8 x rest vs Mixamo 1.2-1.4). The auto-rig moves the neck's weight to the head by height above the neck
+- `aim.head_back_deg` turns the neck back and the head forward. Bone heat gave the own skeleton's neck a third of the
+  throat and the 50 deg tuned on an earlier rig stretched it (amts throat edges p95 1.5-1.8 x rest). The auto-rig moves the neck's weight to the head by height above the neck
   joint; moved whole, the base of the neck turned with the head into the hand at the cheek (hands_in_head 0 -> 1.8 cm), and
   the rule by height leaves most of that stretch: set `head_back_deg` per character, 0 when the stock is not at the cheek.
 - Bone heat leaves the chest, clavicle and forearm on the middle of the upper arm: the elbow bend flattened the biceps
-  (-23% radius vs -19% on Mixamo's rig). The auto-rig gives the middle of the upper arm to the upper arm alone, close to
+  (-23% radius). The auto-rig gives the middle of the upper arm to the upper arm alone, close to
   its axis and below the shoulder (from 0.6 of the bone, fading in from 0.45): taken from 0.15 and 0.2 m out, it moved the
   shoulder mass with the arm and tore the shoulder (author: "the left shoulder disappeared"; audit `skin_tear` 10-14%,
   now 0.4% with the biceps still -10%).
@@ -288,6 +287,10 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   knuckles 5.5 cm off the mirrored right ones (author: "the left arm is broken from the base"). Elbow and wrist now take
   the slab's layer in Y on the shoulder-wrist line / at the fingertips. A `<out>_joints.json` next to the rig is REUSED:
   delete it to detect again.
+- Auto-rig wrist and knee come from the mesh (where the hand widens; the kneecap on the leg's side contour), SOMA's
+  fractions only without them. SOMA's wrist at 0.746 of Arm -> fingertip landed in the palm of long-fingered Kusznik and
+  Wybuchacz, and the stored clip then put the forearm 9-10 cm into the torso instead of the hand; the knee as a fraction
+  of ankle -> Hips sat 7 cm under Kusznik's kneecap once Hips moved.
 - Auto-rig head: skin whose largest weight is the head carries no weight of a shoulder or anything below it. Bone heat
   gave Kusznik's forward-hanging face up to 0.15 of the right shoulder and the cheek 0.10 of the right upper arm, and the
   aim pulled the face to one side (author).

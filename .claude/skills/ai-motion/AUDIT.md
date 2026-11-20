@@ -34,7 +34,7 @@ sample had limits up to 26% tighter. Scores of approved motions moved with that 
 | | forearms_in_head | 0.01 | |
 | | prop_in_torso / prop_in_legs | 0.015 | stock pressed to the shoulder, not in it |
 | | prop_in_clavicles | 0.03 | a stock in the shoulder pocket is real contact |
-| | prop_in_upper_arms | 0.015, only with `--under-arm` | the arms are not part of the body volume above (they move with the prop), so a stock butt under the armpit went 5.5 cm into the right upper arm unmeasured (author: "the crossbow goes through the shoulder"). Measured on its own upper-arm volume. Off by default: a stock on the shoulder sits in it by design (approved Mixamo shot 7.4 cm); `chain.py` / `character.py` pass `--under-arm` when the motion has `aim.butt_push` |
+| | prop_in_upper_arms | 0.015, only with `--under-arm` | the arms are not part of the body volume above (they move with the prop), so a stock butt under the armpit went 5.5 cm into the right upper arm unmeasured (author: "the crossbow goes through the shoulder"). The check uses its own upper-arm volume. Off by default: a stock on the shoulder sits in it by design (approved Mixamo shot 7.4 cm); `chain.py` / `character.py` pass `--under-arm` when the motion has `aim.butt_push` |
 | | prop_in_body | 0.015 | ANY prop against the WHOLE skin, every region by skeleton role (head, torso, clavicles, legs, upper arms, forearms, hands, fingers; `_prop_in_body` = depth per region, e.g. `forearms.R`). The exemptions are the grip zone of each holding side (hand within 3 cm of the prop): its hand, fingers and the forearm within `GRIP_ZONE` = 0.25 of its length from the wrist, and on `--under-arm` aim frames the stock resting in the armpit pocket (`prop_in_pocket`). Kusznik r6: 3.1 cm `forearms.R` (author: "the weapon goes through the forearm"); the approved Mixamo shot fails it honestly: butt 7.4 cm in the right shoulder (`upper_arms.R`). The author's own hand-placed under-armpit pose: 4.4 cm (torso) / 3.4 cm (upper arm). `prop_in_hands` measures the same volume |
 | | rest_gap | 0.02, only with `--under-arm` on aim frames (`_arms.json` "aim" >= 0.5) | positive armpit test (`collisions.pocket_gap`): a section of the stock's rear 35% (from the end nearest a shoulder; the author's pose runs the stock through the pocket with the butt behind the back: the end alone read 7.4 cm) lies 0.1-0.75 of the upper arm below the shoulder joint (the author's accepted aim: 0.67-0.72), not outside the arm's axis, at most the arm's + stock's radius in front of or behind it, within 6 cm of the torso and of the upper arm skin. Kusznik r6: 15.8 cm (butt on the forearm); missing `_arms.json` = skipped |
 | | prop_in_pocket | 0.045 (`collisions.POCKET_REST`), only with `--under-arm` on aim frames | the stock resting in the armpit's skin: points of the stock's rear 35% in the torso or in the butt-side upper arm's top 30% (`collisions.POCKET_ARM`, the fold at the shoulder joint), taken out of `prop_in_body` on those frames. The author's accepted aim on Kusznik (round 8): 3.9 cm on the ribs, which the general 1.5 cm failed. Further down the arm it is the elbow: with the whole upper arm exempt, the solver's s8 (stock 3.3 cm in the arm's middle, elbow pressed to the body; author: "it goes into the elbow, not the armpit") passed; now it fails `prop_in_body` / `prop_in_upper_arms` `upper_arms.R` 3.3 cm |
@@ -97,12 +97,12 @@ Worst mirrored pair, % of the character height (2026-11-20, detection of `8f3ab9
 - **body: limit 3%** (5.7 cm at 1.9 m). Good: Kusznik after the elbow fix 1.6 (forearm 3.0 cm), Boss Warlord 2.6
   (3.7 cm), Strażnik Brodu 1.6, 15 other rigs 0.2-1.2. Bad: Kusznik before 4.8 (elbow 9.1 cm), Dzwonnik 5.3, Rycerz 8.2,
   Bosak 10.7, Flisak with the pole joined 12.5 (its body alone 1.2), Planetnik 19.3. Also over the limit: Utopiony Zbrojny
-  3.3 (one arm 8.5 cm off its Mixamo rig, which is symmetric to 0.9 cm), Poborca 4.3, Głębinnik Brzeg 4.4;
-- **knuckles: limit 5%** (9.5 cm). Generated hands differ between sides for real: the Mixamo rigs of the same models have
-  knuckles up to 8.7 cm apart, our approved Wybuchacz 6.1 cm (3.2%), Flisak 6.2 (4.0). Kusznik's knuckles went 5.3 ->
+  3.3 (one arm), Poborca 4.3, Głębinnik Brzeg 4.4;
+- **knuckles: limit 5%** (9.5 cm). Generated hands differ between sides for real: our approved Wybuchacz 6.1 cm (3.2%),
+  Flisak 6.2 (4.0). Kusznik's knuckles went 5.3 ->
   0.6 cm with the elbow fix: the elbow catches that, the knuckle limit catches a hand found on a prop (Flisak joined 17 cm).
-Symmetric errors (both arms shifted the same way) are not caught: against Mixamo rigs the detector's worst joint is
-7-30 cm also on symmetric rigs.
+Symmetric errors (both arms shifted the same way) are not caught; nothing checks the detected joints against a
+reference (the numbers above come from detections before the 2026-11 change of proportions, see `auto_rig.py` sources).
 
 ## Arm skin and alpha
 Bone twist and mesh collapse did NOT separate good from bad (an approved overhead strike has a 136° elbow/wrist twist, more

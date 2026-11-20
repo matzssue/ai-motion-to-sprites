@@ -21,7 +21,7 @@ model.glb ─► prepare ─► auto-rig ─► AI rig ─► calibration ─►
 | Stage | Script | What happens |
 |---|---|---|
 | prepare | `prepare_for_rigging.py` | weld UV seams, decimate to ~25k tris, shrink and embed the texture; a separate prop mesh (`prop_model`) joins marked, so joint detection and weights see the body alone |
-| rig | `auto_rig.py` + `auto_rig_blender.py`, `hand_fingers.py` | silhouette-based joint detection (crotch, armpits, fingertips, robe/hunchback cases); the tool's own skeleton (`skeletons/amts.json`: 3-bone spine, 5 fingers x 3 bones per hand placed on the hand mesh, fist self-check of the finger skinning) or, with `--template`, a skeleton with Mixamo-compatible `mixamorig:*` names whose hierarchy, rest orientations and finger bones come from the Mixamo-skeleton FBX you supply; voxel-proxy bone-heat weights; a symmetry gate stops a rig whose mirrored joints disagree (one side found on a prop). Benchmarked against 18 rigs made by Mixamo (`--bench`) |
+| rig | `auto_rig.py` + `auto_rig_blender.py`, `hand_fingers.py` | silhouette-based joint detection (crotch, armpits, fingertips, robe/hunchback cases); the tool's own skeleton (`skeletons/amts.json`: 3-bone spine, 5 fingers x 3 bones per hand placed on the hand mesh, fist self-check of the finger skinning) or, with `--template`, a skeleton with Mixamo-compatible `mixamorig:*` names whose hierarchy, rest orientations and finger bones come from the Mixamo-skeleton FBX you supply; voxel-proxy bone-heat weights; a symmetry gate stops a rig whose mirrored joints disagree (one side found on a prop). Body proportions from the SOMA77 skeleton and ANSUR II landmarks, the rest from the mesh (knees from the leg's side contour, wrists where the hand widens); no Mixamo rig is a source or a check (sources: [LICENSES.md](LICENSES.md)) |
 | rig_ai | `prepare_rig.py` | cuts the prop out of the mesh (or takes a separate prop mesh whole) onto its own bone (rule-based selection, island closure, thin-part growth for bow strings, debris cleanup), grows finger bones out of fused claws (keeps the rig's own fingers when it has them), finds the thumb and the palm side |
 | calibration | `merge_actions.py` + `motion_audit.py` | library clips must pass the audit on this rig, so a bad rig is not blamed on the AI motion |
 | ai | `kimodo_text.py`, `kimodo_motion.py`, `kimodo_keyposes.py`, `keyposes_to_kimodo.py` | one sentence per phase; body samples without hand constraints; key poses set on the best sample and reviewed; then Kimodo is constrained through those poses (`FullBodyConstraintSet`) |
@@ -186,8 +186,9 @@ The own skeleton (`amts`, [pipeline/lib/own_skeleton.py](pipeline/lib/own_skelet
 joint, Z points to the character's front (-Y), or up for feet and toes, or to the palm for hands and fingers, so a
 positive rotation about a finger's X curls it into the palm (the palm side comes from the index and pinky knuckles, and
 `prepare_rig.py` takes the grip's palm normal from the same knuckles). Its profile lists the finger chains
-(`finger_chains`), so the retarget carries Kimodo's finger bends onto them. The spine split, the clavicle start and the finger joints
-use SOMA77 proportions; nothing is read from a Mixamo file.
+(`finger_chains`), so the retarget carries Kimodo's finger bends onto them. The body, spine split, clavicle start and finger joints
+use SOMA77 proportions and ANSUR II landmarks; nothing is read from a Mixamo file. With `--template` the spine split and the
+clavicles are read from that template, so a `mixamorig:*` rig keeps the layout of the file you supply.
 Then:
 
 ```bash

@@ -1,5 +1,5 @@
 """Blender half of the auto-rig (`auto_rig.py`): mesh export and rig build.
-blender -b --python pipeline/rig/auto_rig_blender.py -- export --src=<x>_for_rig.fbx --out=<x>.npz
+blender -b --python pipeline/rig/auto_rig_blender.py -- export --src=<x>_for_rig.fbx --out=<x>.npz [--template=<mixamo skeleton>.fbx]
 blender -b --python pipeline/rig/auto_rig_blender.py -- build --src=... --joints=<x>.json [--template=<mixamo skeleton>.fbx] --out=rig_base.fbx
     [--no-fingers]
 Without --template the own skeleton (pipeline/lib/own_skeleton.py) is built from the joints and checked on a fist pose."""
@@ -49,7 +49,13 @@ def stage_export(a):
     meshes = [o for o in import_fbx(a["src"]) if o.type == "MESH"]
     body = [o for o in meshes if not o.name.startswith(PROP_MESH)]
     verts, tris = mesh_arrays(body)
-    np.savez(a["out"], verts=verts, tris=tris)
+    extra = {}
+    if a.get("template"):   # the template's rest joints: auto_rig.template_layout reads its spine split and clavicles
+        arm = next(o for o in import_fbx(a["template"]) if o.type == "ARMATURE")
+        bones = [b for b in arm.data.bones if b.name.startswith(P)]
+        extra = {"tmpl_names": np.array([b.name[len(P):] for b in bones]),
+                 "tmpl_heads": np.array([tuple(arm.matrix_world @ b.head_local) for b in bones])}
+    np.savez(a["out"], verts=verts, tris=tris, **extra)
     print("auto_rig: exported %d vertices, %d triangles%s" % (len(verts), len(tris), "; separate prop left out (%d vertices)"
           % sum(len(o.data.vertices) for o in meshes if o not in body) if len(body) < len(meshes) else ""))
 
@@ -66,8 +72,8 @@ for s in ("Left", "Right"):
         for i in (1, 2, 3):
             AIM[s + "Hand%s%d" % (f, i)] = s + "Hand%s%d" % (f, i + 1)
 
-# On 18 Mixamo rigs these bones have orientation IDENTICAL to the clip dummy (0.0 deg), whatever the character's lean.
-# Rotating them after the child direction tilted the whole body in animation (37 deg).
+# These bones keep the template's rest orientation: a library clip's root and head keys are authored in the template's
+# frames, and Hips turned after the detected spine tilted the whole body in animation (37 deg on our own rig).
 CANONICAL = {"Hips", "Neck", "Head", "HeadTop_End"}
 
 
@@ -256,7 +262,7 @@ def stage_build(a):
         bone.matrix = m
         bone.length = length
     bpy.ops.object.mode_set(mode="OBJECT")
-    # the same deforming set as Mixamo (51 of 65: no end bones)
+    # the template's bones deform except its end bones (51 of 65)
     no_fingers = bool(a.get("no-fingers"))
     for b in arm.data.bones:
         short = b.name[len(P):]
@@ -340,7 +346,7 @@ def build_own(a):
 TUBE, TUBE_FADE = 2.0, 3.0
 # thin cords inside the tube: Kusznik's wrist wraps hang cords 2-4 cm from the thumb's and pinky's first bones (thickness
 # < 6 mm, finger radius 1.2-2.3 cm); weighted to those bones they were pulled up to 4.3 cm by the grip and drawn as strings
-# across the crossbow (Mixamo: the same cords are all hand). Mesh thinner than THIN x the finger's radius, outside its skin
+# across the crossbow. Mesh thinner than THIN x the finger's radius, outside its skin
 # (farther than its radius) and nearest to the finger's first bone goes to the hand. Claws (thin, at the third bone) stay.
 THIN = 0.35
 
@@ -403,7 +409,7 @@ def finger_tubes(arm, meshes):
 
 # limb core: the middle of the upper arm belongs to the upper arm alone. Bone heat left the chest (spine.3), the clavicle
 # and the forearm on it (Kusznik: 59 of 65 mid-arm vertices with 2-4 bones over 0.1), so the elbow bend and the shoulder
-# pulled the biceps in: mid-arm radius -23% at the aim (Mixamo's rig on the same mesh -19%). Vertices whose dominant bone
+# pulled the biceps in: mid-arm radius -23% at the aim. Vertices whose dominant bone
 # is the limb bone, from CORE[1] to CORE[2] of its length, go fully to it, fading back to bone heat over CORE[0] at both
 # ends (Kusznik: -23% -> -10%), and only within CORE_R x the bone's length of its axis: the shoulder mass 0.2 m out at
 # 0.2-0.4 of a 0.28 m upper arm, moved fully with the arm, tore the shoulder (author: "the left shoulder disappeared";
@@ -439,12 +445,11 @@ def limb_cores(arm, meshes):
 
 
 # throat on the head: the neck bone's weight moves to the head bone by height - none below the neck joint, all above the
-# head joint. Mixamo's rig has no skin on its Neck (the head carries the throat 0.5-0.66); with bone heat's neck 0.3-0.44
-# the neck lean of the aim and `head_back_deg` stretched Kusznik's throat (edge p95 1.82 vs 1.42 on Mixamo's rig, same
-# motion). Bone heat also spreads neck weight down onto the shoulders: moved whole (or by position along the forward-
-# leaning neck bone), the base of the neck 6-10 cm below the neck joint turned with the head into the hand at the cheek
-# (hands_in_head 0 -> 1.5-1.8 cm). By height it takes only a little of the stretch (fr. 70 p95 1.82 -> 1.80, 60: 1.71 ->
-# 1.67): the rest is the aim's neck lean and `head_back_deg`, i.e. the motion.
+# head joint. With bone heat's neck 0.3-0.44 of the throat, the neck lean of the aim and `head_back_deg` stretched
+# Kusznik's throat (edge p95 1.82). Bone heat also spreads neck weight down onto the shoulders: moved whole (or by
+# position along the forward-leaning neck bone), the base of the neck 6-10 cm below the neck joint turned with the head
+# into the hand at the cheek (hands_in_head 0 -> 1.5-1.8 cm). By height it takes only a little of the stretch (fr. 70
+# p95 1.82 -> 1.80, 60: 1.71 -> 1.67): the rest is the aim's neck lean and `head_back_deg`, i.e. the motion.
 def throat_on_head(arm, meshes):
     """Moves neck-bone weight onto the head bone by height; prints how many vertices changed."""
     nb = arm.data.bones.get("neck")
