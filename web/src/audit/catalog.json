@@ -1,0 +1,218 @@
+[
+  {
+    "key": "prop_in_head",
+    "label": "prop in head",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "prop_in_torso",
+    "label": "prop in torso",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "prop_in_legs",
+    "label": "prop in legs",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "prop_in_clavicles",
+    "label": "prop in shoulder",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "hands_in_head",
+    "label": "hand in head",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "hands_in_torso",
+    "label": "hand in torso",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "forearms_in_head",
+    "label": "forearm in head",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "forearms_in_torso",
+    "label": "forearm in torso",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "fingers_in_prop",
+    "label": "fingers in prop",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "wrist_bend_L",
+    "label": "left wrist bend",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_bend_R",
+    "label": "right wrist bend",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_twist_L",
+    "label": "left wrist twist",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_twist_R",
+    "label": "right wrist twist",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "elbow_jump",
+    "label": "elbow jump",
+    "unit": "cm",
+    "group": "smoothness"
+  },
+  {
+    "key": "prop_jump",
+    "label": "prop jump",
+    "unit": "cm",
+    "group": "smoothness"
+  },
+  {
+    "key": "hand_jump",
+    "label": "hand jump",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "finger_jump",
+    "label": "finger jump",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "head_jump",
+    "label": "head jump",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "prop_rot_jump",
+    "label": "prop rotation jump",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "loop_seam_deg",
+    "label": "loop seam (rotation)",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "loop_seam_m",
+    "label": "loop seam (elbow)",
+    "unit": "cm",
+    "group": "smoothness"
+  },
+  {
+    "key": "hand_to_prop_L",
+    "label": "left hand to prop",
+    "unit": "cm",
+    "group": "grip"
+  },
+  {
+    "key": "hand_to_prop_R",
+    "label": "right hand to prop",
+    "unit": "cm",
+    "group": "grip"
+  },
+  {
+    "key": "prop_above_head",
+    "label": "prop above head",
+    "unit": "cm",
+    "group": "grip"
+  },
+  {
+    "key": "loose_fingers",
+    "label": "loose fingers",
+    "unit": "percent",
+    "group": "grip"
+  },
+  {
+    "key": "stretch",
+    "label": "mesh stretch",
+    "unit": "cm",
+    "group": "joints"
+  },
+  {
+    "key": "skin_twist",
+    "label": "arm skin twist",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "skin_spread",
+    "label": "arm skin spread",
+    "unit": "percent",
+    "group": "joints"
+  },
+  {
+    "key": "skin_tear",
+    "label": "torn shoulder skin",
+    "unit": "percent",
+    "group": "joints"
+  },
+  {
+    "key": "prop_in_upper_arms",
+    "label": "prop in upper arm",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "prop_in_body",
+    "label": "prop in body",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "rest_gap",
+    "label": "stock off the armpit",
+    "unit": "cm",
+    "group": "grip"
+  },
+  {
+    "key": "prop_in_pocket",
+    "label": "stock in armpit skin",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "face_skew",
+    "label": "face skew",
+    "unit": "cm",
+    "group": "joints"
+  },
+  {
+    "key": "finger_tip_gap",
+    "label": "fingertip off prop",
+    "unit": "cm",
+    "group": "grip"
+  },
+  {
+    "key": "finger_tip_fold",
+    "label": "folded fingertip",
+    "unit": "percent",
+    "group": "joints"
+  }
+]

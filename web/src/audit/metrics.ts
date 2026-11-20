@@ -1,91 +1,29 @@
-// Names, groups and units of the audit metrics. Labels and formatting copy pipeline/review/review_page.py
-// (LABELS, fmt); groups and order copy METRICS in pipeline/lib/audit_metrics.py.
+// Names, groups, units and order of the audit metrics: catalog.json, generated from METRICS and LABELS in
+// pipeline/lib/audit_metrics.py (`python pipeline/lib/audit_metrics.py --catalog web/src/audit/catalog.json`;
+// tests/test_audit_metrics.py fails when it is out of date). Keys outside it (region keys) fall back to rules below.
+import catalog from "./catalog.json";
 import type { MetricGroup, MetricUnit } from "./schema";
 
 export const GROUPS: MetricGroup[] = ["penetration", "joints", "smoothness", "grip", "other"];
 
-const METRIC_GROUPS: [string, MetricGroup][] = [
-  ["prop_in_head", "penetration"],
-  ["prop_in_torso", "penetration"],
-  ["prop_in_legs", "penetration"],
-  ["prop_in_clavicles", "penetration"],
-  ["hands_in_head", "penetration"],
-  ["hands_in_torso", "penetration"],
-  ["forearms_in_head", "penetration"],
-  ["forearms_in_torso", "penetration"],
-  ["fingers_in_prop", "penetration"],
-  ["wrist_bend_L", "joints"],
-  ["wrist_bend_R", "joints"],
-  ["wrist_twist_L", "joints"],
-  ["wrist_twist_R", "joints"],
-  ["elbow_jump", "smoothness"],
-  ["prop_jump", "smoothness"],
-  ["hand_jump", "smoothness"],
-  ["finger_jump", "smoothness"],
-  ["head_jump", "smoothness"],
-  ["prop_rot_jump", "smoothness"],
-  ["loop_seam_deg", "smoothness"],
-  ["loop_seam_m", "smoothness"],
-  ["hand_to_prop_L", "grip"],
-  ["hand_to_prop_R", "grip"],
-  ["prop_above_head", "grip"],
-  ["loose_fingers", "grip"],
-  ["stretch", "joints"],
-  ["skin_twist", "joints"],
-  ["skin_spread", "joints"],
-];
+type CatalogEntry = { key: string; label: string; unit: MetricUnit; group: MetricGroup };
+export const CATALOG: readonly CatalogEntry[] = catalog as CatalogEntry[];
 
-const GROUP_OF = new Map(METRIC_GROUPS);
-const ORDER = new Map(METRIC_GROUPS.map(([key], i) => [key, i]));
-
-const LABELS: Record<string, string> = {
-  prop_in_head: "prop in head",
-  prop_in_torso: "prop in torso",
-  prop_in_legs: "prop in legs",
-  prop_in_clavicles: "prop in shoulder",
-  hands_in_head: "hand in head",
-  hands_in_torso: "hand in torso",
-  forearms_in_head: "forearm in head",
-  forearms_in_torso: "forearm in torso",
-  fingers_in_prop: "fingers in prop",
-  wrist_bend_L: "left wrist bend",
-  wrist_bend_R: "right wrist bend",
-  wrist_twist_L: "left wrist twist",
-  wrist_twist_R: "right wrist twist",
-  elbow_jump: "elbow jump",
-  prop_jump: "prop jump",
-  hand_jump: "hand jump",
-  finger_jump: "finger jump",
-  head_jump: "head jump",
-  prop_rot_jump: "prop rotation jump",
-  loop_seam_deg: "loop seam (rotation)",
-  loop_seam_m: "loop seam (elbow)",
-  prop_above_head: "prop above head",
-  hand_to_prop_L: "left hand to prop",
-  hand_to_prop_R: "right hand to prop",
-  loose_fingers: "loose fingers",
-  stretch: "mesh stretch",
-  skin_twist: "arm skin twist",
-  skin_spread: "arm skin spread",
-};
-
-const DEGREE_PREFIXES = ["wrist", "hand_jump", "finger_jump", "head_jump", "prop_rot_jump", "loop_seam_deg", "skin_twist"];
-const FRACTION_PREFIXES = ["loose_fingers", "skin_spread"];
+const BY_KEY = new Map(CATALOG.map((m) => [m.key, m]));
+const ORDER = new Map(CATALOG.map((m, i) => [m.key, i]));
 
 export function metricLabel(key: string): string {
-  return LABELS[key] ?? key;
+  return BY_KEY.get(key)?.label ?? key;
 }
 
 /** Region keys the audit measures but has no limit for (`hands_in_legs`) are still penetration. */
 export function metricGroup(key: string): MetricGroup {
-  return GROUP_OF.get(key) ?? (key.includes("_in_") ? "penetration" : "other");
+  return BY_KEY.get(key)?.group ?? (key.includes("_in_") ? "penetration" : "other");
 }
 
-/** Same prefix rules as `fmt` in review_page.py; anything else is a distance in metres shown in cm. */
+/** The catalog's unit, as `fmt` in review_page.py; a key outside it is a distance in metres shown in cm. */
 export function metricUnit(key: string): MetricUnit {
-  if (FRACTION_PREFIXES.some((p) => key.startsWith(p))) return "percent";
-  if (DEGREE_PREFIXES.some((p) => key.startsWith(p))) return "deg";
-  return "cm";
+  return BY_KEY.get(key)?.unit ?? "cm";
 }
 
 export function formatValue(key: string, value: number | null | undefined): string {

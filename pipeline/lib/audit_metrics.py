@@ -59,6 +59,35 @@ METRICS = {
     # the end of the finger's bone carried hand weight and the curl pulled them back (Kusznik's right middle finger 23%)
     "finger_tip_fold": (0.05, "frac", "joints"),
 }
+# names on the review pages (review_page.py, web/src/audit/catalog.json); every METRICS key needs one (tests/test_audit_metrics.py)
+LABELS = {
+    "prop_in_head": "prop in head", "prop_in_torso": "prop in torso", "prop_in_legs": "prop in legs",
+    "prop_in_clavicles": "prop in shoulder", "hands_in_head": "hand in head", "hands_in_torso": "hand in torso",
+    "forearms_in_head": "forearm in head", "forearms_in_torso": "forearm in torso", "fingers_in_prop": "fingers in prop",
+    "wrist_bend_L": "left wrist bend", "wrist_bend_R": "right wrist bend", "wrist_twist_L": "left wrist twist",
+    "wrist_twist_R": "right wrist twist", "elbow_jump": "elbow jump", "prop_jump": "prop jump", "hand_jump": "hand jump",
+    "finger_jump": "finger jump", "head_jump": "head jump", "prop_rot_jump": "prop rotation jump",
+    "loop_seam_deg": "loop seam (rotation)", "loop_seam_m": "loop seam (elbow)", "hand_to_prop_L": "left hand to prop",
+    "hand_to_prop_R": "right hand to prop", "prop_above_head": "prop above head", "loose_fingers": "loose fingers",
+    "stretch": "mesh stretch", "skin_twist": "arm skin twist", "skin_spread": "arm skin spread",
+    "skin_tear": "torn shoulder skin", "prop_in_upper_arms": "prop in upper arm", "prop_in_body": "prop in body",
+    "rest_gap": "stock off the armpit", "prop_in_pocket": "stock in armpit skin", "face_skew": "face skew",
+    "finger_tip_gap": "fingertip off prop", "finger_tip_fold": "folded fingertip",
+}
+UNIT_SHOWN = {"m": "cm", "deg": "deg", "frac": "percent"}   # METRICS unit -> how a page shows it
+
+
+def catalog():
+    """Every metric in METRICS order with its label, displayed unit and group: the web viewer's copy
+    (web/src/audit/catalog.json, written by `python pipeline/lib/audit_metrics.py --catalog <file>`)."""
+    return [{"key": k, "label": LABELS[k], "unit": UNIT_SHOWN[u], "group": g} for k, (_, u, g) in METRICS.items()]
+
+
+def catalog_json():
+    import json
+    return json.dumps(catalog(), indent=2) + "\n"
+
+
 ARM = ("upper_arm", "forearm", "hand", "spine")
 # skeleton roles a metric measures (skeleton.Profile.missing): absent -> the metric is skipped with the reason, not scored
 NEEDS = {
@@ -93,3 +122,11 @@ def judge(samples, lim, group):
     for k, v in errors.items(): scores[group[k]] = round(scores.get(group[k], 0) + v["max"] / max(v["limit"], 1e-9) - 1, 2)
     score = round(sum(v["max"] / max(v["limit"], 1e-9) - 1 for v in errors.values()), 2)   # 0 = OK; used to pick a sample
     return errors, scores, score, round(sum(v["area"] for v in errors.values()), 3)
+
+
+if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser(description="Write the metric catalog (labels, units, groups) for the web viewer.")
+    ap.add_argument("--catalog", required=True, help="output JSON, normally web/src/audit/catalog.json")
+    with open(ap.parse_args().catalog, "w", encoding="utf-8", newline="\n") as f:
+        f.write(catalog_json())

@@ -14,6 +14,9 @@
 - `no_limit`: metrics for information (no bad sample to calibrate against yet) – read them, they do not decide OK.
 - `skipped`: metric -> reason, for metrics whose skeleton roles are absent (`NEEDS` in `pipeline/lib/audit_metrics.py`);
   not measured, not in `maxima`, not scored. `skeleton`: the profile used.
+- A new metric goes into `METRICS`, `NEEDS` and `LABELS` (`pipeline/lib/audit_metrics.py`), then
+  `python pipeline/lib/audit_metrics.py --catalog web/src/audit/catalog.json`: both review pages take unit, group and
+  label from there (`tests/test_audit_metrics.py` fails on a missing one; a fraction shown as "14.3 cm" happened once).
 
 ## How "inside" is decided
 The body without arms (from the upper arm down) is one almost closed volume; every face has a region from weights
