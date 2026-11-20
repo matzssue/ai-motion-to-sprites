@@ -15,6 +15,14 @@ ap.add_argument("--every", type=int, default=1, help="with --all: every n-th fra
 ap.add_argument("--pitch", type=float, default=30.0, help="game camera pitch (deg)")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")); import gpu_queue; gpu_queue.acquire("preview_8.py", None)  # Eevee on the GPU
+# relative paths are the caller's (Blender keeps the shell's cwd); a cwd at a drive root or in Blender's own folder means the
+# caller is a launcher, and a relative --out landed on C:\ without a word once: refuse instead of guessing
+_cwd = os.getcwd()
+if not (os.path.isabs(A.out) and os.path.isabs(A.glb)) and (
+        os.path.splitdrive(_cwd)[1] in ("", os.sep, "/") or os.path.normcase(_cwd).startswith(os.path.normcase(os.path.dirname(bpy.app.binary_path)))):
+    raise SystemExit("preview_8: Blender runs in %s; give --glb and --out as absolute paths" % _cwd)
+A.out, A.glb = os.path.abspath(A.out), os.path.abspath(A.glb)
+print("preview_8: writing to", A.out, flush=True)
 os.makedirs(A.out, exist_ok=True)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=A.glb)
