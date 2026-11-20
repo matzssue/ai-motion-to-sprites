@@ -66,6 +66,8 @@ ARM_UP = 0.5 * 0.061
 ARM_T = 0.5
 # Arm.y: fraction of the torso's depth at armpit height from the front - its middle, the mid-axillary line
 ARM_DEPTH_T = 0.5
+# SOMA's hand, wrist -> middle fingertip: arm_len x (1 / wrist_t - 1), fraction of H
+HAND = SOMA["arm_len"] * (1 / SOMA["wrist_t"] - 1)
 
 
 # ---------------------------------------------------------------- 2D silhouettes
@@ -264,23 +266,40 @@ def wrist_t(arm, tip, H):
 
 
 def wrist_on_mesh(front, elbow, tip, H):
-    """Wrist where the hand starts: walking from the elbow to the fingertip, the last point of the forearm's narrowest
-    stretch before the silhouette widens 1.5x (palm, spread fingers, a cuff). SOMA's fraction put the wrist in the palm
-    of Kusznik and Wybuchacz (long fingers and claws), 5-7 cm past the visible wrist. None without such a widening
-    (Flisak's thick forearm tapers into the hand)."""
+    """Wrist at the neck between the forearm and the hand, walking from the elbow to the fingertip:
+    - a bare arm widens 1.5x into the hand (palm, spread fingers): the last point of the forearm's narrowest stretch
+      before it. SOMA's fraction put the wrist in the palm of Kusznik and Wybuchacz, 5-7 cm past it;
+    - a flared cuff (a gauntlet) is 1.5x wider than the neck within 3/4 of SOMA's hand before it, narrows into the
+      neck, and the hand widens behind it: the start of the neck. The neck is short (<= 4% H to where the hand
+      widens). Flisak's thick forearm tapers 1.2x over that reach and gives none; a neck nearer the fingertip than
+      that reach is a gap between fingers (Flisak's, 6% H from the tip).
+    None without either: SOMA's fraction stays."""
     L = float(np.linalg.norm(tip - elbow))
     d = (tip - elbow) / max(L, 1e-9)
+    prof = [(t, *across(front, elbow + t * L * d, d, H)) for t in np.arange(0.15, 0.95, front.px / max(L, 1e-9))]
+    prof = [(t, w, p) for t, w, p in prof if w is not None]
     best, at = None, None
-    for t in np.arange(0.15, 0.95, front.px / max(L, 1e-9)):
-        w, p = across(front, elbow + t * L * d, d, H)
-        if w is None:
-            continue
+    for t, w, p in prof:                                   # widening into the hand
         if best is not None and w > 1.5 * best:
-            return at if t > 0.2 else None
+            if t > 0.2:
+                return at
+            break
         if best is None or w < best:
             best = w
         if w <= 1.3 * best:
             at = p
+    ws, ts = np.array([w for _, w, _ in prof]), np.array([t for t, _, _ in prof])
+    reach = 0.75 * HAND * H / L                            # the cuff, and the hand, each about a hand long
+    for k in range(1, len(ws)):                            # narrowing out of a cuff
+        rise = np.where(ws[k + 1:] > 1.15 * ws[k])[0]
+        cuff = ws[:k][ts[:k] >= ts[k] - reach]
+        if not len(cuff) or cuff.max() < 1.5 * ws[k] or not len(rise) or ws[k:k + 1 + rise[0]].min() < ws[k] or \
+                1 - ts[k] < reach:
+            continue
+        j = k
+        while j > 0 and ws[j - 1] <= 1.1 * ws[k]:
+            j -= 1
+        return prof[j][2] if (prof[k + 1 + rise[0]][0] - prof[j][0]) * L <= 0.04 * H else None
     return None
 
 
@@ -296,38 +315,83 @@ def arm_line(front, verts, arm, tip, H):
     return hand, elbow
 
 
-def knee_z(verts, f, foot, hips_z, sgn):
-    """Knee height from the leg's side contour: the point of the leg's front edge that stands furthest in front of the
-    edge 4% H above and below it - the kneecap, or the corner of a bent leg (Kusznik, Padlinozerca's digitigrade leg).
-    Searched from 0.25 of ankle -> Hips up to 0.62 of it (SOMA's knee is at 0.449) and 2% H under the crotch: above
-    hang Kusznik's loincloth flaps and Flisak's hands on his thighs. None under a robe or without a clear peak: the
-    peak is 1.8-2.3% H on the kneecaps of Kusznik, Wybuchacz and Padlinozerca, 0.8-1.4% H on Flisak's padded knee,
-    whose peaks land 1-3 cm under it."""
+def leg_side(verts, tris, f, foot, hi, sgn):
+    """Side silhouette (Y, Z) of one leg: triangles over the x-range of the leg's front-view runs from the ankle up
+    to hi. A run that crosses the midline is not a leg (a tabard or a loincloth joins the legs) and is left out."""
+    H = f["H"]
+    xs = []
+    for z in np.arange(foot[2], hi, 0.01 * H):
+        leg = [r for r in f["front"].runs(z) if sgn * (r[0] + r[1]) > 0 and r[0] * r[1] > 0]
+        if leg:
+            xs += min(leg, key=lambda r: abs(0.5 * (r[0] + r[1]) - foot[0]))
+    if not xs:
+        return None
+    c = verts[tris].mean(1)
+    keep = (c[:, 0] >= min(xs)) & (c[:, 0] <= max(xs)) & (c[:, 2] < hi + 0.1 * H)
+    return Silhouette(verts, tris[keep], 1, 2, f["front"].px) if keep.any() else None
+
+
+def knee_z(verts, tris, f, foot, hips_z, sgn):
+    """Knee height from the leg's side silhouette: where the front edge stands furthest in front of the edge 4% H
+    above and below it - the kneecap, a poleyn, or the corner of a bent leg (Padlinozerca's digitigrade leg).
+    - The edge is the run that continues the shin row by row from the ankle up, so a tabard or a hem hanging in
+      front of the thigh is another run and is not followed.
+    - Searched from 0.25 to 0.62 of ankle -> Hips (SOMA's knee is at 0.449), and 2% H under a real crotch (above
+      hang Kusznik's loincloth flaps, Flisak's hands on his thighs). A crotch that is a hem (Hips from the arms) caps
+      nothing: the knee can be above it.
+    - Each bulge of at least 1.5% H is a candidate (the kneecap is 1.8-2.4% H on Kusznik, Wybuchacz, Padlinozerca and
+      the knight; Flisak's padded knee is 0.8-1.4% H and lands 1-3 cm under it); bulges closer than 2% H are one;
+      the one nearest SOMA's knee wins (armour has a bulge at the greave's top, the poleyn and the cuisse). The knee
+      is its apex, the most forward rows within 2% H: the bulge's own peak sits on its lower slope (2-3 cm under the
+      knight's poleyn, whose greave recedes sharply below it).
+    None (SOMA's fraction) under a robe, without a crotch or without a bulge; `solve` also drops both sides when they
+    disagree by more than 1.5% H."""
     if f["robe"] or f["crotch_z"] is None:
         return None
     H = f["H"]
-    step, n = 0.003 * H, int(round(0.04 / 0.003))
     lo = foot[2] + 0.25 * (hips_z - foot[2])
-    hi = min(foot[2] + 0.62 * (hips_z - foot[2]), f["crotch_z"] - 0.02 * H)
+    hi = foot[2] + 0.62 * (hips_z - foot[2])
+    if f["crotch_real"]:
+        hi = min(hi, f["crotch_z"] - 0.02 * H)
+    side = leg_side(verts, tris, f, foot, hi + 0.05 * H, sgn)
+    if side is None:
+        return None
+    step = side.px
+    n, m = int(round(0.04 * H / step)), int(round(0.02 * H / step))
     zs = np.arange(lo - n * step, hi + n * step + 1e-9, step)
     if len(zs) < 2 * n + 3:
         return None
-    front = np.full(len(zs), np.nan)
+    front, prev = np.full(len(zs), np.nan), None
     for i, z in enumerate(zs):
-        leg = [r for r in f["front"].runs(z) if sgn * 0.5 * (r[0] + r[1]) > 0]
-        if not leg:
+        runs = side.runs(z)
+        if prev is not None:
+            runs = [r for r in runs if r[0] <= prev[1] and r[1] >= prev[0]]
+        if not runs:
             continue
-        r = min(leg, key=lambda r: abs(0.5 * (r[0] + r[1]) - foot[0]))
-        s = verts[(np.abs(verts[:, 2] - z) < 0.006 * H) & (verts[:, 0] >= r[0]) & (verts[:, 0] <= r[1])]
-        if len(s):
-            front[i] = s[:, 1].min()     # the model faces -Y
+        if prev is None:
+            r = min(runs, key=lambda r: abs(0.5 * (r[0] + r[1]) - foot[1]))
+        else:
+            r = max(runs, key=lambda r: min(r[1], prev[1]) - max(r[0], prev[0]))
+        prev, front[i] = r, r[0]     # the model faces -Y
     ahead = 0.5 * (front[:-2 * n] + front[2 * n:]) - front[n:-n]
-    if np.all(np.isnan(ahead)):
+    peaks = [k for k in range(1, len(ahead) - 1) if ahead[k] >= 0.015 * H and
+             ahead[k] >= np.nanmax(ahead[max(0, k - m):k + m + 1])]
+    if not peaks:
         return None
-    k = int(np.nanargmax(ahead))
-    if ahead[k] < 0.015 * H or k in (0, len(ahead) - 1):
-        return None
-    return float(zs[n + k])
+    groups = [[peaks[0]]]
+    for k in peaks[1:]:
+        if k - groups[-1][-1] <= m:
+            groups[-1].append(k)
+        else:
+            groups.append([k])
+    knees = []
+    for g in groups:     # the bulge's apex: the most forward rows of the edge within 2% H of it
+        c = n + (g[0] + g[-1]) // 2
+        w = front[c - m:c + m + 1]
+        top = np.where(w <= np.nanmin(w) + 0.5 * step)[0]
+        knees.append(float(zs[c - m] + 0.5 * (top[0] + top[-1]) * step))
+    soma = foot[2] + SOMA["knee_t"] * (hips_z - foot[2])
+    return min(knees, key=lambda z: abs(z - soma))
 
 
 def solve(verts, tris):
@@ -408,7 +472,8 @@ def solve(verts, tris):
     if f["crotch_z"] is not None and not f["robe"]:
         by_crotch = f["crotch_z"] + HIPS_ABOVE_CROTCH * H
     f["hips_by_arm"], f["hips_by_crotch"] = by_arm, by_crotch
-    if by_crotch is None or by_crotch < by_arm - 0.08 * H:
+    f["crotch_real"] = by_crotch is not None and by_crotch >= by_arm - 0.08 * H
+    if not f["crotch_real"]:
         hips_z = by_arm  # the gap between the legs ends at the hem of a robe/loincloth
     else:
         hips_z = 0.5 * (by_arm + by_crotch)
@@ -437,8 +502,8 @@ def solve(verts, tris):
         j[side + "Toe_End"] = np.array([ax, tip_y, zmin + 0.01 * H])
         j[side + "ToeBase"] = np.array([ax, ay + SOMA["toe_base_t"] * (tip_y - ay), zmin + 0.01 * H])
     # one height for both knees (the body is symmetric; a hand on one thigh moves one side's peak)
-    seen = [z for z in (knee_z(verts, f, j[s + "Foot"], hips_z, 1 if s == "Left" else -1) for s in ("Left", "Right"))
-            if z is not None]
+    seen = [knee_z(verts, tris, f, j[s + "Foot"], hips_z, 1 if s == "Left" else -1) for s in ("Left", "Right")]
+    seen = [z for z in seen if z is not None]
     if len(seen) == 2 and abs(seen[0] - seen[1]) > 0.015 * H:
         seen = []
     f["knee_from"] = "contour" if seen else "SOMA"
@@ -447,7 +512,7 @@ def solve(verts, tris):
         ax, ank_z = j[side + "Foot"][0], j[side + "Foot"][2]
         kz = float(np.mean(seen)) if seen else ank_z + SOMA["knee_t"] * (hips_z - ank_z)
         runs = f["front"].runs(kz)
-        leg = [r for r in runs if sgn * 0.5 * (r[0] + r[1]) > 0]
+        leg = [r for r in runs if sgn * 0.5 * (r[0] + r[1]) > 0 and r[0] * r[1] > 0]     # not a tabard over both legs
         kx = ax
         if leg and not f["robe"]:
             r = min(leg, key=lambda r: abs(0.5 * (r[0] + r[1]) - ax))

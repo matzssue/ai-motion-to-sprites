@@ -291,6 +291,11 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   fractions only without them. SOMA's wrist at 0.746 of Arm -> fingertip landed in the palm of long-fingered Kusznik and
   Wybuchacz, and the stored clip then put the forearm 9-10 cm into the torso instead of the hand; the knee as a fraction
   of ankle -> Hips sat 7 cm under Kusznik's kneecap once Hips moved.
+- Armour (a plate knight) broke both: the leg has several bulges (greave top, poleyn, cuisse) and a tabard hem acts as
+  the crotch, so the knee landed mid-shin; the gauntlet's cuff is wider than the hand, so the wrist sat 4 cm inside it
+  and `prepare_rig` found an empty palm. The knee now follows the leg's own run in a side raster and takes the apex of
+  the bulge nearest SOMA's knee; the wrist takes the start of the neck after a cuff. `prepare_rig` stops early on an
+  empty limb bone or palm, naming the joint to move.
 - Auto-rig head: skin whose largest weight is the head carries no weight of a shoulder or anything below it. Bone heat
   gave Kusznik's forward-hanging face up to 0.15 of the right shoulder and the cheek 0.10 of the right upper arm, and the
   aim pulled the face to one side (author).

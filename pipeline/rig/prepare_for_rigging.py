@@ -87,7 +87,28 @@ def main():
             mod.ratio = ratio
             bpy.context.view_layer.objects.active = obj     # applying needs an active object; none in --background
             bpy.ops.object.modifier_apply(modifier=mod.name)
-        print("prepare_for_rigging: ratio %.3f -> %d triangles" % (ratio, count_triangles(meshes)))
+        after = count_triangles(meshes)
+        print("prepare_for_rigging: ratio %.3f -> %d triangles" % (ratio, after))
+        if after > 1.1 * target_tris:
+            # Decimate (collapse) stops on its own without an error: a raw TRELLIS mesh (open double sheets) stalled at
+            # 482k of 25k
+            bad = pieces = 0
+            for obj in meshes:
+                bm = bmesh.new(); bm.from_mesh(obj.data)
+                bad += sum(1 for e in bm.edges if not e.is_manifold)
+                seen = set()
+                for v in bm.verts:     # a piece keeps a few triangles however far the collapse goes
+                    if v.index in seen: continue
+                    pieces += 1; stack = [v]; seen.add(v.index)
+                    while stack:
+                        u = stack.pop()
+                        for e in u.link_edges:
+                            w = e.other_vert(u)
+                            if w.index not in seen: seen.add(w.index); stack.append(w)
+                bm.free()
+            print("prepare_for_rigging: WARNING decimation stopped at %d triangles, %.1fx the target %d (%d open or "
+                  "non-manifold edges, %d separate pieces stop the collapse). Remesh or clean the mesh first: auto_rig "
+                  "and prepare_rig get slow on it" % (after, after / target_tris, target_tris, bad, pieces))
     if texture_size > 0:
         for image in bpy.data.images:
             if image.size[0] > texture_size or image.size[1] > texture_size:

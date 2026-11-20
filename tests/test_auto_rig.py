@@ -33,12 +33,12 @@ def mesh(parts):
     return np.vstack(V), np.vstack(T)
 
 
-def humanoid(robe=False, kneecap=None, palm=False):
-    parts = [((-0.20, -0.10, CROTCH), (0.20, 0.10, 1.45)),            # torso
+def humanoid(robe=False, kneecap=None, palm=False, extra=(), arm_end=0.85):
+    parts = list(extra) + [((-0.20, -0.10, CROTCH), (0.20, 0.10, 1.45)),            # torso
              ((-0.05, -0.05, 1.45), (0.05, 0.05, 1.55)),              # neck
              ((-0.10, -0.12, 1.55), (0.10, 0.10, H))]                 # head
     for s in (1, -1):
-        x = sorted((s * 0.20, s * 0.85)); parts.append(((x[0], -0.05, ARM_LO), (x[1], 0.05, ARM_HI)))   # arm
+        x = sorted((s * 0.20, s * arm_end)); parts.append(((x[0], -0.05, ARM_LO), (x[1], 0.05, ARM_HI)))   # arm
         x = sorted((s * 0.85, s * 0.95))
         z = (1.30, 1.46) if palm else (1.35, 1.41)
         parts.append(((x[0], -0.04, z[0]), (x[1], 0.04, z[1])))                                          # hand
@@ -83,6 +83,37 @@ def test_knee_from_contour():
     assert f["knee_from"] == "contour" and abs(soma - 0.58) > 0.03 * H
     for s in ("Left", "Right"):
         assert abs(j[s + "Leg"][2] - 0.58) < 0.01 * H, j[s + "Leg"]
+
+
+def test_knee_among_bulges_behind_a_tabard():
+    """Armour: a bulge at the greave's top under the poleyn, and a tabard hanging in front of both thighs whose hem the
+    leg gap ends at. The knee is the poleyn: the bulge nearest SOMA's knee, at its apex, above the hem."""
+    j, _ = auto_rig.solve(*humanoid())
+    soma = j["LeftLeg"][2]
+    poleyn, greave, hem = soma + 0.04, soma - 0.12, soma - 0.03
+    extra = []
+    for s in (1, -1):
+        x = sorted((s * 0.09, s * 0.15))
+        extra += [((x[0], -0.12, poleyn - 0.01), (x[1], -0.07, poleyn + 0.01)),
+                  ((x[0], -0.11, greave - 0.01), (x[1], -0.07, greave + 0.01))]
+    extra.append(((-0.20, -0.20, hem), (0.20, -0.17, CROTCH)))          # tabard, 5 cm in front of the poleyns
+    j, f = auto_rig.solve(*humanoid(extra=extra))
+    for s in ("Left", "Right"):
+        assert abs(j[s + "Leg"][2] - poleyn) < 0.01 * H, (j[s + "Leg"], poleyn)
+        assert 0.06 <= abs(j[s + "Leg"][0]) <= 0.18                      # inside its leg, not on the tabard
+    assert f["knee_from"] == "contour" and f["crotch_z"] < poleyn and not f["crotch_real"]
+
+
+def test_wrist_at_the_neck_after_a_cuff():
+    """A gauntlet: the forearm ends in a cuff 1.4x the arm, a short neck half the cuff, then a mitten 1.4x the neck (not
+    the 1.5x of a bare hand). The wrist is at the start of the neck, not inside the cuff or in the mitten."""
+    extra = []
+    for s in (1, -1):
+        for a, b, h, w in ((0.62, 0.72, 0.07, 0.07), (0.72, 0.75, 0.035, 0.03), (0.75, 0.95, 0.048, 0.04)):
+            x = sorted((s * a, s * b)); extra.append(((x[0], -w, 1.38 - h), (x[1], w, 1.38 + h)))
+    j, _ = auto_rig.solve(*humanoid(extra=extra, arm_end=0.62))
+    for s in ("Left", "Right"):
+        assert 0.715 <= abs(j[s + "Hand"][0]) <= 0.75, j[s + "Hand"]      # SOMA's fraction: 0.76, in the mitten
 
 
 def test_wrist_where_the_hand_widens():
