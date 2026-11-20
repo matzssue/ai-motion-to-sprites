@@ -9,7 +9,7 @@ from config import BLENDER, script_path
 from schema_check import load as load_config, load_skeleton
 
 IMPORTANT = ("smoothed", "RETARGET", "merge_actions", "pass", "OK", "AUDIT", "  FAIL", "  rest", "  score", "  no limit", "  skipped",
-             "skeleton", "fingers: skipped", "stock",
+             "skeleton", "fingers:", "stock",
              "closeups", "MAX", "RIG OK", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ")
 
 
@@ -36,8 +36,9 @@ def skel(skeleton):
     return ["--skeleton", skeleton] if skeleton else []
 
 
-def audit(glb, action, out, prop=None, rest_is_normal=False, loop=True, skeleton=None):
+def audit(glb, action, out, prop=None, rest_is_normal=False, loop=True, skeleton=None, under_arm=False):
     args = ["--glb", glb, "--action", action, "--out", out] + (["--prop", prop] if prop else []) + skel(skeleton)
+    args += ["--under-arm"] if under_arm else []   # stock under the armpit: the prop in the upper arm is scored
     blender("motion_audit.py", "AUDIT", *args, *(["--rest-is-normal"] if rest_is_normal else []), *([] if loop else ["--no-loop"]))
     return json.load(open(os.path.join(out, "audit.json"), encoding="utf-8"))
 
@@ -60,7 +61,8 @@ def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=Tr
         if k <= 2: blender("prop_in_hands.py", "OK ", "--glb", merged, "--rig-data", data, "--motion", motion, "--out", ready,
                            *skel(skeleton))
         result = ready
-    return result, audit(result, action, os.path.join(out, "audit_" + name), prop, loop=loop, skeleton=skeleton)
+    return result, audit(result, action, os.path.join(out, "audit_" + name), prop, loop=loop, skeleton=skeleton,
+                         under_arm=with_prop and "butt_push" in R.get("aim", {}))
 
 
 if __name__ == "__main__":

@@ -215,7 +215,8 @@ if (CHOICE or LIB_ACTIONS or PROP_MOTION) and end >= STAGES.index("merge") and s
     report = {}
     for n in C["actions"]:
         report[n] = audit(cur, n, os.path.join(WORK, "audit_" + n), PROP, rest_is_normal=n not in PROP_MOTION,
-                          loop=C["actions"][n].get("loop", True), skeleton=SKEL)   # "loop": false for a one-shot action (death)
+                          loop=C["actions"][n].get("loop", True), skeleton=SKEL,   # "loop": false for a one-shot action (death)
+                          under_arm=n in PROP_MOTION and "butt_push" in json.load(open(PROP_MOTION[n], encoding="utf-8")).get("aim", {}))
     json.dump({n: {"result": v["result"], "score": v["score"]} for n, v in report.items()},
               open(os.path.join(WORK, "report.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     # an approved action may have audit FAIL, but not worse than at the verdict

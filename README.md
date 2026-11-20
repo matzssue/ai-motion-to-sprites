@@ -115,9 +115,11 @@ Measured on the game's characters (assets are not included):
   far from human can slide or float its feet, and the audit has no foot-contact metric yet.
 - **One prop, held in both hands**, with a stock-like long axis (crossbow, bow, staff). One-handed props (sword, shield,
   torch) are not supported.
-- **Fingers come from the prop grip only.** The own skeleton places 5 fingers per hand from the mesh (claws or fingers
-  found on it; a mitten or fused claws get 5 chains spread evenly); on a Mixamo-template rig finger bones are grown out
-  of fused claws with per-character thresholds measured by hand. Kimodo's own finger motion is dropped.
+- **Fingers: the prop grip, or Kimodo's hand pose.** The own skeleton places 5 fingers per hand from the mesh (claws or
+  fingers found on it; a mitten or fused claws get 5 chains spread evenly) and takes the finger bends of Kimodo's hands
+  (a fixed relaxed curl) outside a grip; on a Mixamo-template rig finger bones are grown out of fused claws with
+  per-character thresholds measured by hand and Kimodo's finger motion is dropped. Hands holding something without a prop
+  (straps, a keg) are not posed yet.
 - **No sprite sheets yet.** The repo ends at an audited GLB and an 8-direction preview. Rendering the sheets is left to
   your own renderer.
 - **No runnable demo.** `examples/` describe a character whose assets are not included, and the first run needs Kimodo
@@ -155,7 +157,9 @@ The own skeleton (`amts`, [pipeline/lib/own_skeleton.py](pipeline/lib/own_skelet
 `spine.1`-`.3`, `neck`, `head`, `shoulder.L`, `upper_arm.L`, `forearm.L`, `hand.L`, `thumb.1.L`-`pinky.3.L`, `thigh.L`,
 `shin.L`, `foot.L`, `toe.L`, and non-deforming `*_end` leaves); rest orientation: every bone's Y axis runs to the next
 joint, Z points to the character's front (-Y), or up for feet and toes, or to the palm for hands and fingers, so a
-positive rotation about a finger's X curls it into the palm. The spine split, the clavicle start and the finger joints
+positive rotation about a finger's X curls it into the palm (the palm side comes from the index and pinky knuckles, and
+`prepare_rig.py` takes the grip's palm normal from the same knuckles). Its profile lists the finger chains
+(`finger_chains`), so the retarget carries Kimodo's finger bends onto them. The spine split, the clavicle start and the finger joints
 use SOMA77 proportions; nothing is read from a Mixamo file.
 Then:
 

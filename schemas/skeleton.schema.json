@@ -61,6 +61,7 @@
   "has_toe": {"not": {"required": ["absent"], "properties": {"absent": {"contains": {"const": "toe"}}}}},
   "has_toe_end": {"not": {"required": ["absent"], "properties": {"absent": {"contains": {"const": "toe_end"}}}}},
   "bone": {"type": "string", "minLength": 1},
+  "chain": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/bone"}},
   "side": {
    "type": "object",
    "required": ["upper_arm", "forearm", "hand", "upper_leg", "lower_leg", "foot"],
@@ -69,10 +70,19 @@
     "upper_arm": {"$ref": "#/$defs/bone"}, "forearm": {"$ref": "#/$defs/bone"}, "hand": {"$ref": "#/$defs/bone"},
     "fingers": {"$ref": "#/$defs/bone", "description": "first bone of the middle finger: the retarget aims the hand at it; every bone below the hand counts as a finger"},
     "upper_leg": {"$ref": "#/$defs/bone"}, "lower_leg": {"$ref": "#/$defs/bone"}, "foot": {"$ref": "#/$defs/bone"},
-    "toe": {"$ref": "#/$defs/bone"}, "toe_end": {"$ref": "#/$defs/bone", "description": "toe tip (retarget aim of the toe)"}
+    "toe": {"$ref": "#/$defs/bone"}, "toe_end": {"$ref": "#/$defs/bone", "description": "toe tip (retarget aim of the toe)"},
+    "finger_chains": {
+     "type": "object",
+     "description": "optional: the bones of each finger from the hand outwards, the last three = the finger's three bones (a metacarpal before them is allowed). The retarget carries the finger bends between two skeletons that both list a finger; a rig whose finger bones own no skin (a Mixamo template) leaves it out",
+     "properties": {"thumb": {"$ref": "#/$defs/chain"}, "index": {"$ref": "#/$defs/chain"}, "middle": {"$ref": "#/$defs/chain"},
+                    "ring": {"$ref": "#/$defs/chain"}, "pinky": {"$ref": "#/$defs/chain"}},
+     "propertyNames": {"description": "unknown finger (thumb, index, middle, ring, pinky)",
+                       "anyOf": [{"enum": ["thumb", "index", "middle", "ring", "pinky"]}, {"pattern": "^_"}]}
+    }
    },
-   "propertyNames": {"description": "unknown role (per side: shoulder, upper_arm, forearm, hand, fingers, upper_leg, lower_leg, foot, toe, toe_end)",
-                     "anyOf": [{"enum": ["shoulder", "upper_arm", "forearm", "hand", "fingers", "upper_leg", "lower_leg", "foot", "toe", "toe_end"]},
+   "propertyNames": {"description": "unknown role (per side: shoulder, upper_arm, forearm, hand, fingers, upper_leg, lower_leg, foot, toe, toe_end; or finger_chains)",
+                     "anyOf": [{"enum": ["shoulder", "upper_arm", "forearm", "hand", "fingers", "upper_leg", "lower_leg", "foot", "toe", "toe_end",
+                                          "finger_chains"]},
                                 {"pattern": "^_"}]}
   },
   "roles": {

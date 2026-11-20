@@ -4,9 +4,10 @@ Rest-pose correction (CORR): the auto-rig stands in an A-pose; without it the ar
 blender -b --python pipeline/motion/soma_to_mixamo.py -- src.bvh rig.(fbx|glb) out.glb action_name [loop_blend_s] [--skeleton X]
 loop_blend_s > 0: the last N s blend smoothly back to the frame-0 pose (Kimodo does not return: a head popped 26 deg at the loop seam)."""
 import bpy, sys, os, math
-from mathutils import Matrix, Quaternion
+from mathutils import Matrix, Quaternion, Vector
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import skeleton
+from own_skeleton import palm_normal, finger_key
 
 a = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 a, SKEL = skeleton.take_arg(a)
@@ -87,6 +88,54 @@ CORR = {}
 for s_, t_ in MAP.items():
     CORR[t_] = Quaternion() if s_ == SH else tdir(t_, True).rotation_difference(C @ sdir(s_, True))
     print("rest %-14s %5.1f deg" % (TGT.short(t_), math.degrees(CORR[t_].angle)))
+
+
+# ---------- fingers: the bend of every finger joint towards its palm, measured from joint positions (the two skeletons'
+# rest frames do not matter) and put on the same joint of the rig as a change from each skeleton's rest. Only fingers both
+# profiles list in `finger_chains` (the own skeleton; a Mixamo template's finger bones own no skin and get nothing).
+def kids_head(ob, n, rest):
+    b = ob.data.bones[n]
+    return whead(ob, b.children[0].name, rest) if b.children else wtip(ob, n, None, rest)
+
+
+def hand_points(ob, S, side, rest):
+    """(wrist, {finger: [joint positions: knuckle .. tip]}, palm normal) of one hand; the knuckle = head of the
+    third bone from the end of the chain (a metacarpal before it is skipped)."""
+    ch = S.finger_chains(side); w = whead(ob, S.bone("hand", side), rest)
+    J = {f: [whead(ob, n, rest) for n in c[-3:]] + [kids_head(ob, c[-1], rest)] for f, c in ch.items()}
+    pre = {f: (whead(ob, c[-4], rest) if len(c) > 3 else None) for f, c in ch.items()}
+    jt = {side + "Hand": tuple(w)}; jt.update({finger_key(side, f, 1): tuple(J[f][0]) for f in J})
+    n = palm_normal(jt, side)
+    return w, J, pre, (Vector(tuple(n)) if n is not None else None)
+
+
+def bends(ob, S, side, rest):
+    """{finger: [bend of bone 1, 2, 3 towards the palm, rad]}: angle of each bone against the one before it (the metacarpal,
+    or the hand axis for a finger without one) in the plane of that bone and the palm normal."""
+    w, J, pre, n = hand_points(ob, S, side, rest); axis = (J["middle"][0] - w).normalized(); out = {}
+    for f, P in J.items():
+        prev = (P[0] - pre[f]).normalized() if pre[f] is not None else axis; b = []
+        for i in range(3):
+            d = (P[i + 1] - P[i]).normalized(); u = n - prev * n.dot(prev)
+            b.append(math.atan2(d.dot(u.normalized()), d.dot(prev)) if u.length > 1e-6 else 0.0); prev = d
+        out[f] = b
+    return out
+
+
+FSIDES = [s_ for s_ in skeleton.SIDES if {"index", "middle", "pinky"} <= set(SRC.finger_chains(s_)) & set(TGT.finger_chains(s_))]
+FAX, FREST = {}, {}
+for s_ in FSIDES:
+    w_, J_, _, n_ = hand_points(tgt, TGT, s_, True)
+    FREST[s_] = bends(src, SRC, s_, True)
+    for f_, c_ in TGT.finger_chains(s_).items():
+        if f_ not in SRC.finger_chains(s_): continue
+        for i, bn in enumerate(c_[-3:]):
+            d_ = (J_[f_][i + 1] - J_[f_][i]).normalized()
+            R_ = (tgt.matrix_world @ tgt.data.bones[bn].matrix_local).to_3x3().normalized()
+            FAX[bn] = (s_, f_, i, (R_.transposed() @ d_.cross(n_)).normalized())   # + about it = towards the palm
+print("fingers: %s" % ("%d bones from the source's finger bends (%s)" % (len(FAX), ", ".join(FSIDES)) if FAX
+                       else "not carried (the profiles share no finger_chains)"))
+FBEND = {}
 ERR = {}
 src_rest = {s: wrot(src, s, True) for s in MAP}
 tgt_rest = {t: wrot(tgt, t, True) for t in MAP.values()}
@@ -118,12 +167,18 @@ for f in range(f0, f1 + 1):
         if s_ != SH:
             ang = math.degrees((C @ sdir(s_)).angle(tdir(t_)))
             ERR[TGT.short(t_)] = max(ERR.get(TGT.short(t_), 0), ang)
+    if FAX:
+        B_ = {s_: bends(src, SRC, s_, False) for s_ in FSIDES}
+        for bn, (s_, f_, i, ax) in FAX.items():
+            a_ = B_[s_][f_][i] - FREST[s_][f_][i]; FBEND[bn] = max(FBEND.get(bn, 0), abs(math.degrees(a_)))
+            pb = tgt.pose.bones[bn]; pb.rotation_quaternion = Quaternion(ax, a_); pb.keyframe_insert("rotation_quaternion", frame=f - f0)
     for t in MAP.values():
         pb = tgt.pose.bones[t]
         pb.keyframe_insert("location", frame=f - f0)
         pb.keyframe_insert("rotation_quaternion", frame=f - f0)
         pb.keyframe_insert("scale", frame=f - f0)
 print("MAX DIRECTION ERROR [deg]:", {k: round(v, 1) for k, v in ERR.items()})
+if FBEND: print("fingers: max bend from rest [deg]:", {TGT.short(k): round(v, 1) for k, v in sorted(FBEND.items())})
 bpy.data.objects.remove(src)
 for ac in list(bpy.data.actions):
     if ac is not act:

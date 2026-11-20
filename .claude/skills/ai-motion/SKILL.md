@@ -69,8 +69,9 @@ the stance, conclusions in one sentence in the motion file's `_reference`, and g
 Motion file (see `examples/motion.example.json`): `phases` (duration + **one sentence per phase**), hand windows, `grip`
 (per hand: `roll_deg` – how far the grip may rotate around the stock, `elbow_target` – where the elbow goes while aiming,
 `knuckles_at_edge` – knuckles on the stock edge when fingers cannot reach its side), `aim` (`head_back_deg` – neck back,
-`head_gaze` – how much the head comes forward to keep the eyes on target), `recoil`, `loop_blend_s` (how many last seconds
-the retarget leads back to frame 0).
+`head_gaze` – how much the head comes forward to keep the eyes on target, `butt_from_shoulder` – where the butt goes,
+`butt_push` – the world direction it leaves the body along, default forward; `[-1, 0, 0]` = to the right, for a stock under
+the right armpit), `recoil`, `loop_blend_s` (how many last seconds the retarget leads back to frame 0).
 
 **Write the grip in the character's words**, not vectors (the prop frame has +Y to the character's LEFT – sign mistakes are easy):
 `"palm": "from below" | "from above" | "from the right" | "from the left"`, `"fingers": "left" | "right" | "forward" …`,
@@ -187,13 +188,103 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   The audit votes with rays (`collisions.inside`).
 - The palm side taken from claw curvature came out as the BACK of the hand (two versions with the crossbow on the back of the
   hand, fingers bent backwards): the sign now comes from the thumb (`prepare_rig.py`). In an A-pose the palm faces the body/down.
+  On the own skeleton the palm comes from the index/pinky knuckles, like the hand bone's roll: the point-cloud estimate took
+  the wrist cloth and came out 127/150° off on Kusznik (wrist bent 96°, fingers sticking up out of the crossbow).
+- **The finger wrap of the own skeleton bends each bone about its own axis** (local X), carried by the bones above it. One
+  axis from the hand's palm normal for all three bones degenerates once the first one bends ~90° and the rest of the finger
+  stood up beside the stock.
 - **Jumps**: choosing grip and elbow frame by frame flipped between almost equal solutions (hand 60°, fingers 95° between
   frames; the audit did not measure that then). A path over the whole clip (Viterbi) + smoothed fingers; smoothing whole
   arms breaks the grip. Audit: `hand_jump`, `finger_jump`, `elbow_jump` (AUDIT.md).
 - A prop pose search without an offset limit lifted the crossbow 37 cm over the head to avoid collisions (`max_offset`).
   Check the prop height frame by frame, not only the audit.
-- A stock is not a cylinder: fingers wrap on the prop surface (BVH), not on a radius.
+- A stock is not a cylinder: fingers wrap on the prop surface (BVH), not on a radius. But a grip by the bow mount has the
+  mount, limbs and string closer than the far side of the stock: the own skeleton's long fingers wrapped those (hooks
+  8-12 cm off the stock axis). Own chains aim at the stock's faces only (`stock_radius_max`) and collide with the whole prop.
 - The thumb lies opposite the fingers: wrapped both ways; the angle from the palm axis picked the middle finger.
+- A prop fused with the body in the model (Kusznik's stock goes through the quiver) is cut out with matching open loops in
+  both meshes: a see-through hole in the stock by the right hand and in the quiver. `prepare_rig.py` welds the seam-split
+  vertices and fills only loops lying on the other mesh's open edges; on the prop the cap follows the stock (a flat cap
+  ran through the stock and the grip lifted the thumb off it). The stock's surface inside the quiver never existed, and the
+  prop axis from the config runs 1-3.4 cm off it: a cap on the axis bulged like a barrel, a fan from the centre was spiky
+  (author: "the fill did not work"). The cap now fits circles to the intact stock on both sides of the cut, moves the rim
+  (up to 5 cm off, on the quiver wall) onto that surface and fills the loop with a grid on it (CDT). `cap quality` fails
+  the rig when over 10% of the cap's faces turn more than 60 deg from the stock's outward direction (old fan 46%, now 0%). The right thumb had lain IN that hole: tuning done on a broken
+  prop does not hold once it is fixed (`thumb_along_stock` 0.05 -> 0.2).
+- A finger's weight outside its tube went to the hand even when the vertex belongs to another finger's claw: Kusznik's right
+  middle claw had a quarter of the ring finger's weight, it became hand weight and the curl pulled the claw tip 3.6 cm
+  back, folded over itself. Stray weight on another finger's outer bone goes to that bone (audit `finger_tip_fold`).
+- Cords hanging from a wrist wrap sit inside the finger tube of the thumb's/pinky's first bone: weighted to it, the grip
+  pulled them 4 cm and they showed as strings across the crossbow. Thin mesh beside a finger's first bone goes to the hand.
+- `aim.head_back_deg` turns the neck back and the head forward. On Mixamo the `Neck` bone has no skin, so only the head
+  moved; bone heat gave the own skeleton's neck a third of the throat and the 50 deg tuned on Mixamo stretched it (amts throat
+  edges p95 1.5-1.8 x rest vs Mixamo 1.2-1.4). The auto-rig moves the neck's weight to the head by height above the neck
+  joint; moved whole, the base of the neck turned with the head into the hand at the cheek (hands_in_head 0 -> 1.8 cm), and
+  the rule by height leaves most of that stretch: set `head_back_deg` per character, 0 when the stock is not at the cheek.
+- Bone heat leaves the chest, clavicle and forearm on the middle of the upper arm: the elbow bend flattened the biceps
+  (-23% radius vs -19% on Mixamo's rig). The auto-rig gives the middle of the upper arm to the upper arm alone, close to
+  its axis and below the shoulder (from 0.6 of the bone, fading in from 0.45): taken from 0.15 and 0.2 m out, it moved the
+  shoulder mass with the arm and tore the shoulder (author: "the left shoulder disappeared"; audit `skin_tear` 10-14%,
+  now 0.4% with the biceps still -10%).
+- A stock under the armpit (`butt_push` sideways) leaves the torso only: out of the whole body it went through the upper
+  arm and stopped 13 cm outside the shoulder joint. The arms are not in the collision volume, so the butt also sat 5 cm in
+  the right upper arm (author: "through the shoulder instead of under it"): lower it (`aim.butt_from_shoulder` z) until
+  the audit's `prop_in_upper_arms` (`--under-arm`) passes.
+- `aim.rest_at`: where the prop's rear end rests while aiming, by roles - `shoulder` (default) or `armpit` (default when
+  `butt_push` is given). In the armpit the PROP is the target: the rear end is pinned in the pocket of that frame's body
+  (depths `POCKET_TRY` x the upper arm below the shoulder joint), the prop only turns about it (aim kept within
+  `AIM_FREE` = 10 deg), may slide back through the pocket by `STOCK_SLIDE` and leave it by `POCKET_SLIP`, and both arms
+  are fitted to it. On the own skeleton every candidate is scored on the REAL skin with the audit's own checks
+  (`prop_in_body`, hands/forearms in head/torso, `pocket_gap`); the old proxies (a body volume open at the shoulders, arm
+  capsules) missed 7.7 cm of stock in the front armpit fold and every try swung the crossbow 50-60 deg sideways. The arm
+  solver moves the real upper arm/forearm skin rigidly with each setup (only skin weighted >= 0.9 to the bone) and keeps a
+  grip `REACH_SLACK` = 4% short of a straight arm (the left hand reached 2.3 cm past it). Kusznik: the solver's best was
+  3.9-5.1 cm in the skin; the author's hand-posed frame 44 (final, rig kus13) has 0.1 cm in the upper arm and 4.2 cm in the chest side
+  (`spine.3`), with the stock through the pocket and the butt behind the back. The author accepted it.
+  Why seven rounds failed and what the tool needs: [GRIP_LESSONS.md](GRIP_LESSONS.md).
+- A key pose posed by hand (the author's): `prop_in_hands.py --frames 44 --keep-prop` keeps the prop and the body as the
+  GLB has them and fits only the fingers of a hand whose palm lies on the stock (its arm and hand stay exactly as posed); a
+  hand off the prop takes the motion's grip by IK. Refitted to the motion's grip, the author's hands moved 2-6 cm and
+  turned 28-39 deg (left wrist twist 75 -> 101 deg). `W_AIM` comes from the right hand's height, so an aim from the hip
+  reads ~0.3: set "aim" in `<glb>_arms.json` for the audit's pocket checks.
+- Working mode (author, round 8): the solver poses; only a failed pose goes to the author, and the author's correction is a
+  bug report: compare it with the solver's output on the same body, find why the solver did not get there, and fix the
+  solver or the audit until it reaches a comparable pose by itself. Kusznik's aim (frame 44), what the comparison found:
+  the solver's own cost scored the author's pose worse (the stock resting in the pocket counted as "in the arm" in the
+  arm solver and as a body hit in `prop_hits`: both now leave the stock's rear span to the pocket allowance); a palm normal
+  tilted along the stock moved the grip along it (`grip()` offsets the palm across the axis only: the left palm was 20 cm
+  off the stock); and the pinned search started only with the rear end at the side of the ribs, turned about that end, so
+  a turn swung the stock's middle into the chest. The starts now cover the pocket depths (deepest first), 0-12 cm in front
+  of the shoulder joint, the stock slid back 0-100% of `STOCK_SLIDE` and turned +-`AIM_FREE` about the pocket point;
+  `prop_hits` and the arm's reach slack (500/m, soft) count in the prop's place. The author then found the stock in the
+  elbow (elbow pressed to the body) on a pose the audit passed: the pocket allowance (audit and solver) now covers only
+  the torso side and the upper arm's top `POCKET_ARM` = 30%, and the pinned search costs a butt-side elbow less than
+  `ELBOW_OUT` = 0.6 of the upper arm out of the shoulder joint (300/m). Swung out after the prop was placed, the arm's
+  fold pressed the stock deeper, so the elbow is chosen together with the prop. Solver alone (s12) vs the author: stock
+  yaw -20 / -18 deg, butt 10.6 / 12.4 cm out, 14.2 / 13.9 cm back, 15.8 / 21.3 cm below the shoulder joint, pitched
+  -4 / +9 deg (the motion's `aim.pitch_deg` is 4 down); right elbow 21 / 20 cm out; grips within 2 cm; audit 0.33
+  (author's pose 3.2 cm fingers in the prop, solver 1.1 cm: `index.1.R`'s base, which a raised radius does not move).
+  Details: [GRIP_LESSONS.md](GRIP_LESSONS.md).
+- Face skew guard (`prop_in_hands`, any skeleton, measured): after the prop and the arms are placed, a head turned about
+  its own axis against the top spine bone is turned back 2 deg at a time when the audit's `face_skew` is over its limit,
+  down to half of it (limit 2.5 cm; m1 Mixamo: 2.2 cm, untouched). The own rig's face is bound partly to the chest (the neck bone carries no skin), so a turned head drags the
+  jaw and mouth sideways; on a face bound to the head alone the skew stays near 0 and nothing changes. Kusznik: aim head
+  19 -> 5 deg (the author's 7), skew 4.0 -> 1.1 cm; hold 15 -> 5 deg, 3.2 -> 1.0 cm. Run before the search, the jaw met the right hand at the cheek and the
+  next pass moved the crossbow (hand 2.2 cm in the torso), so it runs last, as the author fixed theirs.
+- Own finger bones whose skin ends in the prop after the wrap get their skin radius raised by that depth and are wrapped
+  again (the median radius missed the thick side of the thumb's metacarpal: Kusznik's left thumb base 2.9 -> 0.9 cm).
+  Moving the palm out instead did not help (the hand met the bow mount) and lifted the fingertips 6.5 cm off.
+- Auto-rig elbow and wrist depth: the middle of ALL vertices in a slab around the joint put Kusznik's left elbow 8 cm
+  behind the arm (the crossbow on his back lay behind it): upper arm 27.9 vs 31.6 cm, the skin off the bone, the left
+  knuckles 5.5 cm off the mirrored right ones (author: "the left arm is broken from the base"). Elbow and wrist now take
+  the slab's layer in Y on the shoulder-wrist line / at the fingertips. A `<out>_joints.json` next to the rig is REUSED:
+  delete it to detect again.
+- Auto-rig head: skin whose largest weight is the head carries no weight of a shoulder or anything below it. Bone heat
+  gave Kusznik's forward-hanging face up to 0.15 of the right shoulder and the cheek 0.10 of the right upper arm, and the
+  aim pulled the face to one side (author).
+- An own finger bent joint by joint swings its straight rest into the stock and stops half bent (right middle finger
+  straight, tip 8.7 cm off). The grip also tries the rest of the finger curling with each joint; audit `finger_tip_gap`. Kimodo's aim frame (stock to the cheek) lifts the right clavicle and
+  leans the neck onto where the stock goes: the key pose takes both from the hold frame before `prop_in_hands --frames`.
 - Judging from thumbnails let a crossbow in the head through. Audit numbers + full frames.
 - **Fix passes do not converge** (frames with a collision 38 → 76 → 83 → 81) and the result is the last pass, not the best;
   the audit score after 1–6 passes jumps (17.1 / 19.3 / 12.8 / 7.3 / 5.5 / 11.6; `grip.passes`, default 4). The IK cost

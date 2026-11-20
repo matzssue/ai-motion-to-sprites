@@ -14,6 +14,9 @@ CENTER = {"hips": True, "spine": True, "neck": True, "head": True, "head_end": F
 SIDED = {"shoulder": False, "upper_arm": True, "forearm": True, "hand": True, "fingers": False,
          "upper_leg": True, "lower_leg": True, "foot": True, "toe": False, "toe_end": False}
 REGIONS = ("head", "torso", "clavicles", "legs")
+# optional per side `finger_chains`: {finger: [bones from the hand outwards]}; the last three are the finger's three bones
+# (a metacarpal before them is allowed). The retarget carries the finger bends between skeletons that both list a finger.
+FINGERS = ("thumb", "index", "middle", "ring", "pinky")
 # the retarget aims a bone at the next role along the body; that role absent -> at the bone's own tail
 AIM = {"neck": "head", "head": "head_end", "shoulder": "upper_arm", "upper_arm": "forearm", "forearm": "hand", "hand": "fingers",
        "upper_leg": "lower_leg", "lower_leg": "foot", "foot": "toe", "toe": "toe_end"}
@@ -93,8 +96,14 @@ def problems(D):
     for side in ("left", "right"):
         S = B.get(side)
         if not isinstance(S, dict): out.append("bones.%s: missing (an object of per-side roles)" % side); continue
+        FC = S.get("finger_chains", {})
+        if not isinstance(FC, dict): out.append("bones.%s.finger_chains: an object {finger: [bones]}" % side); FC = {}
+        for f, ch in FC.items():
+            if f not in FINGERS and not f.startswith("_"): out.append("bones.%s.finger_chains.%s: unknown finger (%s)" % (side, f, ", ".join(FINGERS)))
+            elif f in FINGERS and not (isinstance(ch, list) and len(ch) >= 3 and all(isinstance(x, str) and x for x in ch)):
+                out.append("bones.%s.finger_chains.%s: a list of at least 3 bone names" % (side, f))
         for k in S:
-            if k not in SIDED and not k.startswith("_"): out.append("bones.%s.%s: unknown role (roles: %s)" % (side, k, ", ".join(SIDED)))
+            if k not in SIDED and k != "finger_chains" and not k.startswith("_"): out.append("bones.%s.%s: unknown role (roles: %s)" % (side, k, ", ".join(SIDED)))
         for role, req in SIDED.items():
             v = S.get(role)
             if v is None:
@@ -146,6 +155,8 @@ class Profile:
             for role in SIDED:
                 v = B[s.lower()].get(role)
                 if v: self._b[(role, s)] = P + v
+        self.chains = {s: {f: [P + n for n in ch] for f, ch in B[s.lower()].get("finger_chains", {}).items() if f in FINGERS}
+                       for s in SIDES}
         self.regions = {r: [x for x in data["regions"][r]] for r in REGIONS}
         self.role_of = {n: k for k, n in self._b.items()}
         for i, n in enumerate(self.spine): self.role_of[n] = ("spine", None)
@@ -153,10 +164,11 @@ class Profile:
     def __repr__(self): return "<skeleton %s>" % self.name
 
     def without(self, roles):
-        """Copy with these optional roles absent."""
+        """Copy with these optional roles absent (no fingers: no finger chains either)."""
         D = json.loads(json.dumps(self.data)); B = D["bones"]
         for r in roles:
             B.pop(r, None); B["left"].pop(r, None); B["right"].pop(r, None)
+            if r == "fingers": B["left"].pop("finger_chains", None); B["right"].pop("finger_chains", None)
         D["absent"] = sorted(set(D.get("absent", [])) | set(roles))
         return Profile(D, self.path)
 
@@ -181,6 +193,10 @@ class Profile:
         if role == "spine": return list(self.spine)
         if role in CENTER: return [self._b[(role, None)]] if (role, None) in self._b else []
         return [self._b[(role, s)] for s in SIDES if (role, s) in self._b]
+
+    def finger_chains(self, side):
+        """{finger: [full bone names from the hand outwards]} of one side; {} when the profile lists none."""
+        return dict(self.chains[side_name(side)])
 
     def region_bones(self, region):
         return [b for r in self.regions[region] for b in self.bones(r)]
@@ -232,8 +248,15 @@ class Profile:
         return [(n, other._b[k]) for k, n in self._b.items() if k in other._b] + list(zip(self.spine, other.spine))
 
     def bind(self, parents, exclude=()):
-        """Profile against one rig: `parents` = {bone: parent or None}. Checks that every bone the profile names exists."""
-        return Rig(self, parents, exclude)
+        """Profile against one rig: `parents` = {bone: parent or None}. Checks that every bone the profile names exists;
+        a finger chain the rig does not have whole is dropped (chains are optional: a renamed template rig lacks Index4)."""
+        lost = [(s, f) for s in SIDES for f, ch in self.chains[s].items() if any(n not in parents for n in ch)]
+        prof = self
+        if lost:
+            D = json.loads(json.dumps(self.data))
+            for s, f in lost: D["bones"][s.lower()]["finger_chains"].pop(f)
+            prof = Profile(D, self.path)
+        return Rig(prof, parents, exclude)
 
 
 class Rig:

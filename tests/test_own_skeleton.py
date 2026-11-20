@@ -48,6 +48,9 @@ def test_definition_matches_profile():
     pairs = dict(skeleton.load("soma").pairs(P))
     assert pairs["Chest"] == "spine.3" and pairs["LeftLeg"] == "thigh.L" and pairs["RightShin"] == "shin.R"
     assert dict(P.same_roles(skeleton.load("soma")))["middle.1.L"] == "LeftHandMiddle1"
+    for s in ("L", "R"):   # the profile's finger chains are the skeleton's finger bones, knuckle first
+        assert P.finger_chains(s) == {f: ["%s.%d.%s" % (f, i, s) for i in (1, 2, 3)] for f in OS.FINGERS}
+        assert all(OS.PARENT[c[0]] == "hand." + s for c in P.finger_chains(s).values())
 
 
 def test_soma_proportions_are_fractions():

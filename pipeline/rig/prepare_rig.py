@@ -9,9 +9,10 @@ A rig with its own weighted finger chains below a hand (the own skeleton of auto
 on that hand, the config's `fingers` block is not needed there (its `thumb` override still applies)."""
 import bpy, bmesh, sys, os, math, json, argparse
 import numpy as np
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Vector, geometry as mgeo
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from collisions import dominant, rig_of, FINGER_PREFIX
+import own_skeleton
 
 ap = argparse.ArgumentParser(description="Cut the prop onto its own bone and grow finger bones out of the claws.")
 ap.add_argument("--rig", required=True); ap.add_argument("--config", required=True); ap.add_argument("--out", required=True)
@@ -151,6 +152,164 @@ if PC:
             and in_box(np.array([tuple(mw @ q.co) for q in c]), DB["box"]).all() for q in c]
     print("debris: %d vertices in %d islands" % (len(kill), sum(1 for c in islands.values() if c[0] in kill)))
     bmesh.ops.delete(bm, geom=kill, context="VERTS"); bm.to_mesh(body.data); bm.free()
+
+    # cap check: the share of cap faces turned more than 60 deg from the stock's outward direction, and how far an interior
+    # vertex sits off the stock radius. The fan cap: 400 faces; the cylinder-domain cap: see the log
+    CAP_STEP, CAP_OFF, CAP_ERR, SHARD = 0.008, 0.10, 0.004, 0.05
+
+    def cap_quality(faces, mw_, radial, centre, added):
+        """(share of faces facing > 60 deg off the stock's outward direction, max distance of a new vertex from the stock radius)
+        around the stock's fitted centre line."""
+        off, err = 0, 0.0
+        for f in faces:
+            p = mw_ @ f.calc_center_median(); c, r = centre(radial(p)[0]); rv = p - c
+            if rv.length > 1e-6 and (mw_.to_3x3() @ f.normal).normalized().dot(rv.normalized()) < 0.5: off += 1
+            for v in f.verts:
+                if v not in added: continue   # the loop's own vertices stay where the model has them
+                p = mw_ @ v.co; c, r = centre(radial(p)[0]); err = max(err, abs((p - c).length - r))
+        return off / max(len(faces), 1), err
+
+    # cap the cut: where the prop was fused with the body the separation leaves matching open loops in both meshes
+    # (Kusznik: the stock went through the quiver in the model; seen as a hole in the stock by the right hand and in the
+    # quiver). Only loops whose vertices lie on the other mesh's open edges are filled; other open edges stay.
+    # The mesh is split at UV seams: it is welded first, or a loop crossing a seam is not closed and stays open.
+    # The stock's surface inside the quiver never existed: what it kept there (a concave piece of the quiver wall) stays.
+    key = lambda v: tuple(round(c * 2e4) for c in v.co)
+    bms = {}
+    for o in (body, prop):
+        bms[o] = bmesh.new(); bms[o].from_mesh(o.data)
+    rim = {o: {key(v) for e in bms[o].edges if e.is_boundary for v in e.verts} for o in bms}
+    for o, other in ((body, prop), (prop, body)):
+        b_ = bms[o]
+        # the prop is small and welded whole (its seam edges ending on the rim kept the loop from closing); the body only
+        # at the rim
+        bmesh.ops.remove_doubles(b_, verts=list(b_.verts) if o is prop else [v for v in b_.verts if key(v) in rim[other]], dist=1e-5)
+        cut = [e for e in b_.edges if e.is_boundary and all(key(v) in rim[other] for v in e.verts)]
+        # each simple loop (every vertex on two cut edges) becomes one face; bmesh.ops.holes_fill left Kusznik's 49-edge
+        # loop on the stock open
+        cs, seen_, new = set(cut), set(), []
+        for e in cut:
+            if e in seen_: continue
+            ring, v, prev = [e.verts[0]], e.verts[1], e; seen_.add(e)
+            while v is not ring[0]:
+                nxt = [y for y in v.link_edges if y in cs and y is not prev]
+                if len(nxt) != 1: ring = None; break
+                ring.append(v); prev = nxt[0]; seen_.add(prev); v = prev.other_vert(v)
+            if ring and len(ring) >= 3:
+                try: new.append(b_.faces.new(ring))
+                except ValueError: pass   # a face over these vertices exists already
+        nf = len(new)
+        if new and o is prop and PC.get("frame"):
+            # on the prop the cap bulges onto the stock radius around the prop axis: a flat cap of a loop wrapping half the
+            # stock ran through its inside, the grip read the stock surface as inside and lifted the right thumb off it
+            U_ = PC["frame"]; mw_ = o.matrix_world; mwi_ = mw_.inverted()
+            A_ = Vector(U_["axis"][0]); fa = (Vector(U_["axis"][1]) - A_).normalized()
+
+            def radial(p):   # world point -> (along the axis, radial vector)
+                x = (p - A_).dot(fa); return x, p - (A_ + fa * x)
+            prof = []
+            for f in b_.faces:
+                if f in new: continue
+                x, rv = radial(mw_ @ f.calc_center_median())
+                if rv.length > 1e-6 and (mw_.to_3x3() @ f.normal).normalized().dot(rv.normalized()) > 0.7: prof.append((x, rv.length))
+            prof = np.array(prof)
+
+            def r_at(x):   # stock radius at x from its outward-facing surface
+                m = np.abs(prof[:, 0] - x) < 0.03
+                return float(np.median(prof[m, 1])) if len(prof) and m.any() else None
+            # the stock's centre line across the cut: circles fitted to intact cross-sections (points all round) on both
+            # sides of the loops (a low-poly ring: >= 5 of 12 angle bins, fit error < 2 mm), a straight line through their
+            # centres and radii. The prop axis from the config runs 1-3.4 cm off Kusznik's stock there (radius 2.3 cm behind
+            # the cut, 3.5 cm in front), and a cap on radii about it bulged out to one side
+            u0 = fa.orthogonal().normalized(); v0 = fa.cross(u0)
+            rimv = {v for f in new for v in f.verts}
+            xs_ = [radial(mw_ @ v.co)[0] for v in rimv]; x_lo, x_hi = min(xs_) - 0.01, max(xs_) + 0.01
+            pv = np.array([(x, rv.dot(u0), rv.dot(v0)) for x, rv in (radial(mw_ @ v.co) for v in b_.verts if v not in rimv)
+                           if rv.length < 0.08])
+            fits = []
+            for xc in np.arange(x_lo - 0.10, x_hi + 0.10, 0.01):
+                if x_lo - 0.005 < xc < x_hi + 0.005: continue
+                q = pv[np.abs(pv[:, 0] - xc) < 0.01]
+                if len(q) < 6: continue
+                Am = np.c_[q[:, 1], q[:, 2], np.ones(len(q))]; D, E, F = np.linalg.lstsq(Am, -(q[:, 1] ** 2 + q[:, 2] ** 2), rcond=None)[0]
+                cu, cv = -D / 2, -E / 2; rr = cu * cu + cv * cv - F
+                if rr <= 0: continue
+                rad = np.hypot(q[:, 1] - cu, q[:, 2] - cv); bins = np.unique(((np.arctan2(q[:, 2] - cv, q[:, 1] - cu) + math.pi) / (2 * math.pi) * 12).astype(int) % 12)
+                if np.sqrt(np.mean((rad - math.sqrt(rr)) ** 2)) < 0.002 and len(bins) >= 5 and 0.015 < math.sqrt(rr) < 0.07:
+                    fits.append((xc, cu, cv, math.sqrt(rr)))
+            fits = np.array(fits)
+            if len(fits) >= 2 and (fits[:, 0] < x_lo).any() and (fits[:, 0] > x_hi).any():
+                LN = [np.polyfit(fits[:, 0], fits[:, k], 1) for k in (1, 2, 3)]
+
+                def centre(x):   # (point on the stock's centre line, stock radius) at x
+                    cu, cv, r = (float(np.polyval(c, x)) for c in LN); return A_ + fa * x + u0 * cu + v0 * cv, r
+            else:
+                def centre(x):
+                    return A_ + fa * x, r_at(x) or 0.03
+            print("stock centre line on %s: %d intact sections%s" % (o.name, len(fits), " at x %s" % np.round(fits[:, 0], 2).tolist() if len(fits) else ""))
+
+            def to_stock(p, x):   # point -> onto the stock surface at x, keeping its direction from the centre line
+                c, r = centre(x); d = p - c; d -= fa * d.dot(fa); return c + d.normalized() * r if d.length > 1e-6 else p
+            # the loop's rim lies on the quiver wall, up to 5 cm off the stock: the rim goes onto the stock surface, and so do
+            # two rings of faces next to it where they stand off it (out or in) by less than SHARD. Left as they were, the cap bulged out to the rim and the wall pieces stood out as shards
+            ring_, front_ = set(rimv), set(rimv)
+            for _ in range(2):
+                front_ = {w for v in front_ for e in v.link_edges for w in e.verts} - ring_; ring_ |= front_
+            moved = 0
+            for v in ring_:
+                p = mw_ @ v.co; x = radial(p)[0]; c, r = centre(x); d = (p - c) - fa * (p - c).dot(fa)
+                if v in rimv or (x_lo <= x <= x_hi and 0.002 < abs(d.length - r) < SHARD): v.co = mwi_ @ to_stock(p, x); moved += 1
+            print("cut rim on %s: %d vertices onto the stock surface" % (o.name, moved))
+            # each loop is triangulated in the unrolled stock surface (along the axis x angle) with interior points every
+            # CAP_STEP, and every new vertex is set on the stock radius: a fan from one centre pushed onto the radius gave
+            # a spiky, faceted patch by the right hand (author: "the fill did not work") and the middle finger stood up on it
+            R0 = float(np.mean([centre(x)[1] for x in np.linspace(x_lo, x_hi, 5)]))
+
+            def ang(p):
+                rv = p - centre(radial(p)[0])[0]; return math.atan2(rv.dot(v0), rv.dot(u0))
+
+            def on_stock(x, th):
+                c, r = centre(x); return c + (u0 * math.cos(th) + v0 * math.sin(th)) * r
+            caps, added = [], set()
+            for f in list(new):
+                ring = list(f.verts); P_ = [mw_ @ v.co for v in ring]
+                th = [ang(P_[0])]
+                for p_ in P_[1:]: th.append(th[-1] + (ang(p_) - th[-1] + math.pi) % (2 * math.pi) - math.pi)
+                if abs(th[-1] + (th[0] - th[-1] + math.pi) % (2 * math.pi) - math.pi - th[0]) > math.pi:
+                    caps.append(f); continue   # the loop goes round the stock: no patch on its surface, the plain face stays
+                xy = [(radial(p_)[0], t_ * R0) for p_, t_ in zip(P_, th)]
+                poly = np.array(xy); lo_, hi_ = poly.min(0), poly.max(0); pts = []
+                for gx in np.arange(lo_[0] + CAP_STEP / 2, hi_[0], CAP_STEP):
+                    for gy in np.arange(lo_[1] + CAP_STEP / 2, hi_[1], CAP_STEP):
+                        q = np.array((gx, gy)); a2, b2 = poly, np.roll(poly, -1, 0)
+                        cross = ((a2[:, 1] > gy) != (b2[:, 1] > gy)) & (gx < (b2[:, 0] - a2[:, 0]) * (gy - a2[:, 1]) / (b2[:, 1] - a2[:, 1] + 1e-12) + a2[:, 0])
+                        ab2 = b2 - a2; t2 = np.clip(((q - a2) * ab2).sum(1) / np.maximum((ab2 * ab2).sum(1), 1e-12), 0, 1)
+                        if cross.sum() % 2 and np.linalg.norm(a2 + t2[:, None] * ab2 - q, axis=1).min() > CAP_STEP / 2: pts.append((gx, gy))
+                n_ = len(ring); V2 = [Vector(c) for c in xy + pts]
+                out = mgeo.delaunay_2d_cdt(V2, [(i, (i + 1) % n_) for i in range(n_)], [list(range(n_))], 1, 1e-7)
+                if not out[2]: caps.append(f); continue
+                vmap = []
+                for k, (co2, orig) in enumerate(zip(out[0], out[3])):
+                    i0 = min(orig) if orig else None
+                    if i0 is not None and i0 < n_: vmap.append(ring[i0])
+                    else: vmap.append(b_.verts.new(mwi_ @ on_stock(co2.x, co2.y / R0))); added.add(vmap[-1])
+                b_.faces.remove(f)
+                for tri in out[2]:
+                    try: caps.append(b_.faces.new([vmap[i] for i in tri]))
+                    except ValueError: pass
+            new = caps
+        if new:
+            new = bmesh.ops.triangulate(b_, faces=new)["faces"]
+            bmesh.ops.recalc_face_normals(b_, faces=new)
+        print("cut capped on %s: %d open edges, %d loops filled, %d new faces" % (o.name, len(cut), nf, len(new)))
+        if new and o is prop and PC.get("frame"):
+            off, err = cap_quality(new, mw_, radial, centre, added)
+            print("cap quality on %s: %d faces, %.0f%% facing off the stock (> 60 deg), interior radius error max %.1f cm"
+                  % (o.name, len(new), 100 * off, 100 * err))
+            if off > CAP_OFF or err > CAP_ERR:
+                raise SystemExit("prepare_rig: the cap on %s is spiky (%.0f%% of its faces off the stock surface, limit %.0f%%; radius "
+                                 "error %.1f cm, limit %.1f): a torn-looking patch by the grip" % (o.name, 100 * off, 100 * CAP_OFF, 100 * err, 100 * CAP_ERR))
+        b_.to_mesh(o.data); b_.free()
 
 # ---------- 2. fingers out of the claws ----------
 dom = dominant(body)
@@ -328,6 +487,14 @@ for side, (fl, ax, w0) in FING.items():
     ch_ = np.cross(ax, n) if side == "Right" else np.cross(n, ax)
     if ch_ @ tk < 0:
         n = -n; print(side, "palm flipped (claw curl pointed at the back of the hand)")
+    # the rig's own fingers: the palm normal from the knuckles in the joints file, the rule the own skeleton rolls its hand
+    # with (own_skeleton.palm_normal). The point cloud above saw the wrist cloth and the thumb's offset towards the palm
+    # (Kusznik: 127 and 150 deg off, the back of the hand on the stock, fingers bent backwards out of the crossbow)
+    try: kn = own_skeleton.palm_normal(JOINTS, side) if side in OWN else None
+    except KeyError: kn = None   # a joints file without finger keys (fingers from another source)
+    if kn is not None:
+        print(side, "palm from the knuckles: %.0f deg from the point-cloud estimate" % math.degrees(math.acos(max(-1, min(1, float(kn @ n))))))
+        n = kn
     R = (AW @ arm.data.bones[HAND[side]].matrix_local).to_3x3().normalized()
     data["palm"][side] = {"local_normal": list((R.transposed() @ Vector(n)).normalized()),
                           "axis_vs_bone_deg": round(math.degrees(Vector((0, 1, 0)).angle(R.transposed() @ Vector(ax))), 1)}
