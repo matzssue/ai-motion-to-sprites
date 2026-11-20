@@ -10,6 +10,7 @@ from mathutils import Matrix, Vector
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import skin
 from collisions import dominant, vertices, rig_of
+from audit_metrics import height
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 rest_args = argv[argv.index("--") + 1:] if "--" in argv else []; argv = argv[:argv.index("--")] if "--" in argv else argv
@@ -59,7 +60,7 @@ heads0 = {b.name: np.array(AW @ b.head_local) for b in arm.data.bones}
 SEGS = {s: skin.segments(PROF, s) for s in ("Left", "Right")}
 SEL = {s: skin.select(dom, rest, heads0, SEGS[s]) for s in ("Left", "Right")}
 SEG_OF = {PROF.short(a): (s, a, b, vb) for s in SEGS for a, b, vb in SEGS[s]}   # report region (bone without prefix) -> segment
-H = float(np.ptp(rest[:, 2]))
+H = height(rest[:, 2])
 
 
 def torso():

@@ -80,6 +80,18 @@ LABELS = {
     "finger_tip_gap": "fingertip off prop", "finger_tip_fold": "folded fingertip",
 }
 UNIT_SHOWN = {"m": "cm", "deg": "deg", "frac": "percent"}   # METRICS unit -> how a page shows it
+REF_HEIGHT = 1.8   # "m" limits are set for a character this tall
+
+
+def height(rest_z):
+    """Character height from the rig's REST pose (vertex z, z up), the same for every action, sample and frame. The posed
+    first frame gave Padlinozerca 1.40-2.15 m against 1.90 m at rest, so its limits moved by up to 26% between samples."""
+    return float(max(rest_z) - min(rest_z))
+
+
+def scaled(limits, h):
+    """Limits for a character `h` m tall: metre limits scaled by h / REF_HEIGHT, degrees and fractions as they are."""
+    return {k: (v * (h / REF_HEIGHT) if METRICS[k][1] == "m" else v) for k, v in limits.items() if v is not None}
 
 
 def catalog():
