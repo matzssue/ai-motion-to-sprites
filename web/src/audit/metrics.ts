@@ -4,7 +4,7 @@
 import catalog from "./catalog.json";
 import type { MetricGroup, MetricUnit } from "./schema";
 
-export const GROUPS: MetricGroup[] = ["penetration", "joints", "smoothness", "grip", "other"];
+export const GROUPS: MetricGroup[] = ["penetration", "joints", "smoothness", "grip", "feet", "other"];
 
 type CatalogEntry = { key: string; label: string; unit: MetricUnit; group: MetricGroup };
 export const CATALOG: readonly CatalogEntry[] = catalog as CatalogEntry[];

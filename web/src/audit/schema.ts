@@ -51,7 +51,7 @@ export type AuditError = z.infer<typeof AuditErrorSchema>;
 export type AuditReport = z.infer<typeof AuditReportSchema>;
 export type AuditSample = z.infer<typeof AuditSampleSchema>;
 
-export type MetricGroup = "penetration" | "joints" | "smoothness" | "grip" | "other";
+export type MetricGroup = "penetration" | "joints" | "smoothness" | "grip" | "feet" | "other";
 export type MetricUnit = "cm" | "deg" | "percent";
 
 /** One timeline row: a metric's value at every sample against its limit. */

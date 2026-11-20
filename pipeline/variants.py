@@ -104,7 +104,7 @@ if __name__ == "__main__":
         results = list(ex.map(lambda nz: run_variant(nz[0], nz[1], A, base, prop), variants))
     results.sort(key=lambda w: w.get("score", 1e9))
     json.dump(results, open(os.path.join(A.out, "results.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    groups = ("penetration", "joints", "smoothness", "grip")
+    groups = ("penetration", "joints", "smoothness", "grip", "feet")
     L = ["| variant | score | " + " | ".join(groups) + " | area | vs reference | worst | at limit |", "|---|---|" + "---|" * (len(groups) + 4)]
     for w in results:
         if "error" in w: L.append("| %s | - | %s |" % (w["name"], w["error"])); continue

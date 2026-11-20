@@ -62,6 +62,15 @@ METRICS = {
     # share of a fingertip's skin folded back over itself (faces turned > 120 deg against their own bone): claw tips past
     # the end of the finger's bone carried hand weight and the curl pulled them back (Kusznik's right middle finger 23%)
     "finger_tip_fold": (0.05, "frac", "joints"),
+    # feet against the clip's own ground (feet.py, AUDIT.md "Feet"). Lowest foot point above it: accepted clips up to 9.3 cm
+    # (library walk), Padlinozerca's key-pose crouch at standing hip height 41-60 cm
+    "feet_above_ground": (0.15, "m", "feet"),
+    # net travel of a planted foot over 2 frames, the walk's treadmill taken out: accepted up to 5.2 cm (walk), attacks and
+    # idles 3.2 cm; Padlinozerca's grounded leap skates 63 cm on landing
+    "foot_slide": (0.08, "m", "feet"),
+    # one foot on the ground, the other this high: a step or a kick does it too (a walk's swing foot 16 cm, Padlinozerca's
+    # hanging crouch foot 30 cm); no accepted kick or step to calibrate against, so reported only
+    "foot_hanging": (None, "m", "feet"),
 }
 # names on the review pages (review_page.py, web/src/audit/catalog.json); every METRICS key needs one (tests/test_audit_metrics.py)
 LABELS = {
@@ -78,6 +87,7 @@ LABELS = {
     "skin_tear": "torn shoulder skin", "prop_in_upper_arms": "prop in upper arm", "prop_in_body": "prop in body",
     "rest_gap": "stock off the armpit", "prop_in_pocket": "stock in armpit skin", "face_skew": "face skew",
     "finger_tip_gap": "fingertip off prop", "finger_tip_fold": "folded fingertip",
+    "feet_above_ground": "feet off the ground", "foot_slide": "planted foot sliding", "foot_hanging": "one foot hanging",
 }
 UNIT_SHOWN = {"m": "cm", "deg": "deg", "frac": "percent"}   # METRICS unit -> how a page shows it
 REF_HEIGHT = 1.8   # "m" limits are set for a character this tall
@@ -119,7 +129,7 @@ NEEDS = {
     "hand_to_prop_L": ("hand.left",), "hand_to_prop_R": ("hand.right",), "prop_above_head": ("region:head",),
     "loose_fingers": ("fingers",), "stretch": (), "skin_twist": ARM, "skin_spread": ARM,
     "skin_tear": ("shoulder", "upper_arm", "forearm"), "prop_in_upper_arms": ("upper_arm",), "prop_in_body": (), "rest_gap": ("upper_arm", "forearm"), "prop_in_pocket": ("upper_arm", "forearm"), "face_skew": ("head",), "finger_tip_gap": ("fingers",),
-    "finger_tip_fold": ("fingers",),
+    "finger_tip_fold": ("fingers",), "feet_above_ground": ("foot",), "foot_slide": ("foot",), "foot_hanging": ("foot",),
 }
 
 

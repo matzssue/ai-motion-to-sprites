@@ -9,7 +9,7 @@
   (a wrist read as "96° for the whole clip" was over the limit in 25% of samples, only while holding low).
 - `side`: which arm. Once the LEFT forearm and the RIGHT hand were in the head – without it the wrong arm got fixed.
 - `score` = sum of (max/limit − 1), 0 = OK; it ranks samples. **`scores`** splits it into groups:
-  `penetration`, `joints`, `smoothness`, `grip`. Compare versions by group and metric, not the sum: a new metric changes the sum.
+  `penetration`, `joints`, `smoothness`, `grip`, `feet`. Compare versions by group and metric, not the sum: a new metric changes the sum.
 - `score_area` = the same averaged over samples: one bad frame does not dominate.
 - `no_limit`: metrics for information (no bad sample to calibrate against yet) – read them, they do not decide OK.
 - `skipped`: metric -> reason, for metrics whose skeleton roles are absent (`NEEDS` in `pipeline/lib/audit_metrics.py`);
@@ -62,6 +62,11 @@ sample had limits up to 26% tighter. Scores of approved motions moved with that 
 | | finger_tip_fold | 0.05 | share of a fingertip's skin (faces of each chain's last bone, thumbs too) turned over 120° against its own bone: a tip folded back over itself (author: "the green finger's tip is bent oddly", 23%; 0% after the weight fix). Joint angles did not show it (91° / 55°, natural): stray hand weight on the claw pulled it back. Skipped without `finger_chains` |
 | | loose_fingers | — | info: fraction of fingers farther than 2 cm from the prop. 20–40% in every version: does not separate good from bad |
 
+| feet | feet_above_ground | 0.15 | lowest foot skin point (foot, toe, toe_end bones) above the clip's OWN ground (its lowest foot point over the whole clip; `combine_actions.py --ground` moves every action onto one ground later, so only a change of height inside the clip is a defect). Accepted: m1 Wybuchacz 6.8 cm, Kusznik 2.6 cm, library walks 7.0 / 9.3 cm, knight's text samples ≤ 2.2 cm. Padlinozerca round 3 (key poses at standing hip height, F17): s0 41 cm, s1-s3 41-60 cm; s0 grounded by script 2.8 cm. An intended jump fails it too: raise it with `--limits` for that action |
+| | foot_slide | 0.08 | net ground-plane travel of a planted foot (its skin within `feet.CONTACT` = 3 cm of the ground in two samples in a row; the median of that skin, the lowest vertex jumps heel/toe) over `SLIDE_FRAMES` = 2 frames, minus the clip's "treadmill" (median travel of all contact steps: a walk in place moves its planted foot back at walking speed, raw 13-15 cm; standing actions ~0). Accepted: walks 5.2 cm (at the loop seam), attacks and idles ≤ 3.2 cm. Padlinozerca s0 grounded: right foot 63 cm on landing (fr. 28-30), left 24 cm at take-off (fr. 21). A 4 cm contact let a walk's toe roll read as 46 cm |
+| | foot_hanging | — (reported only) | one foot on the ground, the other this high (its lowest point): Padlinozerca's grounded crouch stands on the right foot with the left 30 cm up for 0.8 s (Kimodo's leg bend). A walk's swing foot reaches 16 cm; no accepted step or kick in the data to tell them apart, so no verdict |
+
+Feet metrics need the whole clip (ground, treadmill): `--frames` measures none.
 Grip metrics are measured only when the prop should be in the hands (`--prop` without `--rest-is-normal`).
 `--no-loop` skips the loop seam (in `character.json`: `"loop": false` on the action).
 `--limits file.json` overrides single limits (only from a measurement, with an entry here).

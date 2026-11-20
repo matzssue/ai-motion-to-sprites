@@ -303,6 +303,11 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   straight, tip 8.7 cm off). The grip also tries the rest of the finger curling with each joint; audit `finger_tip_gap`. Kimodo's aim frame (stock to the cheek) lifts the right clavicle and
   leans the neck onto where the stock goes: the key pose takes both from the hold frame before `prop_in_hands --frames`.
 - Judging from thumbnails let a crossbow in the head through. Audit numbers + full frames.
+- **A character off the ground passed the audit** until it measured feet: Padlinozerca's key-pose crouch floated 41 cm
+  and the copy grounded by script skated 63 cm on landing, both silent (score 5.38 for other reasons). `feet_above_ground`
+  is measured against the clip's own lowest foot point, `foot_slide` without the walk's treadmill (AUDIT.md, feet rows).
+  A foot hanging beside a planted one is reported only (a step or kick does it too). An intended jump fails
+  `feet_above_ground`: raise it for that action with `--limits`.
 - **Fix passes do not converge** (frames with a collision 38 → 76 → 83 → 81) and the result is the last pass, not the best;
   the audit score after 1–6 passes jumps (17.1 / 19.3 / 12.8 / 7.3 / 5.5 / 11.6; `grip.passes`, default 4). The IK cost
   (spheres around bones) barely agrees with the audit (IK reports a collision in 81 frames, the audit an error in 32; in 9
