@@ -14,6 +14,9 @@ import skin
 from audit_metrics import METRICS, NEEDS, judge
 
 LOOSE_FINGER = 0.02   # m: a finger whose nearest point is farther from the prop does not hold it
+# m: prop inside the upper arms with the stock under the armpit (the butt sits between the arm and the ribs, touching both).
+# With the stock on the shoulder the butt sits in the shoulder by design (approved Mixamo shot 7.4 cm): no limit there
+UNDER_ARM = 0.015
 
 ap = argparse.ArgumentParser(description="Audit one action of a skinned GLB every 1/4 frame.")
 ap.add_argument("--glb", required=True); ap.add_argument("--action", required=True); ap.add_argument("--out", required=True)
@@ -22,6 +25,7 @@ ap.add_argument("--step", type=float, default=0.25); ap.add_argument("--no-close
 ap.add_argument("--rest-is-normal", action="store_true", help="prop carried where it was modelled (not in the hands)")
 ap.add_argument("--frames", default=None, help="only these frames (quick grip try): no smoothness metrics")
 ap.add_argument("--no-loop", action="store_true", help="one-shot action: no loop seam metric")
+ap.add_argument("--under-arm", action="store_true", help="stock under the armpit (motion aim.butt_push): prop in the upper arms is scored")
 ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
 UNIT = {k: v[1] for k, v in METRICS.items()}; GROUP = {k: v[2] for k, v in METRICS.items()}
@@ -69,6 +73,33 @@ CO_REST = vertices(body, bpy.context.evaluated_depsgraph_get()); arm.data.pose_p
 DOM_S = np.array([str(d) for d in dom]); SEGS = {s: skin.segments(PROF, s) for s in skeleton.SIDES}
 SKIN = {s: skin.select(DOM_S, CO_REST, HEADS0, SEGS[s]) for s in skeleton.SIDES} if "skin_twist" not in SKIP else {}
 TORSO = PROF.spine[-1]
+# fingertips (finger_tip_gap): skin of the last bone of each finger chain the profile lists, thumbs left out (a thumb lying
+# along the stock or over the fingers keeps its tip off the surface). A profile without chains (Mixamo's grown finger_*
+# bones) has no tips to measure
+TIPS = {ch[-1]: np.where(dom == ch[-1])[0] for s_ in skeleton.SIDES for f_, ch in PROF.finger_chains(s_).items() if f_ != "thumb"}
+TIPS = {n: ii for n, ii in TIPS.items() if len(ii)}
+for k_ in ("finger_tip_gap", "finger_tip_fold"):
+    if not TIPS and k_ not in SKIP: SKIP[k_] = "no finger_chains in the skeleton profile"; LIMITS.pop(k_, None); LIM.pop(k_, None)
+if A.under_arm and "prop_in_upper_arms" not in SKIP: LIMITS["prop_in_upper_arms"] = UNDER_ARM; LIM["prop_in_upper_arms"] = UNDER_ARM * SCALE
+# shoulder skin (skin_tear): faces of the clavicle and the upper part of the upper arm (2 of 3 vertices theirs), rest areas
+SHOULDER, SHOULDER_U, TEAR = {}, 0.45, 2.0
+if "skin_tear" not in SKIP:
+    cr = CO_REST[tris]; ar = np.linalg.norm(np.cross(cr[:, 1] - cr[:, 0], cr[:, 2] - cr[:, 0]), axis=1)
+    for s_ in skeleton.SIDES:
+        ua, fa, sh = PROF.bone("upper_arm", s_), PROF.bone("forearm", s_), PROF.bone("shoulder", s_)
+        a_, b_ = HEADS0[ua], HEADS0[fa]; u_ = (cr.mean(1) - a_) @ (b_ - a_) / ((b_ - a_) @ (b_ - a_))
+        sel = (np.isin(dom[tris], [ua, sh]).sum(1) >= 2) & (u_ < SHOULDER_U) & (ar > 0)
+        if sel.any(): SHOULDER[s_[0]] = (np.where(sel)[0], ar[sel])
+# fingertip folds (finger_tip_fold): faces of each chain's last bone, thumbs too (2 of 3 vertices its), rest normals in
+# that bone's rest frame; a face turned > FOLD deg against its bone is folded back
+FOLD, TIP_FACES = 120.0, {}
+if "finger_tip_fold" not in SKIP:
+    cr = CO_REST[tris]; n_ = np.cross(cr[:, 1] - cr[:, 0], cr[:, 2] - cr[:, 0]); ln = np.linalg.norm(n_, axis=1)
+    for s_ in skeleton.SIDES:
+        for ch in PROF.finger_chains(s_).values():
+            sel = (np.sum(dom[tris] == ch[-1], 1) >= 2) & (ln > 0)
+            if sel.any(): TIP_FACES[ch[-1]] = (np.where(sel)[0], n_[sel] / ln[sel, None])
+UPPER = np.isin(dom, PROF.bones("upper_arm"))
 GRIP_FINGERS = [b.name for b in arm.pose.bones if b.name.startswith(FINGER_PREFIX) or (b.name in RIG.fingers and (dom == b.name).any())]
 
 
@@ -103,11 +134,30 @@ for t in times:
                 row[k] = round(d, 4); where[k] = [float(x) for x in p]
                 if idx is not None: side[k] = SIDE[idx[i]]
 
+    if SHOULDER:   # shoulder skin torn into long flat facets: faces grown over TEAR x their rest area
+        for s_, (fi, a0) in SHOULDER.items():
+            c_ = co[tris[fi]]; a1 = np.linalg.norm(np.cross(c_[:, 1] - c_[:, 0], c_[:, 2] - c_[:, 0]), axis=1)
+            v_ = round(float(a0[a1 > TEAR * a0].sum() / a0.sum()), 3)
+            if v_ > row.get("skin_tear", -1): row["skin_tear"] = v_; where["skin_tear"] = [float(x) for x in c_.mean((0, 1))]; side["skin_tear"] = s_
+    if TIP_FACES:   # fingertip skin folded back over itself against its own bone
+        for n, (fi, n0) in TIP_FACES.items():
+            Rb = np.array((AW @ arm.pose.bones[n].matrix @ arm.data.bones[n].matrix_local.inverted() @ AW.inverted()).to_3x3())
+            c_ = co[tris[fi]]; n1 = np.cross(c_[:, 1] - c_[:, 0], c_[:, 2] - c_[:, 0])
+            n1 /= np.maximum(np.linalg.norm(n1, axis=1, keepdims=True), 1e-12)
+            v_ = round(float(np.mean(np.sum((n0 @ Rb.T) * n1, 1) < math.cos(math.radians(FOLD)))), 3)
+            if v_ > row.get("finger_tip_fold", -1):
+                row["finger_tip_fold"] = v_; row["_finger_tip_fold"] = n; where["finger_tip_fold"] = [float(x) for x in c_.mean((0, 1))]
+                side["finger_tip_fold"] = SIDE[tris[fi[0], 0]]
     measure("hands", co[I_HAND], I_HAND)
     measure("forearms", co[I_FORE], I_FORE)
     if prop:
         pc = vertices(prop, dg)
-        measure("prop", pc[rng.choice(len(pc), min(700, len(pc)), replace=False)])
+        PS = pc[rng.choice(len(pc), min(700, len(pc)), replace=False)]
+        measure("prop", PS)
+        if UPPER.any() and "prop_in_upper_arms" not in SKIP:   # the body tree leaves the arms out: a second one with the upper arms
+            lab2 = LAB.copy(); lab2[UPPER] = "upper_arms"; T2, R2 = body_tree(co, tris, lab2)
+            d_ = depths(T2, R2, PS).get("upper_arms")
+            if d_: row["prop_in_upper_arms"] = round(d_[0], 4); where["prop_in_upper_arms"] = [float(x) for x in d_[1]]
         PB = bvh(pc, ptris)
         if M["fingers"].any() and "fingers_in_prop" not in SKIP:
             d, i = depth(PB, co[M["fingers"]])
@@ -122,6 +172,11 @@ for t in times:
             if FINGERS and "loose_fingers" not in SKIP:
                 loose = [n for n, ii in FINGERS.items() if dist(ii[::2]) > LOOSE_FINGER * SCALE]
                 row["loose_fingers"] = round(len(loose) / len(FINGERS), 2); row["_loose_fingers"] = loose
+            if TIPS and "finger_tip_gap" not in SKIP:
+                gaps = {n: dist(ii) for n, ii in TIPS.items()}
+                n_ = max(gaps, key=gaps.get); row["finger_tip_gap"] = round(gaps[n_], 4); row["_finger_tip_gap"] = n_
+                row["_finger_tip_gaps"] = {n: round(g, 3) for n, g in gaps.items()}
+                where["finger_tip_gap"] = [float(x) for x in co[TIPS[n_]].mean(0)]; side["finger_tip_gap"] = SIDE[TIPS[n_][0]]
     for s, k in (("Left", "L"), ("Right", "R")):
         bend, tw = joint_angles(rr(B[s]["forearm"]), rr(B[s]["hand"]), pr(B[s]["forearm"]), pr(B[s]["hand"]))
         row["wrist_bend_" + k] = round(bend, 1); row["wrist_twist_" + k] = round(abs(tw), 1)

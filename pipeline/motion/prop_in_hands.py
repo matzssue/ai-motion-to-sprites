@@ -439,6 +439,9 @@ def wrap_fingers(C4):
         # 0.05 was tuned while Kusznik's stock had a hole by the right hand (the thumb lay in it); with the hole capped the
         # thick thumb base collided lying along the stock and the thumb stood up as a hook again: 0.2 lays it along (0.8 -> 0.49)
         stock = C4.to_3x3().col[0].normalized(); ALONG = GP.get("thumb_along_stock", 0.2)
+        # a finger's change from the previous frame costs, except in a quick try (--frames): its frames are not neighbours
+        # (key poses 0,44: the left middle finger kept frame 0's angle at 44, tip 1.3 -> 3.1 cm off the stock)
+        FCP = 0 if A.frames else GP.get("finger_change_penalty", 0.0015)
         # own fingers close together: each joint's angle costs its distance from the same joint of the finger before it
         # (index -> pinky). Solved alone, Kusznik's index and middle arched far round the stock apart from ring and pinky
         NEXT = {}
@@ -470,7 +473,7 @@ def wrap_fingers(C4):
                         d_, f_ = dists(pts + mids, own_c)
                         c_ = abs(d_[0] - (gl[0] + 0.005)) + sum(10 + 100 * (gg - x) for x, gg in zip(f_, gl) if x < gg)
                         c_ += ALONG * (1 - abs((pts[2] - Jw[0]).normalized().dot(stock)))
-                        c_ += GP.get("finger_change_penalty", 0.0015) * (abs(a - PREV_F.get(names[0], a))
+                        c_ += FCP * (abs(a - PREV_F.get(names[0], a))
                                                                           + abs(ab - PREV_F.get(names[0] + "@spread", ab)))
                         if c_ < best[0]: best = (c_, q, ab, a)
                 _, q, PREV_F[names[0] + "@spread"], PREV_F[names[0]] = best
@@ -486,18 +489,38 @@ def wrap_fingers(C4):
                 # (-90..95 zig-zagged the thumb: -50 / +75 / -70 deg; -45..45 put its base 3.2 cm into the stock, 0..45 2.3 cm)
                 own = names[b] in CURL; lo, hi = (-90, 95) if thumb else (0, 95)
                 if own: lo, hi = (0, 45) if thumb and b == 0 else (0, 95)
-                for a in range(lo, hi + 1, 5):
-                    q = Quaternion(axis, math.radians(a))
-                    pts = [pivot + q @ (Jw[j] - pivot) for j in range(b + 1, 4)]
-                    mids = [pivot.lerp(pts[0], 0.5)] + [pts[i].lerp(pts[i + 1], 0.5) for i in range(len(pts) - 1)]
-                    d_, f_ = dists(pts + mids, own_c)
-                    gl = [max(g, BONE_R.get(names[min(b + j, 2)], g)) for j in range(len(pts))] + [
-                        max(g, BONE_R.get(names[b + k], g)) for k in range(len(mids))]
-                    c_ = abs(d_[0] - (gl[0] + 0.005)) + sum(10 + 100 * (gg - x) for x, gg in zip(f_, gl) if x < gg)
-                    c_ += GP.get("finger_change_penalty", 0.0015) * abs(a - PREV_F.get(names[b], a))   # 0.0015/deg ~ 1.5 mm per 1 deg
-                    if own and thumb: c_ += ALONG * (1 - abs((pts[-1] - Jw[0]).normalized().dot(stock)))
-                    if own and not thumb and b in NEXT: c_ += GP.get("finger_together_penalty", 0.001) * abs(a - NEXT[b])
-                    if c_ < best[0]: best = (c_, a)
+
+                def chain(a, curl_rest):
+                    """Joints after bone b turned by a; with curl_rest the bones after it bend by a too (about their own axes)."""
+                    P_ = list(Jw); acc = Quaternion()
+                    for j in range(b, 3 if curl_rest else b + 1):
+                        ax = axis if j == b else (acc @ (wrot(names[j]) @ CURL[names[j]])).normalized()
+                        qq = Quaternion(ax, math.radians(a)); acc = qq @ acc
+                        P_ = P_[:j + 1] + [P_[j] + qq @ (P_[k] - P_[j]) for k in range(j + 1, 4)]
+                    return P_[b + 1:]
+
+                def search(curl_rest):
+                    best_ = (1e9, 0)
+                    for a in range(lo, hi + 1, 5):
+                        pts = chain(a, curl_rest)
+                        mids = [pivot.lerp(pts[0], 0.5)] + [pts[i].lerp(pts[i + 1], 0.5) for i in range(len(pts) - 1)]
+                        d_, f_ = dists(pts + mids, own_c)
+                        gl = [max(g, BONE_R.get(names[min(b + j, 2)], g)) for j in range(len(pts))] + [
+                            max(g, BONE_R.get(names[b + k], g)) for k in range(len(mids))]
+                        c_ = abs(d_[0] - (gl[0] + 0.005)) + sum(10 + 100 * (gg - x) for x, gg in zip(f_, gl) if x < gg)
+                        c_ += FCP * abs(a - PREV_F.get(names[b], a))   # 0.0015/deg ~ 1.5 mm per 1 deg
+                        if own and thumb: c_ += ALONG * (1 - abs((pts[-1] - Jw[0]).normalized().dot(stock)))
+                        if own and not thumb and b in NEXT: c_ += GP.get("finger_together_penalty", 0.001) * abs(a - NEXT[b])
+                        if c_ < best_[0]: best_ = (c_, a)
+                    return best_
+                best = search(False)
+                # an own finger bent rigidly swings its straight rest into the stock, so it stopped half bent (Kusznik's
+                # right middle finger stood up, tip 5-9 cm off the stock). Also try the rest of the finger curling with
+                # it, as a real finger closes round the stock, and keep whichever lands better (middle.2.R 35 deg ->
+                # 95 deg, tip gap 8.7 -> 2.5 cm)
+                if own and not thumb and b < 2:
+                    curled = search(True)
+                    if curled[0] < min(best[0], 10): best = curled
                 if own and not thumb: NEXT[b] = best[1]
                 PREV_F[names[b]] = best[1]; q = Quaternion(axis, math.radians(best[1]))
                 for j in range(b + 1, 4): Jw[j] = pivot + q @ (Jw[j] - pivot)

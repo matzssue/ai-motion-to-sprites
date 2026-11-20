@@ -28,12 +28,14 @@ Regions measured as separate volumes gave 15 cm false positives (they are open w
 | | forearms_in_head | 0.01 | |
 | | prop_in_torso / prop_in_legs | 0.015 | stock pressed to the shoulder, not in it |
 | | prop_in_clavicles | 0.03 | a stock in the shoulder pocket is real contact |
+| | prop_in_upper_arms | 0.015, only with `--under-arm` | the arms are not part of the body volume above (they move with the prop), so a stock butt under the armpit went 5.5 cm into the right upper arm unmeasured (author: "the crossbow goes through the shoulder"). Measured on its own upper-arm volume. Off by default: a stock on the shoulder sits in it by design (approved Mixamo shot 7.4 cm); `chain.py` / `character.py` pass `--under-arm` when the motion has `aim.butt_push` |
 | | hands_in_torso | 0.02 | |
 | | forearms_in_torso | 0.045 | an approved archer pose had 4.8 cm of forearm in the belly |
 | | fingers_in_prop | 0.008 | fingers on the stock, not in it. On the own skeleton the thumb's metacarpal (`thumb.1`, from the wrist) is a finger, so its thick base counts here; on a Mixamo rig that skin is "hand" and not measured at all (approved crossbow shot: hand skin up to 5.9–8.2 cm inside the stock; Kusznik on `amts`: thumb base 2.3 cm, hand 5.8–7.0 cm) |
 | joints | wrist_bend_L/R | 85 | |
 | | wrist_twist_L/R | 60 | hand twist vs the forearm |
 | | stretch | 0.30 | body mesh edge growth vs rest = a wrong bone weight (a "stick" from a claw weighted to the foot). Walk: broken rig 94 cm, fixed 4; a rag between the legs 18 cm (walk), approved shot 12 cm. A length ratio did not separate them (short edges after decimation) |
+| | skin_tear | 0.08 | share of the shoulder skin (faces on the clavicle and the upper 45% of the upper arm) whose area grew over 2x rest: torn, faceted shoulder (author: "the left shoulder disappeared", 11-16%). Rig before the limb core 0-1%, approved Mixamo shot 5.3%. `stretch` (edge growth in cm) did not see it: no edge grew 30 cm. Own skeletons and Mixamo |
 | | skin_twist / skin_spread | 120° / 0.5 | arm "candy wrapper" (section "Skin" below): broken swing 210–260° / 0.45–0.80, approved up to 60° / 0.41 |
 | smoothness | elbow_jump | 0.03 | raw Kimodo 1.6 cm; 0.08 let 15 cm per frame through |
 | | hand_jump | 8° | raw 4.8–5.1° |
@@ -45,6 +47,8 @@ Regions measured as separate volumes gave 15 cm false positives (they are open w
 | | prop_rot_jump | — | info: raw 0.4°, versions 1.7–2.5°; no bad sample |
 | grip | hand_to_prop_L/R | 0.03 | gap between palm skin and the prop: with the grip solver 0–0.1 cm, without (raw) 50–62 cm |
 | | prop_above_head | — | info: prop centre above the top of the head. 0 in all 20 versions on disk, so no limit; the offset from the requested pose is in the `PROP POSE` line |
+| | finger_tip_gap | 0.03 | farthest tip of the own skeleton's fingers (thumbs out) from the prop: a finger standing straight (Kusznik's right middle finger, 8.2 cm). `loose_fingers` measures a finger's nearest point, and its base touched the stock. Skipped without `finger_chains` in the skeleton profile (Mixamo's finger tips gave constant, unreliable values) |
+| | finger_tip_fold | 0.05 | share of a fingertip's skin (faces of each chain's last bone, thumbs too) turned over 120° against its own bone: a tip folded back over itself (author: "the green finger's tip is bent oddly", 23%; 0% after the weight fix). Joint angles did not show it (91° / 55°, natural): stray hand weight on the claw pulled it back. Skipped without `finger_chains` |
 | | loose_fingers | — | info: fraction of fingers farther than 2 cm from the prop. 20–40% in every version: does not separate good from bad |
 
 Grip metrics are measured only when the prop should be in the hands (`--prop` without `--rest-is-normal`).
@@ -53,6 +57,7 @@ Grip metrics are measured only when the prop should be in the hands (`--prop` wi
 `--rest-is-normal` adds to the limit the penetration the model already has at rest – only for a prop carried where it was
 modelled (e.g. a crossbow on the back in the walk).
 `--frames 10,45,56`: only these frames, no smoothness – for a quick grip try (`variants.py --frames`).
+`--under-arm`: also scores `prop_in_upper_arms` (a stock under the armpit).
 
 **±0.1 score noise:** the audit samples 700 prop vertices and every other hand vertex; after a re-export of the GLB the vertex
 order is different. The same approved shot in another file: 1.40 and 1.28 while `compare_motion` = IDENTICAL.

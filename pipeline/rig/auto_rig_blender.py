@@ -356,7 +356,8 @@ def finger_tubes(arm, meshes):
         for s, side in own_skeleton.SIDES:
             hand = gi.get("hand." + s)
             if hand is None: continue
-            moved, verts, cords = 0.0, 0, 0
+            moved, verts, cords, kept = 0.0, 0, 0, 0
+            tips = {gi[b] for f in own_skeleton.FINGERS for b in ("%s.2.%s" % (f, s), "%s.3.%s" % (f, s)) if b in gi}
             for f in own_skeleton.FINGERS:
                 bones = ["%s.%d.%s" % (f, i, s) for i in (1, 2, 3)]
                 if not all(b in gi and b in arm.data.bones for b in bones): continue
@@ -380,9 +381,13 @@ def finger_tubes(arm, meshes):
                     if m < 1e-4: continue
                     for x in g:
                         if x in w: w[x] *= k
-                    w[hand] = w.get(hand, 0.0) + m; moved += m; verts += 1; changed.add(i)
-            print("auto_rig: finger tubes %s %s - weight moved to the hand on %d vertices (%.0f vertex-weights), %d of them thin cords"
-                  % (o.name, side, verts, moved, cords))
+                    # on another finger's outer bone the stray weight goes to that bone, not the hand: Kusznik's right
+                    # middle claw had a quarter of a neighbour's weight, it went to the hand, the curl pulled the claw
+                    # 3.6 cm back and folded its tip over (author: "the green finger's tip is bent oddly"; finger_tip_fold)
+                    to = dom[i] if dom[i] in tips and dom[i] not in g else hand
+                    w[to] = w.get(to, 0.0) + m; moved += m; verts += 1; changed.add(i); kept += to != hand
+            print("auto_rig: finger tubes %s %s - weight moved to the hand on %d vertices (%.0f vertex-weights), %d of them thin cords;"
+                  " %d of them on another finger's outer bone kept there" % (o.name, side, verts, moved, cords, kept))
         for i in changed:
             for x, val in wts[i].items():
                 o.vertex_groups[x].add([i], val, "REPLACE")
@@ -392,8 +397,12 @@ def finger_tubes(arm, meshes):
 # and the forearm on it (Kusznik: 59 of 65 mid-arm vertices with 2-4 bones over 0.1), so the elbow bend and the shoulder
 # pulled the biceps in: mid-arm radius -23% at the aim (Mixamo's rig on the same mesh -19%). Vertices whose dominant bone
 # is the limb bone, from CORE[1] to CORE[2] of its length, go fully to it, fading back to bone heat over CORE[0] at both
-# ends (Kusznik: -23% -> -10%). The forearm keeps its blend: the hand's weight on it spreads the wrist twist.
-LIMB_CORE, CORE = ("upper_arm",), (0.15, 0.3, 0.7)
+# ends (Kusznik: -23% -> -10%), and only within CORE_R x the bone's length of its axis: the shoulder mass 0.2 m out at
+# 0.2-0.4 of a 0.28 m upper arm, moved fully with the arm, tore the shoulder (author: "the left shoulder disappeared";
+# audit skin_tear 14%). Starting at 0.3 it still tore it at the hold (10%), at 0.45 8%; from 0.6 (fading in from 0.45,
+# below the shoulder) 0.4%, as with no core, and the left biceps keeps -10% (no core: -37%).
+# The forearm keeps its blend: the hand's weight spreads the wrist twist.
+LIMB_CORE, CORE, CORE_R = ("upper_arm",), (0.15, 0.6, 0.7), 0.6
 
 
 def limb_cores(arm, meshes):
@@ -409,8 +418,8 @@ def limb_cores(arm, meshes):
                 b = arm.data.bones.get("%s.%s" % (limb, s)); g = gi.get("%s.%s" % (limb, s))
                 if b is None or g is None: continue
                 a_, b_ = np.array(W @ b.head_local), np.array(W @ b.tail_local); ab = b_ - a_
-                u = ((co - a_) @ ab) / max(ab @ ab, 1e-12)
-                k = np.clip(np.minimum(u - (lo - fade), (hi + fade) - u) / fade, 0, 1)
+                u = ((co - a_) @ ab) / max(ab @ ab, 1e-12); r = np.linalg.norm(co - a_ - u[:, None] * ab, axis=1)
+                k = np.clip(np.minimum(u - (lo - fade), (hi + fade) - u) / fade, 0, 1) * (r <= CORE_R * np.linalg.norm(ab))
                 n, moved = 0, 0.0
                 for i in np.where((dom == g) & (k > 0))[0]:
                     w = wts[i]; other = sum(v for x, v in w.items() if x != g)

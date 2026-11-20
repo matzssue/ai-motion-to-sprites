@@ -204,10 +204,16 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - The thumb lies opposite the fingers: wrapped both ways; the angle from the palm axis picked the middle finger.
 - A prop fused with the body in the model (Kusznik's stock goes through the quiver) is cut out with matching open loops in
   both meshes: a see-through hole in the stock by the right hand and in the quiver. `prepare_rig.py` welds the seam-split
-  vertices and fills only loops lying on the other mesh's open edges; on the prop the cap bulges onto the stock radius (a
-  flat cap ran through the stock and the grip lifted the thumb off it). The stock's surface inside the quiver never existed:
-  the patch is faceted - a clean stock needs a model fix. The right thumb had lain IN that hole: tuning done on a broken
+  vertices and fills only loops lying on the other mesh's open edges; on the prop the cap follows the stock (a flat cap
+  ran through the stock and the grip lifted the thumb off it). The stock's surface inside the quiver never existed, and the
+  prop axis from the config runs 1-3.4 cm off it: a cap on the axis bulged like a barrel, a fan from the centre was spiky
+  (author: "the fill did not work"). The cap now fits circles to the intact stock on both sides of the cut, moves the rim
+  (up to 5 cm off, on the quiver wall) onto that surface and fills the loop with a grid on it (CDT). `cap quality` fails
+  the rig when over 10% of the cap's faces turn more than 60 deg from the stock's outward direction (old fan 46%, now 0%). The right thumb had lain IN that hole: tuning done on a broken
   prop does not hold once it is fixed (`thumb_along_stock` 0.05 -> 0.2).
+- A finger's weight outside its tube went to the hand even when the vertex belongs to another finger's claw: Kusznik's right
+  middle claw had a quarter of the ring finger's weight, it became hand weight and the curl pulled the claw tip 3.6 cm
+  back, folded over itself. Stray weight on another finger's outer bone goes to that bone (audit `finger_tip_fold`).
 - Cords hanging from a wrist wrap sit inside the finger tube of the thumb's/pinky's first bone: weighted to it, the grip
   pulled them 4 cm and they showed as strings across the crossbow. Thin mesh beside a finger's first bone goes to the hand.
 - `aim.head_back_deg` turns the neck back and the head forward. On Mixamo the `Neck` bone has no skin, so only the head
@@ -216,9 +222,16 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   joint; moved whole, the base of the neck turned with the head into the hand at the cheek (hands_in_head 0 -> 1.8 cm), and
   the rule by height leaves most of that stretch: set `head_back_deg` per character, 0 when the stock is not at the cheek.
 - Bone heat leaves the chest, clavicle and forearm on the middle of the upper arm: the elbow bend flattened the biceps
-  (-23% radius vs -19% on Mixamo's rig). The auto-rig gives the middle of the upper arm to the upper arm alone.
+  (-23% radius vs -19% on Mixamo's rig). The auto-rig gives the middle of the upper arm to the upper arm alone, close to
+  its axis and below the shoulder (from 0.6 of the bone, fading in from 0.45): taken from 0.15 and 0.2 m out, it moved the
+  shoulder mass with the arm and tore the shoulder (author: "the left shoulder disappeared"; audit `skin_tear` 10-14%,
+  now 0.4% with the biceps still -10%).
 - A stock under the armpit (`butt_push` sideways) leaves the torso only: out of the whole body it went through the upper
-  arm and stopped 13 cm outside the shoulder joint. Kimodo's aim frame (stock to the cheek) lifts the right clavicle and
+  arm and stopped 13 cm outside the shoulder joint. The arms are not in the collision volume, so the butt also sat 5 cm in
+  the right upper arm (author: "through the shoulder instead of under it"): lower it (`aim.butt_from_shoulder` z) until
+  the audit's `prop_in_upper_arms` (`--under-arm`) passes.
+- An own finger bent joint by joint swings its straight rest into the stock and stops half bent (right middle finger
+  straight, tip 8.7 cm off). The grip also tries the rest of the finger curling with each joint; audit `finger_tip_gap`. Kimodo's aim frame (stock to the cheek) lifts the right clavicle and
   leans the neck onto where the stock goes: the key pose takes both from the hold frame before `prop_in_hands --frames`.
 - Judging from thumbnails let a crossbow in the head through. Audit numbers + full frames.
 - **Fix passes do not converge** (frames with a collision 38 → 76 → 83 → 81) and the result is the last pass, not the best;

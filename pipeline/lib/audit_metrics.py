@@ -27,6 +27,21 @@ METRICS = {
     "stretch": (0.30, "m", "joints"),
     # arm skin "candy wrapper" twist (skin.py): broken overhead swing 210-260 deg / spread 0.45-0.80; approved up to 60 / 0.41
     "skin_twist": (skin.TWIST_MAX, "deg", "joints"), "skin_spread": (skin.SPREAD_MAX, "frac", "joints"),
+    # share of the shoulder's skin area (clavicle + upper part of the upper arm) torn into long flat facets (faces over 2x their
+    # rest area): Kusznik's collapsed shoulder (upper-arm weight pulled onto the shoulder mass) 11-16%, the rig before 0-1%,
+    # the approved Mixamo shot 5.3%.
+    # Edge stretch (growth in cm) and the arm twist did not see it
+    "skin_tear": (0.08, "frac", "joints"),
+    # prop inside the upper arms (the body tree leaves the arms out): a stock butt "under the armpit" sat in the shoulder.
+    # Scored only with --under-arm (motion_audit.UNDER_ARM): a stock on the shoulder sits in it by design
+    "prop_in_upper_arms": (None, "m", "penetration"),
+    # farthest fingertip from the prop while it is in the hands: a finger standing straight up beside the stock. The nearest
+    # point of a finger (loose_fingers) is its base, which touches the stock either way
+    # (own chains, thumbs out: Kusznik's straight middle finger 3.6 cm, the others 0.2-2.5 cm)
+    "finger_tip_gap": (0.03, "m", "grip"),
+    # share of a fingertip's skin folded back over itself (faces turned > 120 deg against their own bone): claw tips past
+    # the end of the finger's bone carried hand weight and the curl pulled them back (Kusznik's right middle finger 23%)
+    "finger_tip_fold": (0.05, "frac", "joints"),
 }
 ARM = ("upper_arm", "forearm", "hand", "spine")
 # skeleton roles a metric measures (skeleton.Profile.missing): absent -> the metric is skipped with the reason, not scored
@@ -40,6 +55,8 @@ NEEDS = {
     "prop_rot_jump": (), "loop_seam_deg": ("hand", "head"), "loop_seam_m": ("forearm",),
     "hand_to_prop_L": ("hand.left",), "hand_to_prop_R": ("hand.right",), "prop_above_head": ("region:head",),
     "loose_fingers": ("fingers",), "stretch": (), "skin_twist": ARM, "skin_spread": ARM,
+    "skin_tear": ("shoulder", "upper_arm", "forearm"), "prop_in_upper_arms": ("upper_arm",), "finger_tip_gap": ("fingers",),
+    "finger_tip_fold": ("fingers",),
 }
 
 

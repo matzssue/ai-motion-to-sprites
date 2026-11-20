@@ -62,7 +62,7 @@ def test_optional_part_absent():
     P = skeleton.Profile(D)
     assert not P.has("fingers") and not P.has("fingers", "L") and P.has("toe", "R")
     sk = P.skipped(audit_metrics.NEEDS)
-    assert set(sk) == {"fingers_in_prop", "finger_jump", "loose_fingers"} and "has no fingers" in sk["finger_jump"]
+    assert set(sk) == {"fingers_in_prop", "finger_jump", "loose_fingers", "finger_tip_gap", "finger_tip_fold"} and "has no fingers" in sk["finger_jump"]
     with pytest.raises(skeleton.ProfileError, match="has no fingers.left"):
         P.bone("fingers", "Left")
     D["absent"] = ["hand"]
@@ -72,7 +72,7 @@ def test_optional_part_absent():
 def test_region_without_bones_skips_its_metrics():
     P = skeleton.load().without(["shoulder"])
     assert P.region_bones("clavicles") == []
-    assert set(P.skipped(audit_metrics.NEEDS)) == {"prop_in_clavicles"}
+    assert set(P.skipped(audit_metrics.NEEDS)) == {"prop_in_clavicles", "skin_tear"}   # the clavicle is a shoulder role
 
 
 # a small synthetic rig: prefix "x:", two spine bones, fingers on the left only as grown finger_* bones, a prop on the chest
