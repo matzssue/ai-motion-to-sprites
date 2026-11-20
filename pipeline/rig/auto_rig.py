@@ -449,6 +449,10 @@ def own_joints_file(verts, tris, joints_path):
         raise SystemExit("auto_rig: %s lacks joints of the own skeleton: %s" % (joints_path, ", ".join(lost)))
     json.dump({k: (v if k.startswith("_") else [round(float(c), 5) for c in v]) for k, v in j.items()},
               open(joints_path, "w"), indent=1)
+    try:
+        own_skeleton.bone_frames(j)   # before Blender: a zero-length bone named with its file
+    except ValueError as e:
+        raise SystemExit("auto_rig: %s - %s" % (joints_path, e))
 
 
 def run(cmd):

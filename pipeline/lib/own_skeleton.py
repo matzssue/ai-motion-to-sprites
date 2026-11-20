@@ -127,6 +127,18 @@ def roll_reference(name, y, palm):
     return _unit(z)
 
 
+def _zero_length(name, hk, tk):
+    """Why a bone has no length, in words: which finger of which hand, or which joints."""
+    what = "joints %s and %s coincide" % (hk, tk)
+    if is_finger(name):
+        base, i, s = name.split(".")
+        return ("bone %s has zero length: the %s finger of the %s hand, bone %s - %s. hand_fingers.py never places two joints "
+                "of a finger at one point, so the joints file was edited by hand, comes from another detector or from an older "
+                "run (a thin claw without a cross-section copied the previous joint); move one joint along the finger, or "
+                "delete the file to detect again" % (name, base, {"L": "left", "R": "right"}[s], i, what))
+    return "bone %s has zero length: %s (move one of them in the joints file, or delete the file to detect again)" % (name, what)
+
+
 def bone_frames(joints):
     """{bone: (head, tail, z)} in the joints' frame (world, metres): what the Blender build sets as head, tail and roll
     (`align_roll(z)`). Raises KeyError naming the missing joints."""
@@ -143,7 +155,7 @@ def bone_frames(joints):
             ph, pt, _ = out[parent]
             tail = head + (pt - ph) * END_FRAC
         if np.linalg.norm(tail - head) < 1e-5:
-            raise ValueError("bone %s has zero length (joints %s and %s coincide)" % (name, hk, tk))
+            raise ValueError(_zero_length(name, hk, tk))
         y = _unit(tail - head)
         out[name] = (head, tail, roll_reference(name, y, palm))
     return out

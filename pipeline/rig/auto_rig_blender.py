@@ -299,7 +299,10 @@ def skin_and_export(arm, a, before_export=None):
 
 def build_own(a):
     """Own skeleton from the joints: bones, rest orientation and roll from own_skeleton.bone_frames, no template."""
-    frames = own_skeleton.bone_frames(json.load(open(a["joints"])))
+    try:
+        frames = own_skeleton.bone_frames(json.load(open(a["joints"])))
+    except ValueError as e:
+        raise SystemExit("auto_rig: %s - %s" % (a["joints"], e))
     bpy.ops.wm.read_factory_settings(use_empty=True)
     arm = bpy.data.objects.new(own_skeleton.NAME, bpy.data.armatures.new(own_skeleton.NAME))
     bpy.context.scene.collection.objects.link(arm)
