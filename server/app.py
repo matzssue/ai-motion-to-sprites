@@ -136,8 +136,11 @@ def create_app(settings: Settings, allowed_hosts: tuple[str, ...] = ("127.0.0.1"
         c = character(cid)
         if req.from_stage and req.to_stage and STAGES.index(req.from_stage) > STAGES.index(req.to_stage):
             raise HTTPException(422, "from_stage comes after to_stage")
+        ai = {n for n, a in (json.load(open(c.config_path, encoding="utf-8")).get("actions") or {}).items() if "ai" in a}
+        bad = [n for n, i in req.samples.items() if n not in ai or not 0 <= i < 1000]
+        if bad: raise HTTPException(422, "samples: %s is not an AI action of this character with an index 0-999" % ", ".join(bad))
         if jobs.busy(c.id): raise HTTPException(409, "this character already has a queued or running run")
-        return jobs.submit(c.id, c.config_path, req.from_stage, req.to_stage).summary()
+        return jobs.submit(c.id, c.config_path, req.from_stage, req.to_stage, req.samples).summary()
 
     @app.get("/api/jobs", response_model=list[JobSummary], tags=["runs"])
     def list_jobs():

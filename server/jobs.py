@@ -1,5 +1,6 @@
 """Pipeline runs: one at a time, the rest queued. The command is fixed at startup (settings.pipeline_command); a run
-only adds --character <configured path> and the whitelisted --from/--to stage names. Threads, not asyncio
+only adds --character <configured path>, the whitelisted --from/--to stage names and --sample <action of that
+character>=<int>. Threads, not asyncio
 subprocesses, so it works under any event loop (uvicorn picks a selector loop on Windows, which has no subprocesses)."""
 import os
 import signal
@@ -18,8 +19,10 @@ GATE_EXIT = 2   # character.py stop(): a human gate, not a failure
 
 
 class Job:
-    def __init__(self, character_id: str, config_path: str, start: Optional[str], end: Optional[str]):
+    def __init__(self, character_id: str, config_path: str, start: Optional[str], end: Optional[str],
+                 samples: Optional[dict[str, int]] = None):
         self.id = uuid.uuid4().hex[:12]; self.character_id = character_id; self.config_path = config_path
+        self.samples = dict(samples or {})
         self.start = start; self.end = end; self.state = "queued"; self.exit_code: Optional[int] = None
         self.outcome: Optional[str] = None; self.created_at = now_iso(); self.started_at = None; self.ended_at = None
         self.lines: list[str] = []; self.dropped = 0; self.proc: Optional[subprocess.Popen] = None; self.cancel_requested = False
@@ -30,7 +33,7 @@ class Job:
         return self.state in ("queued", "running")
 
     def summary(self) -> JobSummary:
-        return JobSummary(id=self.id, character_id=self.character_id, from_stage=self.start, to_stage=self.end, state=self.state,
+        return JobSummary(id=self.id, character_id=self.character_id, from_stage=self.start, to_stage=self.end, samples=self.samples, state=self.state,
                           exit_code=self.exit_code, outcome=self.outcome, created_at=self.created_at, started_at=self.started_at,
                           ended_at=self.ended_at, line_count=self.dropped + len(self.lines))
 
@@ -69,10 +72,11 @@ class JobManager:
 
     def argv(self, job: Job) -> list[str]:
         return [*self.command, "--character", job.config_path, *(["--from", job.start] if job.start else []),
-                *(["--to", job.end] if job.end else [])]
+                *(["--to", job.end] if job.end else []), *[x for n, i in job.samples.items() for x in ("--sample", "%s=%d" % (n, i))]]
 
-    def submit(self, character_id: str, config_path: str, start: Optional[str], end: Optional[str]) -> Job:
-        job = Job(character_id, config_path, start, end)
+    def submit(self, character_id: str, config_path: str, start: Optional[str], end: Optional[str],
+               samples: Optional[dict[str, int]] = None) -> Job:
+        job = Job(character_id, config_path, start, end, samples)
         with self.cv:
             self.jobs[job.id] = job; self.queue.append(job); self.cv.notify_all()
         return job

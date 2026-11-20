@@ -14,6 +14,7 @@ export type JobSummary = Schemas["JobSummary"];
 export type Manifest = Schemas["Manifest"];
 export type PipelineState = Schemas["PipelineState"];
 export type RunRequest = Schemas["RunRequest"];
+export type SampleScore = Schemas["SampleScore"];
 export type StageState = Schemas["StageState"];
 export type TrailEntry = Schemas["TrailEntry"];
 export type VerdictPlan = Schemas["VerdictPlan"];

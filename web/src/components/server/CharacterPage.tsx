@@ -90,7 +90,12 @@ export function CharacterPage() {
                   ))}
                 </div>
               </section>
-              <RunControl characterId={data.character.id} activeJob={data.character.active_job} onEnded={refresh} />
+              <RunControl
+                characterId={data.character.id}
+                actions={data.actions}
+                activeJob={data.character.active_job}
+                onEnded={refresh}
+              />
               <section className={styles.section} aria-labelledby="trail-title">
                 <h2 id="trail-title">Review trail</h2>
                 {history.data ? <VerdictHistory entries={history.data} /> : history.loading ? <Loading what="the trail" /> : null}

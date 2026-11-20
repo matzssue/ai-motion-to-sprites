@@ -73,6 +73,22 @@
             "title": "Name",
             "type": "string"
           },
+          "picked": {
+            "anyOf": [
+              {
+                "enum": [
+                  "auto",
+                  "by hand"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "how `best` was chosen: automatically or `--sample`",
+            "title": "Picked"
+          },
           "prop": {
             "title": "Prop",
             "type": "boolean"
@@ -512,6 +528,14 @@
             "description": "the pipeline's last STOP/DONE/failed line",
             "title": "Outcome"
           },
+          "samples": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "default": {},
+            "title": "Samples",
+            "type": "object"
+          },
           "started_at": {
             "anyOf": [
               {
@@ -674,6 +698,15 @@
             ],
             "title": "From Stage"
           },
+          "samples": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "default": {},
+            "description": "action -> sample index of its latest batch, instead of the automatic choice (character.py --sample action=N)",
+            "title": "Samples",
+            "type": "object"
+          },
           "to_stage": {
             "anyOf": [
               {
@@ -700,6 +733,18 @@
       },
       "SampleScore": {
         "properties": {
+          "moved": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "how far the hands moved in the raw sample (m, the larger hand's extent against the hips); missing in files from before it was measured",
+            "title": "Moved"
+          },
           "name": {
             "title": "Name",
             "type": "string"

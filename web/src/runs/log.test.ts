@@ -9,6 +9,7 @@ const job = (state: JobSummary["state"], id = "j1"): JobSummary => ({
   state,
   created_at: "2026-11-19T10:00:00+00:00",
   line_count: 0,
+  samples: {},
 });
 
 describe("runLogReducer", () => {

@@ -108,7 +108,8 @@ def _audit(p: str, source: str) -> Optional[AuditSummary]:
 def _samples(all_scores) -> list[SampleScore]:
     out = []
     for item in all_scores or []:
-        try: out.append(SampleScore(name=os.path.splitext(os.path.basename(norm(item[1])))[0], score=item[0]))
+        try: out.append(SampleScore(name=os.path.splitext(os.path.basename(norm(item[1])))[0], score=item[0],
+                                    moved=item[2] if len(item) > 2 else None))
         except (TypeError, IndexError, ValueError): continue
     return out
 
@@ -119,8 +120,10 @@ def ai_action_state(cid: str, P: Paths, n: str, a: dict) -> ActionState:
     st = dict(name=n, kind="ai", prop=bool(a.get("prop")), loop=a.get("loop", True))
     ch = choice_files(P, n)
     if ch:
-        st["best"] = SampleScore(name=ch["sample"], score=ch["choice"].get("score", 0.0))
         st["samples"] = _samples(ch["choice"].get("all"))
+        st["best"] = next((s for s in st["samples"] if s.name == ch["sample"]), None) or SampleScore(
+            name=ch["sample"], score=ch["choice"].get("score", 0.0))
+        st["picked"] = ch["choice"].get("pick")
         st["audit"] = _audit(ch["audit"], "best sample")
         if os.path.exists(ch["glb"]) and os.path.exists(ch["audit"]): st["review_sources"] = ["choice"]
     if os.path.exists(P.with_prop) and os.path.exists(merged_files(P, n)["audit"]): st.setdefault("review_sources", []).append("merged")

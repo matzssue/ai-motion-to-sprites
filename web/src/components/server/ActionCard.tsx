@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ActionState, AuditSummary } from "@/api/types";
+import type { ActionState, AuditSummary, SampleScore } from "@/api/types";
 import { ACTION_STATUS, ACTION_STEP } from "@/pipeline/labels";
 import { StatusText } from "./ServerState";
 import styles from "./server.module.css";
@@ -10,6 +10,11 @@ function Audit({ audit }: { audit: AuditSummary }) {
       {audit.result === "OK" ? "✓" : "✕"} {audit.result} · {audit.score.toFixed(2)}
     </span>
   );
+}
+
+/** Audit score, and how far the hands moved: a sample that stood still can have a clean audit. */
+function sampleText(s: SampleScore): string {
+  return `score ${s.score.toFixed(2)}` + (s.moved == null ? "" : `, hands moved ${s.moved.toFixed(2)} m`);
 }
 
 /** One action: library or AI, where it is, its best sample, audit and approval, and a link to review it. */
@@ -29,11 +34,11 @@ export function ActionCard({ characterId, action }: { characterId: string; actio
       <dl>
         {action.best && (
           <>
-            <dt>best sample</dt>
+            <dt>{action.picked === "by hand" ? "sample (by hand)" : "best sample"}</dt>
             <dd>
-              {action.best.name} · score {action.best.score.toFixed(2)}
+              {action.best.name} · {sampleText(action.best)}
               {action.samples && action.samples.length > 1 && (
-                <span className="muted"> (all: {action.samples.map((s) => s.score.toFixed(2)).join(", ")})</span>
+                <span className="muted"> (all: {action.samples.map((s) => `${s.name} ${sampleText(s)}`).join(", ")})</span>
               )}
             </dd>
           </>

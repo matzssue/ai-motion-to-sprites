@@ -159,6 +159,16 @@ def test_run_flags_are_whitelisted(ws, api):
     assert api.post("/api/characters/tester/runs", json={"from_stage": "merge", "to_stage": "rig"}).status_code == 422
 
 
+def test_run_with_a_sample_by_hand(ws, api):
+    r = api.post("/api/characters/tester/runs", json={"to_stage": "ai", "samples": {"attack": 2}})
+    assert r.status_code == 202 and r.json()["samples"] == {"attack": 2}
+    with api.stream("GET", "/api/jobs/%s/events" % r.json()["id"]) as ev:
+        texts = [json.loads(ln[6:]).get("text") for ln in ev.iter_lines() if ln.startswith("data: ")]
+    assert "== sample by hand: attack=2" in texts
+    for bad in ({"walk": 1}, {"nope": 0}, {"attack": -1}):   # only AI actions of this character, a small index
+        assert api.post("/api/characters/tester/runs", json={"samples": bad}).status_code == 422
+
+
 def test_stream_follows_the_log_to_the_end(ws, api):
     job = api.post("/api/characters/tester/runs", json={"to_stage": "ai"}).json()
     events = []; current = None
