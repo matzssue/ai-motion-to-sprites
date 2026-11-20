@@ -321,7 +321,8 @@ def build_own(a):
                                                                  sum(b.use_deform for b in arm.data.bones)))
     # finger weights: bone heat like the rest. Weights along the chains (nearest chain, blended at joints and knuckles) were
     # measured too and tore more (Kusznik, 30 deg fist: 1.8-2.3% of hand edges over 50% vs 1.2% with heat; a 0.005 voxel: 1.6%)
-    skin_and_export(arm, a, (lambda arm_, meshes: (finger_tubes(arm_, meshes), fist_check(arm_, meshes))) if fingers else None)
+    skin_and_export(arm, a, (lambda arm_, meshes: (own_weight_rules(arm_, meshes), finger_tubes(arm_, meshes), fist_check(arm_, meshes)))
+                    if fingers else own_weight_rules)
 
 
 # finger weights stay in a tube around their own finger. Bone heat gave the first thumb bone (it starts next to the wrist)
@@ -385,6 +386,68 @@ def finger_tubes(arm, meshes):
         for i in changed:
             for x, val in wts[i].items():
                 o.vertex_groups[x].add([i], val, "REPLACE")
+
+
+# limb core: the middle of the upper arm belongs to the upper arm alone. Bone heat left the chest (spine.3), the clavicle
+# and the forearm on it (Kusznik: 59 of 65 mid-arm vertices with 2-4 bones over 0.1), so the elbow bend and the shoulder
+# pulled the biceps in: mid-arm radius -23% at the aim (Mixamo's rig on the same mesh -19%). Vertices whose dominant bone
+# is the limb bone, from CORE[1] to CORE[2] of its length, go fully to it, fading back to bone heat over CORE[0] at both
+# ends (Kusznik: -23% -> -10%). The forearm keeps its blend: the hand's weight on it spreads the wrist twist.
+LIMB_CORE, CORE = ("upper_arm",), (0.15, 0.3, 0.7)
+
+
+def limb_cores(arm, meshes):
+    """Weights in the middle of each LIMB_CORE bone go fully to that bone; prints how many vertices changed."""
+    W = arm.matrix_world; fade, lo, hi = CORE
+    for o in meshes:
+        gi = {g.name: i for i, g in enumerate(o.vertex_groups)}
+        co = np.array([tuple(o.matrix_world @ v.co) for v in o.data.vertices])
+        wts = [{g.group: g.weight for g in v.groups} for v in o.data.vertices]
+        dom = np.array([max(w, key=w.get) if w else -1 for w in wts])
+        for limb in LIMB_CORE:
+            for s, _ in own_skeleton.SIDES:
+                b = arm.data.bones.get("%s.%s" % (limb, s)); g = gi.get("%s.%s" % (limb, s))
+                if b is None or g is None: continue
+                a_, b_ = np.array(W @ b.head_local), np.array(W @ b.tail_local); ab = b_ - a_
+                u = ((co - a_) @ ab) / max(ab @ ab, 1e-12)
+                k = np.clip(np.minimum(u - (lo - fade), (hi + fade) - u) / fade, 0, 1)
+                n, moved = 0, 0.0
+                for i in np.where((dom == g) & (k > 0))[0]:
+                    w = wts[i]; other = sum(v for x, v in w.items() if x != g)
+                    if other < 1e-4: continue
+                    for x in list(w): w[x] = w[x] * (1 - k[i]) + (k[i] if x == g else 0.0)
+                    for x, val in w.items(): o.vertex_groups[x].add([int(i)], val, "REPLACE")
+                    n += 1; moved += other * k[i]
+                print("auto_rig: limb core %s %s.%s - %d vertices, %.1f vertex-weights moved to it" % (o.name, limb, s, n, moved))
+
+
+# throat on the head: the neck bone's weight moves to the head bone by height - none below the neck joint, all above the
+# head joint. Mixamo's rig has no skin on its Neck (the head carries the throat 0.5-0.66); with bone heat's neck 0.3-0.44
+# the neck lean of the aim and `head_back_deg` stretched Kusznik's throat (edge p95 1.82 vs 1.42 on Mixamo's rig, same
+# motion). Bone heat also spreads neck weight down onto the shoulders: moved whole (or by position along the forward-
+# leaning neck bone), the base of the neck 6-10 cm below the neck joint turned with the head into the hand at the cheek
+# (hands_in_head 0 -> 1.5-1.8 cm). By height it takes only a little of the stretch (fr. 70 p95 1.82 -> 1.80, 60: 1.71 ->
+# 1.67): the rest is the aim's neck lean and `head_back_deg`, i.e. the motion.
+def throat_on_head(arm, meshes):
+    """Moves neck-bone weight onto the head bone by height; prints how many vertices changed."""
+    nb = arm.data.bones.get("neck")
+    if nb is None: return
+    z0, z1 = (arm.matrix_world @ nb.head_local).z, (arm.matrix_world @ nb.tail_local).z
+    for o in meshes:
+        n, h = o.vertex_groups.get("neck"), o.vertex_groups.get("head")
+        if n is None or h is None: continue
+        cnt = 0
+        for v in o.data.vertices:
+            w = next((g.weight for g in v.groups if g.group == n.index), 0.0)
+            k = min(1.0, max(0.0, ((o.matrix_world @ v.co).z - z0) / max(z1 - z0, 1e-6)))
+            if w <= 0.0 or k <= 0.0: continue
+            h.add([v.index], next((g.weight for g in v.groups if g.group == h.index), 0.0) + w * k, "REPLACE")
+            n.add([v.index], w * (1 - k), "REPLACE"); cnt += 1
+        print("auto_rig: throat on head %s - %d vertices" % (o.name, cnt))
+
+
+def own_weight_rules(arm, meshes):
+    limb_cores(arm, meshes); throat_on_head(arm, meshes)
 
 
 # fist pose of the self-check: flexion about the bone's local X (own_skeleton roll rule: +X curls into the palm), every

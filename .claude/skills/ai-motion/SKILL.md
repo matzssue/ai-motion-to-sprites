@@ -211,8 +211,15 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - Cords hanging from a wrist wrap sit inside the finger tube of the thumb's/pinky's first bone: weighted to it, the grip
   pulled them 4 cm and they showed as strings across the crossbow. Thin mesh beside a finger's first bone goes to the hand.
 - `aim.head_back_deg` turns the neck back and the head forward. On Mixamo the `Neck` bone has no skin, so only the head
-  moved; on the own skeleton the neck carries a third of the throat and the 50 deg tuned on Mixamo stretched it (amts throat
-  edges p95 1.5-1.8 x rest vs Mixamo 1.2-1.4). Set it per character on the own skeleton, 0 when the stock is not at the cheek.
+  moved; bone heat gave the own skeleton's neck a third of the throat and the 50 deg tuned on Mixamo stretched it (amts throat
+  edges p95 1.5-1.8 x rest vs Mixamo 1.2-1.4). The auto-rig moves the neck's weight to the head by height above the neck
+  joint; moved whole, the base of the neck turned with the head into the hand at the cheek (hands_in_head 0 -> 1.8 cm), and
+  the rule by height leaves most of that stretch: set `head_back_deg` per character, 0 when the stock is not at the cheek.
+- Bone heat leaves the chest, clavicle and forearm on the middle of the upper arm: the elbow bend flattened the biceps
+  (-23% radius vs -19% on Mixamo's rig). The auto-rig gives the middle of the upper arm to the upper arm alone.
+- A stock under the armpit (`butt_push` sideways) leaves the torso only: out of the whole body it went through the upper
+  arm and stopped 13 cm outside the shoulder joint. Kimodo's aim frame (stock to the cheek) lifts the right clavicle and
+  leans the neck onto where the stock goes: the key pose takes both from the hold frame before `prop_in_hands --frames`.
 - Judging from thumbnails let a crossbow in the head through. Audit numbers + full frames.
 - **Fix passes do not converge** (frames with a collision 38 → 76 → 83 → 81) and the result is the last pass, not the best;
   the audit score after 1–6 passes jumps (17.1 / 19.3 / 12.8 / 7.3 / 5.5 / 11.6; `grip.passes`, default 4). The IK cost

@@ -389,8 +389,10 @@ def base_pose(f):
     fd = (FWD * math.cos(tilt - kick) + UP * math.sin(-tilt + kick)).normalized()
     butt = k["RightS"] + Vector(AIM.get("butt_from_shoulder", (0, -0.07, -0.03)))
     # the shoulder joint lies inside the body: the butt leaves it forward (stock on the shoulder) or along `butt_push`.
-    # A stock under the armpit (Kusznik on amts, author 2026-11-19) pushed forward ended 10 cm in front of the chest
-    butt = out_of_body(butt, BUTT_PUSH, TR[f][0], 0.01)
+    # A stock under the armpit (Kusznik on amts, author 2026-11-19) pushed forward ended 10 cm in front of the chest.
+    # Pushed sideways it leaves the torso alone: the upper arm closes over it (out of the whole body it went through the arm
+    # and stopped 13 cm outside the shoulder joint)
+    butt = out_of_body(butt, BUTT_PUSH, TR[f][1] if "butt_push" in AIM else TR[f][0], 0.01)
     Ca = frame3(fd, UP).to_4x4(); Ca.translation = butt - fd * BUTT
     w = W_AIM[f]
     C = Ck.to_quaternion().slerp(Ca.to_quaternion(), w).to_matrix().to_4x4()
