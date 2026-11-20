@@ -1,6 +1,6 @@
 """Motion audit (with or without a prop) on the deformed mesh, every 1/4 frame: penetration (prop, hands,
 forearms into the body; fingers into the prop), joints (wrists, arm skin twist), smoothness (jumps, loop seam), grip (prop above
-the head, hand without contact, loose fingers). Over a limit it renders close-ups (5 sides) at the deepest point.
+the head, hand without contact, loose fingers), feet (off the ground, planted foot sliding: feet.py). Over a limit it renders close-ups (5 sides) at the deepest point.
 blender -b --python pipeline/checks/motion_audit.py -- --glb X.glb --action attack --out dir [--prop crossbow] [--limits l.json]
     [--frames 10,45,56] [--no-loop] [--rest-is-normal] [--skeleton mixamo|profile.json]
 Limits and where they come from: README, "Quality gates". A metric whose skeleton role is absent is listed in `skipped`."""
@@ -12,6 +12,7 @@ from collisions import dominant, masks, vertices, bvh, depth, joint_angles, labe
 from collisions import labels_all, skin_tree, prop_in_body, stock_end, pocket_gap, limb_radius, POCKET_REST, POCKET_SPAN
 import skeleton
 import skin
+import feet
 from audit_metrics import METRICS, NEEDS, REF_HEIGHT, height, judge, scaled
 
 LOOSE_FINGER = 0.02   # m: a finger whose nearest point is farther from the prop does not hold it
@@ -27,7 +28,7 @@ ap.add_argument("--glb", required=True); ap.add_argument("--action", required=Tr
 ap.add_argument("--prop", default=None, help="name of the prop mesh/bone (from prepare_rig)"); ap.add_argument("--limits", default=None)
 ap.add_argument("--step", type=float, default=0.25); ap.add_argument("--no-closeups", action="store_true")
 ap.add_argument("--rest-is-normal", action="store_true", help="prop carried where it was modelled (not in the hands)")
-ap.add_argument("--frames", default=None, help="only these frames (quick grip try): no smoothness metrics")
+ap.add_argument("--frames", default=None, help="only these frames (quick grip try): no smoothness or feet metrics")
 ap.add_argument("--no-loop", action="store_true", help="one-shot action: no loop seam metric")
 ap.add_argument("--under-arm", action="store_true", help="stock under the armpit (motion aim.butt_push): prop in the upper arms is scored")
 ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
@@ -128,6 +129,10 @@ if "face_skew" not in SKIP and HEAD in body.vertex_groups:
     FACE_I = np.where((_hw >= FACE_W[0]) & (_hw < FACE_W[1]))[0]
     _ax = HEADS0[PROF.bone("upper_arm", "Left")] - HEADS0[PROF.bone("upper_arm", "Right")]; FACE_AX = _ax / np.linalg.norm(_ax)
     if len(FACE_I) < 20: FACE_I = None
+# foot skin (feet.py): foot and toe bones of each side; the ground needs the whole clip, so --frames measures no feet
+FEET = {s_[0]: np.where(np.isin(dom, [PROF.bone(r_, s_) for r_ in ("foot", "toe", "toe_end") if PROF.has(r_, s_)]))[0]
+        for s_ in skeleton.SIDES} if "feet_above_ground" not in SKIP and not A.frames else {}
+FEET_CO = {s_: [] for s_ in FEET}
 LAB_ALL = labels_all(dom, RIG)
 UA_R = {}   # upper arm skin radius at rest (median distance of its skin from the bone), per side
 for s_ in skeleton.SIDES:
@@ -264,6 +269,8 @@ for t in times:
                 for kk, v_ in (("skin_twist", abs(b_)), ("skin_spread", round(r_, 2))):
                     if v_ > row.get(kk, -1): row[kk] = v_; where[kk] = [float(x) for x in co[seg[a_]].mean(0)]; side[kk] = s_[0]
     row["_where"] = where; row["_side"] = side
+    if t >= f0:
+        for s_, ii in FEET.items(): FEET_CO[s_].append(co[ii])
     if t < f0:
         rest_row = row; continue
     now = {"L": head(B["Left"]["forearm"]), "R": head(B["Right"]["forearm"]), "p": Vector(cen) if prop else None,
@@ -286,6 +293,9 @@ for t in times:
 if not FR and not A.no_loop and len(samples) > 1:
     samples[-1]["loop_seam_deg"] = round(max(ang(prev[k], first[k]) for k in ("qL", "qR", "qH")), 1)
     samples[-1]["loop_seam_m"] = round(max((prev[k] - first[k]).length for k in ("L", "R")), 4)
+if FEET:   # feet against the clip's own ground, filled in once the whole clip is known
+    for r_, f_ in zip(samples, feet.rows({s_: np.array(v) for s_, v in FEET_CO.items()}, SCALE, A.step)):
+        r_.update(f_["values"]); r_["_where"].update(f_["where"]); r_["_side"].update(f_["side"])
 
 # penetration already fused into the model (rest) raises the limit only with --rest-is-normal (prop carried where modelled)
 if A.rest_is_normal:

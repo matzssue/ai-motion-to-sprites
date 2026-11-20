@@ -52,6 +52,7 @@ inputs, and stops with an exit code of 2 at each human gate.
 | joints | wrist bend and twist, mesh stretch (a bad weight makes a "stick"), **arm skin twist** | 85°, 60°, 30 cm, 120° / 0.5 |
 | smoothness | elbow, hand, finger, head, prop jumps; loop seam | 3 cm, 8°, 6°, 4°, 10 cm; 15° / 12 cm |
 | grip | gap between each palm and the prop | 3 cm |
+| feet | lowest foot point above the clip's own ground; planted foot sliding (net, over 2 frames); one foot hanging (reported only) | 15 cm; 8 cm |
 
 "Inside" is decided by a 10-ray vote against the arm-less body volume. The sign of the nearest face alone gave 10 cm
 false positives next to open cloth sheets. On failure the audit renders close-ups from 5 sides at the deepest point.

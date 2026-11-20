@@ -220,5 +220,23 @@
     "label": "folded fingertip",
     "unit": "percent",
     "group": "joints"
+  },
+  {
+    "key": "feet_above_ground",
+    "label": "feet off the ground",
+    "unit": "cm",
+    "group": "feet"
+  },
+  {
+    "key": "foot_slide",
+    "label": "planted foot sliding",
+    "unit": "cm",
+    "group": "feet"
+  },
+  {
+    "key": "foot_hanging",
+    "label": "one foot hanging",
+    "unit": "cm",
+    "group": "feet"
   }
 ]

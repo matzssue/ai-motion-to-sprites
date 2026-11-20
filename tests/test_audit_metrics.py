@@ -5,7 +5,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "pipeline", "lib"))
 import audit_metrics as M  # noqa: E402
 
-GROUPS = {"penetration", "joints", "smoothness", "grip"}
+GROUPS = {"penetration", "joints", "smoothness", "grip", "feet"}
 
 
 def test_every_metric_has_label_unit_group_and_needs():
