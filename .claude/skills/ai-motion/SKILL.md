@@ -238,8 +238,42 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   (`prop_in_body`, hands/forearms in head/torso, `pocket_gap`); the old proxies (a body volume open at the shoulders, arm
   capsules) missed 7.7 cm of stock in the front armpit fold and every try swung the crossbow 50-60 deg sideways. The arm
   solver moves the real upper arm/forearm skin rigidly with each setup (only skin weighted >= 0.9 to the bone) and keeps a
-  grip `REACH_SLACK` = 4% short of a straight arm (the left hand reached 2.3 cm past it). Kusznik: no pose has the butt
-  under the arm with < 1.6 cm in the skin (best 3.9 cm; the author's own pose 4.4 cm): the armpit skin closes over it.
+  grip `REACH_SLACK` = 4% short of a straight arm (the left hand reached 2.3 cm past it). Kusznik: the solver's best was
+  3.9-5.1 cm in the skin; the author's hand-posed frame 44 (final, rig kus13) has 0.1 cm in the upper arm and 4.2 cm in the chest side
+  (`spine.3`), with the stock through the pocket and the butt behind the back. The author accepted it.
+  Why seven rounds failed and what the tool needs: [GRIP_LESSONS.md](GRIP_LESSONS.md).
+- A key pose posed by hand (the author's): `prop_in_hands.py --frames 44 --keep-prop` keeps the prop and the body as the
+  GLB has them and fits only the fingers of a hand whose palm lies on the stock (its arm and hand stay exactly as posed); a
+  hand off the prop takes the motion's grip by IK. Refitted to the motion's grip, the author's hands moved 2-6 cm and
+  turned 28-39 deg (left wrist twist 75 -> 101 deg). `W_AIM` comes from the right hand's height, so an aim from the hip
+  reads ~0.3: set "aim" in `<glb>_arms.json` for the audit's pocket checks.
+- Working mode (author, round 8): the solver poses; only a failed pose goes to the author, and the author's correction is a
+  bug report: compare it with the solver's output on the same body, find why the solver did not get there, and fix the
+  solver or the audit until it reaches a comparable pose by itself. Kusznik's aim (frame 44), what the comparison found:
+  the solver's own cost scored the author's pose worse (the stock resting in the pocket counted as "in the arm" in the
+  arm solver and as a body hit in `prop_hits`: both now leave the stock's rear span to the pocket allowance); a palm normal
+  tilted along the stock moved the grip along it (`grip()` offsets the palm across the axis only: the left palm was 20 cm
+  off the stock); and the pinned search started only with the rear end at the side of the ribs, turned about that end, so
+  a turn swung the stock's middle into the chest. The starts now cover the pocket depths (deepest first), 0-12 cm in front
+  of the shoulder joint, the stock slid back 0-100% of `STOCK_SLIDE` and turned +-`AIM_FREE` about the pocket point;
+  `prop_hits` and the arm's reach slack (500/m, soft) count in the prop's place. The author then found the stock in the
+  elbow (elbow pressed to the body) on a pose the audit passed: the pocket allowance (audit and solver) now covers only
+  the torso side and the upper arm's top `POCKET_ARM` = 30%, and the pinned search costs a butt-side elbow less than
+  `ELBOW_OUT` = 0.6 of the upper arm out of the shoulder joint (300/m). Swung out after the prop was placed, the arm's
+  fold pressed the stock deeper, so the elbow is chosen together with the prop. Solver alone (s12) vs the author: stock
+  yaw -20 / -18 deg, butt 10.6 / 12.4 cm out, 14.2 / 13.9 cm back, 15.8 / 21.3 cm below the shoulder joint, pitched
+  -4 / +9 deg (the motion's `aim.pitch_deg` is 4 down); right elbow 21 / 20 cm out; grips within 2 cm; audit 0.33
+  (author's pose 3.2 cm fingers in the prop, solver 1.1 cm: `index.1.R`'s base, which a raised radius does not move).
+  Details: [GRIP_LESSONS.md](GRIP_LESSONS.md).
+- Face skew guard (`prop_in_hands`, any skeleton, measured): after the prop and the arms are placed, a head turned about
+  its own axis against the top spine bone is turned back 2 deg at a time when the audit's `face_skew` is over its limit,
+  down to half of it (m1 Mixamo: 1.8 cm, untouched). The own rig's face is bound partly to the chest (the neck bone carries no skin), so a turned head drags the
+  jaw and mouth sideways; on a face bound to the head alone the skew stays near 0 and nothing changes. Kusznik: head
+  19 -> 7 deg (the author's 7), skew 4.0 -> 1.5 cm. Run before the search, the jaw met the right hand at the cheek and the
+  next pass moved the crossbow (hand 2.2 cm in the torso), so it runs last, as the author fixed theirs.
+- Own finger bones whose skin ends in the prop after the wrap get their skin radius raised by that depth and are wrapped
+  again (the median radius missed the thick side of the thumb's metacarpal: Kusznik's left thumb base 2.9 -> 0.9 cm).
+  Moving the palm out instead did not help (the hand met the bow mount) and lifted the fingertips 6.5 cm off.
 - Auto-rig elbow and wrist depth: the middle of ALL vertices in a slab around the joint put Kusznik's left elbow 8 cm
   behind the arm (the crossbow on his back lay behind it): upper arm 27.9 vs 31.6 cm, the skin off the bone, the left
   knuckles 5.5 cm off the mirrored right ones (author: "the left arm is broken from the base"). Elbow and wrist now take

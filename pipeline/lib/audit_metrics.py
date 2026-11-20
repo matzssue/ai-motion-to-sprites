@@ -44,6 +44,13 @@ METRICS = {
     # inner upper arm and the ribs below the shoulder joint, touching both), on aim frames: its distance from that pocket.
     # Kusznik round 6: butt on the forearm in front of the elbow, 0 penetration and nothing failed
     "rest_gap": (None, "m", "grip"),
+    # the stock resting in that pocket's skin on aim frames (--under-arm): its rear part in the torso or the butt-side upper
+    # arm, left out of prop_in_body there. The author's accepted aim pose on Kusznik: 3.9 cm (collisions.POCKET_REST)
+    "prop_in_pocket": (None, "m", "penetration"),
+    # face skin (partly bound to the head) dragged sideways off the head moved rigidly: the head turned about its own axis
+    # against the chest. Kusznik round 8: 6.2 cm at a 20 deg turn (author: "the face is skewed again"), the author's own
+    # pose 2.0 cm, the turn removed 1.2 cm
+    "face_skew": (0.035, "m", "joints"),
     # farthest fingertip from the prop while it is in the hands: a finger standing straight up beside the stock. The nearest
     # point of a finger (loose_fingers) is its base, which touches the stock either way
     # (own chains, thumbs out: Kusznik's straight middle finger 3.6 cm, the others 0.2-2.5 cm)
@@ -64,7 +71,7 @@ NEEDS = {
     "prop_rot_jump": (), "loop_seam_deg": ("hand", "head"), "loop_seam_m": ("forearm",),
     "hand_to_prop_L": ("hand.left",), "hand_to_prop_R": ("hand.right",), "prop_above_head": ("region:head",),
     "loose_fingers": ("fingers",), "stretch": (), "skin_twist": ARM, "skin_spread": ARM,
-    "skin_tear": ("shoulder", "upper_arm", "forearm"), "prop_in_upper_arms": ("upper_arm",), "prop_in_body": (), "rest_gap": ("upper_arm", "forearm"), "finger_tip_gap": ("fingers",),
+    "skin_tear": ("shoulder", "upper_arm", "forearm"), "prop_in_upper_arms": ("upper_arm",), "prop_in_body": (), "rest_gap": ("upper_arm", "forearm"), "prop_in_pocket": ("upper_arm", "forearm"), "face_skew": ("head",), "finger_tip_gap": ("fingers",),
     "finger_tip_fold": ("fingers",),
 }
 

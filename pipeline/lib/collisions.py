@@ -106,12 +106,18 @@ def skin_tree(co, tris, lab, side):
     return BVHTree.FromPolygons([Vector(c) for c in co], t.tolist(), all_triangles=True), lab[t[:, 0]], side[t[:, 0]]
 
 
-def prop_in_body(tree, reg, side, pts, holders, reach=0.12):
+def prop_in_body(tree, reg, side, pts, holders, reach=0.12, rest=None):
     """Deepest penetration of prop points into the whole skin, per region and side: {"forearms.R": (m, point)}.
     Only the grip zone of every holding side in `holders` ({side: (wrist, forearm length)}) is left out: its hand, fingers
     and the forearm within GRIP_ZONE x its length of the wrist. A rest contact (a butt on the shoulder) is not left out:
-    the approved Mixamo shot's butt sat 7.4 cm inside the right shoulder and no audit saw it."""
+    the approved Mixamo shot's butt sat 7.4 cm inside the right shoulder and no audit saw it. Only an armpit rest
+    `rest` = (rear end, front end, side, shoulder joint, elbow) on an aim frame: the stock's rear POCKET_SPAN in the torso
+    or in that side's upper arm within POCKET_ARM of its length from the shoulder joint goes under "pocket" (scored
+    against POCKET_REST). Further down the arm it is the elbow, not the armpit."""
     out = {}
+    if rest is not None:
+        rb = np.asarray(rest[0], float); ln = float(np.linalg.norm(np.asarray(rest[1]) - rb)); rst = (np.asarray(rest[1]) - rb) / ln
+        aS = np.asarray(rest[3], float); aE = np.asarray(rest[4], float) - aS; aL = float(aE @ aE)
     for p in pts:
         v = Vector(p); loc, nor, fi, d = tree.find_nearest(v, reach)
         if loc is None or (v - loc).dot(nor) >= 0: continue
@@ -119,6 +125,10 @@ def prop_in_body(tree, reg, side, pts, holders, reach=0.12):
         if s in holders and (r in ("hands", "fingers") or (r == "forearms" and (v - holders[s][0]).length < GRIP_ZONE * holders[s][1])):
             continue
         k = r + ("." + s if s else "")
+        if rest is not None and (r == "torso" or (r == "upper_arms" and s == rest[2]
+                                                  and float((np.asarray(loc) - aS) @ aE) <= POCKET_ARM * aL)) and (
+                -0.03 <= float((np.asarray(p) - rb) @ rst) <= POCKET_SPAN * ln):
+            k = "pocket"
         if d > out.get(k, (0.0,))[0] and inside(tree, v): out[k] = (d, p)
     return out
 
@@ -127,7 +137,19 @@ def prop_in_body(tree, reg, side, pts, holders, reach=0.12):
 # POCKET_U[1] of the upper arm below the shoulder joint, not outside the arm's axis, not in front of or behind the arm by
 # more than its radius + the stock's, and within POCKET_TOUCH of the torso and of the upper arm's skin. Kusznik round 6:
 # butt on the forearm in front of the elbow (author: "it does not go under the armpit")
-POCKET_U, POCKET_TOUCH = (0.1, 0.6), 0.06
+# The author's accepted pose on Kusznik (round 8) has the stock 0.67-0.72 of the upper arm below the shoulder joint
+POCKET_U, POCKET_TOUCH = (0.1, 0.75), 0.06
+# the stock may also run through the pocket with its rear end out behind the back (author's own aim pose, round 8: the end
+# 7.4 cm off the pocket while the stock lay in it): any section of the rear POCKET_SPAN of the prop's length counts
+POCKET_SPAN = 0.35
+# ... and rests there in the skin: the author's accepted aim pose on Kusznik (round 8) has the stock 3.9 cm in the torso
+# side of the pocket, which the general prop_in_body limit (1.5 cm) failed. Scored as prop_in_pocket, aim frames only
+POCKET_REST = 0.045
+# ... but only in the armpit: the torso side and the upper arm's top POCKET_ARM (its fold at the shoulder joint). Kusznik
+# round 8, the solver's own aim: the stock 3.3 cm in the upper arm's middle and against the forearm, the elbow pressed to
+# the body (author: "the crossbow goes into the elbow instead of the armpit"); the whole upper arm was exempt and it
+# passed. The author's accepted aim rests on the ribs (3.9-4.2 cm) and touches the upper arm 0.1 cm
+POCKET_ARM = 0.3
 
 
 def stock_end(pc):
@@ -138,9 +160,14 @@ def stock_end(pc):
     return ends, float(np.median(np.linalg.norm((pc - c0) - np.outer(pr, ax), axis=1)))
 
 
-def pocket_gap(b, S, E, up, out, r_stock, ua_r, tree, ua_pts):
+def pocket_gap(b, S, E, up, out, r_stock, ua_r, tree, ua_pts, front=None):
     """How far a rear end `b` is from the armpit pocket of the arm with shoulder joint S and elbow E (m, 0 = in it).
-    up = the spine's direction, out = away from the body on that side, tree = the body without arms."""
+    up = the spine's direction, out = away from the body on that side, tree = the body without arms. With the prop's
+    other end `front`, the nearest section of the stock's rear POCKET_SPAN (1 cm steps) counts instead of the end."""
+    if front is not None:
+        ln = float(np.linalg.norm(front - b)); st = (front - b) / ln
+        return min(pocket_gap(b + st * t, S, E, up, out, r_stock, ua_r, tree, ua_pts)
+                   for t in np.arange(0.0, POCKET_SPAN * ln + 1e-9, 0.01))
     fw = np.cross(up, out); la = np.linalg.norm(E - S)
     h = (S - b) @ up; u = np.clip((b - S) @ (E - S) / la ** 2, 0, 1); a = S + u * (E - S)
     loc, _, _, dt = tree.find_nearest(Vector(b), 1.0)

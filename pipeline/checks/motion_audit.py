@@ -9,7 +9,7 @@ import numpy as np
 from mathutils import Matrix, Vector
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from collisions import dominant, masks, vertices, bvh, depth, joint_angles, labels, body_tree, depths, rig_of, FINGER_PREFIX
-from collisions import labels_all, skin_tree, prop_in_body, stock_end, pocket_gap, limb_radius
+from collisions import labels_all, skin_tree, prop_in_body, stock_end, pocket_gap, limb_radius, POCKET_REST, POCKET_SPAN
 import skeleton
 import skin
 from audit_metrics import METRICS, NEEDS, judge
@@ -91,7 +91,9 @@ if A.under_arm and "rest_gap" not in SKIP:
         AIMW = {int(k): v["aim"] for k, v in json.load(open(A.glb.replace(".glb", "_arms.json"), encoding="utf-8")).items()}
     except (OSError, KeyError, ValueError):
         SKIP["rest_gap"] = "no aim weights (prop_in_hands <glb>_arms.json)"
-    if AIMW is not None: LIMITS["rest_gap"] = POCKET_LIM; LIM["rest_gap"] = POCKET_LIM * SCALE
+    if AIMW is not None:
+        LIMITS["rest_gap"] = POCKET_LIM; LIM["rest_gap"] = POCKET_LIM * SCALE
+        if "prop_in_pocket" not in SKIP: LIMITS["prop_in_pocket"] = POCKET_REST; LIM["prop_in_pocket"] = POCKET_REST * SCALE
 # shoulder skin (skin_tear): faces of the clavicle and the upper part of the upper arm (2 of 3 vertices theirs), rest areas
 SHOULDER, SHOULDER_U, TEAR = {}, 0.45, 2.0
 if "skin_tear" not in SKIP:
@@ -110,6 +112,20 @@ if "finger_tip_fold" not in SKIP:
         for ch in PROF.finger_chains(s_).values():
             sel = (np.sum(dom[tris] == ch[-1], 1) >= 2) & (ln > 0)
             if sel.any(): TIP_FACES[ch[-1]] = (np.where(sel)[0], n_[sel] / ln[sel, None])
+# face skew (face_skew): skin bound partly to the head (head weight FACE_W) and partly to the chest/neck drifting sideways
+# off the head moved rigidly, as the mean of its offset across the shoulders in the head's rest frame. Kusznik round 8:
+# the head turned 20 deg about its own axis against the chest dragged the jaw and mouth 6.2 cm to one side (author: "the
+# face is skewed again"); the edge stretch and skin_tear saw nothing (a twist shears the skin, the edges keep their length:
+# face edges p95 1.35x, the author's pose 1.38x). The author's own pose: 2.0 cm
+FACE_W, FACE_I = (0.3, 0.9), None
+if "face_skew" not in SKIP and HEAD in body.vertex_groups:
+    _gi = body.vertex_groups[HEAD].index; _hw = np.zeros(len(body.data.vertices))
+    for _v in body.data.vertices:
+        for _g in _v.groups:
+            if _g.group == _gi: _hw[_v.index] = _g.weight
+    FACE_I = np.where((_hw >= FACE_W[0]) & (_hw < FACE_W[1]))[0]
+    _ax = HEADS0[PROF.bone("upper_arm", "Left")] - HEADS0[PROF.bone("upper_arm", "Right")]; FACE_AX = _ax / np.linalg.norm(_ax)
+    if len(FACE_I) < 20: FACE_I = None
 LAB_ALL = labels_all(dom, RIG)
 UA_R = {}   # upper arm skin radius at rest (median distance of its skin from the bone), per side
 for s_ in skeleton.SIDES:
@@ -118,14 +134,17 @@ for s_ in skeleton.SIDES:
 
 
 def rest_gap(co, pc, T, REGF):
-    """How far the stock's end nearest a shoulder is from that armpit's pocket (m, 0 = in it) and the side."""
+    """How far the rear part of the stock (end nearest a shoulder) is from that armpit's pocket (m, 0 = in it), side,
+    (rear end, front end)."""
     ends, r_stock = stock_end(pc)
     S = {s_: np.array(head(PROF.bone("upper_arm", s_))) for s_ in skeleton.SIDES}
     b, sd = min(((e, s_) for e in ends for s_ in S), key=lambda x: np.linalg.norm(x[0] - S[x[1]]))
+    front = ends[1] if b is ends[0] else ends[0]
     up = np.array(head(PROF.spine[-1]) - head(PROF.spine[0])); up /= np.linalg.norm(up)
     rt = S["Right"] - S["Left"]; rt -= up * (rt @ up); rt /= np.linalg.norm(rt)
-    return pocket_gap(b, S[sd], np.array(head(PROF.bone("forearm", sd))), up, rt if sd == "Right" else -rt, r_stock,
-                      UA_R.get(sd, 0.04), T, co[dom == PROF.bone("upper_arm", sd)]), sd[0]
+    E = np.array(head(PROF.bone("forearm", sd)))
+    return pocket_gap(b, S[sd], E, up, rt if sd == "Right" else -rt, r_stock,
+                      UA_R.get(sd, 0.04), T, co[dom == PROF.bone("upper_arm", sd)], front), sd[0], (b, front, S[sd], E)
 
 
 GRIP_FINGERS = [b.name for b in arm.pose.bones if b.name.startswith(FINGER_PREFIX) or (b.name in RIG.fingers and (dom == b.name).any())]
@@ -167,6 +186,10 @@ for t in times:
             c_ = co[tris[fi]]; a1 = np.linalg.norm(np.cross(c_[:, 1] - c_[:, 0], c_[:, 2] - c_[:, 0]), axis=1)
             v_ = round(float(a0[a1 > TEAR * a0].sum() / a0.sum()), 3)
             if v_ > row.get("skin_tear", -1): row["skin_tear"] = v_; where["skin_tear"] = [float(x) for x in c_.mean((0, 1))]; side["skin_tear"] = s_
+    if FACE_I is not None:   # skin of the face dragged to one side off the rigid head
+        Hd = np.array((AW @ arm.pose.bones[HEAD].matrix @ arm.data.bones[HEAD].matrix_local.inverted() @ AW.inverted()).inverted())
+        off = (co[FACE_I] @ Hd[:3, :3].T + Hd[:3, 3] - CO_REST[FACE_I]) @ FACE_AX
+        row["face_skew"] = round(abs(float(off.mean())), 4); where["face_skew"] = [float(x) for x in co[FACE_I].mean(0)]
     if TIP_FACES:   # fingertip skin folded back over itself against its own bone
         for n, (fi, n0) in TIP_FACES.items():
             Rb = np.array((AW @ arm.pose.bones[n].matrix @ arm.data.bones[n].matrix_local.inverted() @ AW.inverted()).to_3x3())
@@ -181,9 +204,13 @@ for t in times:
     if prop:
         pc = vertices(prop, dg)
         PS = pc[rng.choice(len(pc), min(700, len(pc)), replace=False)]
-        measure("prop", PS)
+        REST_ = None
         if AIMW is not None and t >= f0 and AIMW.get(int(round(t)), 0.0) >= AIM_MIN:   # aim frames: the butt in the armpit pocket
-            row["rest_gap"], side["rest_gap"] = rest_gap(co, pc, T, REGF)
+            row["rest_gap"], side["rest_gap"], ends_ = rest_gap(co, pc, T, REGF); REST_ = ends_[:2] + (side["rest_gap"],) + ends_[2:]
+        if REST_ is not None:   # the stock's rest in the pocket is prop_in_pocket, not prop_in_torso
+            st_ = (REST_[1] - REST_[0]) / np.linalg.norm(REST_[1] - REST_[0]); t_ = (PS - REST_[0]) @ st_
+            measure("prop", PS[(t_ < -0.03) | (t_ > POCKET_SPAN * np.linalg.norm(REST_[1] - REST_[0]))])
+        else: measure("prop", PS)
         PB = bvh(pc, ptris)
         if "prop_in_body" not in SKIP:   # the prop against the WHOLE skin, every region by role, the grip zone left out
             S_ = {s_[0]: np.array(head(PROF.bone("upper_arm", s_))) for s_ in skeleton.SIDES}
@@ -193,7 +220,10 @@ for t in times:
                 if IN_HANDS and len(HAND[s_[0]]) and min(PB.find_nearest(Vector(co[j_]))[3] for j_ in HAND[s_[0]][::4]) < HOLD_GAP * SCALE:
                     hold[s_[0]] = (hd, (hd - fa).length)
             TA, RA, SA = skin_tree(co, tris, LAB_ALL, SIDE)
-            dd = prop_in_body(TA, RA, SA, PS, hold)
+            dd = prop_in_body(TA, RA, SA, PS, hold, rest=REST_)
+            if "pocket" in dd:
+                v_ = dd.pop("pocket")
+                if "prop_in_pocket" not in SKIP: row["prop_in_pocket"] = round(v_[0], 4); where["prop_in_pocket"] = [float(x) for x in v_[1]]
             row["prop_in_body"] = round(max([v[0] for v in dd.values()] + [0.0]), 4)
             row["_prop_in_body"] = {k_: round(v[0], 4) for k_, v in sorted(dd.items(), key=lambda kv: -kv[1][0])}
             if dd:
