@@ -33,15 +33,20 @@ def mesh(parts):
     return np.vstack(V), np.vstack(T)
 
 
-def humanoid(robe=False):
+def humanoid(robe=False, kneecap=None, palm=False):
     parts = [((-0.20, -0.10, CROTCH), (0.20, 0.10, 1.45)),            # torso
              ((-0.05, -0.05, 1.45), (0.05, 0.05, 1.55)),              # neck
              ((-0.10, -0.12, 1.55), (0.10, 0.10, H))]                 # head
     for s in (1, -1):
         x = sorted((s * 0.20, s * 0.85)); parts.append(((x[0], -0.05, ARM_LO), (x[1], 0.05, ARM_HI)))   # arm
-        x = sorted((s * 0.85, s * 0.95)); parts.append(((x[0], -0.04, 1.35), (x[1], 0.04, 1.41)))       # hand
+        x = sorted((s * 0.85, s * 0.95))
+        z = (1.30, 1.46) if palm else (1.35, 1.41)
+        parts.append(((x[0], -0.04, z[0]), (x[1], 0.04, z[1])))                                          # hand
+        if palm:
+            x = sorted((s * 0.95, s * 1.02)); parts.append(((x[0], -0.01, 1.37), (x[1], 0.01, 1.39)))    # finger
         x = sorted((s * 0.06, s * 0.18))
         if not robe: parts.append(((x[0], -0.07, 0.0), (x[1], 0.07, CROTCH)))                         # leg
+        if kneecap: parts.append(((x[0] + 0.03, -0.12, kneecap - 0.01), (x[1] - 0.03, -0.07, kneecap + 0.01)))
         parts.append(((x[0], -0.20, 0.0), (x[1], 0.07, 0.08)))                                          # foot
     if robe: parts.append(((-0.25, -0.12, 0.08), (0.25, 0.12, CROTCH)))                                 # robe to the feet
     return mesh(parts)
@@ -68,6 +73,23 @@ def test_legs_apart():
         assert ARM_LO <= arm[2] <= ARM_HI and ARM_LO <= hand[2] <= ARM_HI
         assert sgn * arm[0] < sgn * elbow[0] < sgn * hand[0] < sgn * tip[0]
         assert np.linalg.norm(tip - hand) < 0.2 * H and abs(tip[0]) > 0.94    # wrist towards the fingertip
+
+
+def test_knee_from_contour():
+    j, f = auto_rig.solve(*humanoid())          # a straight column: no kneecap, SOMA's fraction
+    assert f["knee_from"] == "SOMA"
+    soma = j["LeftLeg"][2]
+    j, f = auto_rig.solve(*humanoid(kneecap=0.58))
+    assert f["knee_from"] == "contour" and abs(soma - 0.58) > 0.03 * H
+    for s in ("Left", "Right"):
+        assert abs(j[s + "Leg"][2] - 0.58) < 0.01 * H, j[s + "Leg"]
+
+
+def test_wrist_where_the_hand_widens():
+    j, _ = auto_rig.solve(*humanoid(palm=True))     # palm 16 cm tall on an arm 10 cm thick
+    for s in ("Left", "Right"):
+        assert abs(abs(j[s + "Hand"][0]) - 0.85) < 0.02, j[s + "Hand"]
+        assert abs(j[s + "Arm"][0]) < abs(j[s + "ForeArm"][0]) < abs(j[s + "Hand"][0])
 
 
 def test_robe_without_leg_gap():

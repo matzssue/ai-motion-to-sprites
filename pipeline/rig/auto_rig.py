@@ -232,10 +232,8 @@ def detect(verts, tris):
     return feat
 
 
-def centerline_point(front, verts, a, b, t, H):
-    """Point on the arm axis: fraction t of a->b, centred across the silhouette."""
-    p = a + t * (b - a)
-    d = (b - a) / (np.linalg.norm(b - a) + 1e-9)
+def across(front, p, d, H):
+    """Width of the silhouette across direction d at p, and p centred across it (None, p when p is outside)."""
     n = np.array([-d[1], d[0]])
     lo = hi = 0.0
     step = front.px
@@ -243,13 +241,19 @@ def centerline_point(front, verts, a, b, t, H):
     def filled(q):
         c, r = front.to_px(q[0], q[1])
         return 0 <= r < front.mask.shape[0] and 0 <= c < front.mask.shape[1] and front.mask[r, c]
-    if filled(p):
-        while filled(p + (hi + step) * n) and hi < 0.3 * H:
-            hi += step
-        while filled(p - (lo + step) * n) and lo < 0.3 * H:
-            lo += step
-        p = p + 0.5 * (hi - lo) * n
-    return p
+    if not filled(p):
+        return None, p
+    while filled(p + (hi + step) * n) and hi < 0.3 * H:
+        hi += step
+    while filled(p - (lo + step) * n) and lo < 0.3 * H:
+        lo += step
+    return lo + hi, p + 0.5 * (hi - lo) * n
+
+
+def centerline_point(front, verts, a, b, t, H):
+    """Point on the arm axis: fraction t of a->b, centred across the silhouette."""
+    d = (b - a) / (np.linalg.norm(b - a) + 1e-9)
+    return across(front, a + t * (b - a), d, H)[1]
 
 
 def wrist_t(arm, tip, H):
@@ -257,6 +261,73 @@ def wrist_t(arm, tip, H):
     ends nearer. A claw or an oversized hand lengthens Arm -> tip, not the arm: Padlinozerca's claws put the wrist at 0.746
     of it inside the hand, the depth of one wrist on a claw layer (sides 7.1 cm apart)."""
     return min(SOMA["wrist_t"], SOMA["arm_len"] * H / max(float(np.linalg.norm(np.asarray(tip) - np.asarray(arm))), 1e-6))
+
+
+def wrist_on_mesh(front, elbow, tip, H):
+    """Wrist where the hand starts: walking from the elbow to the fingertip, the last point of the forearm's narrowest
+    stretch before the silhouette widens 1.5x (palm, spread fingers, a cuff). SOMA's fraction put the wrist in the palm
+    of Kusznik and Wybuchacz (long fingers and claws), 5-7 cm past the visible wrist. None without such a widening
+    (Flisak's thick forearm tapers into the hand)."""
+    L = float(np.linalg.norm(tip - elbow))
+    d = (tip - elbow) / max(L, 1e-9)
+    best, at = None, None
+    for t in np.arange(0.15, 0.95, front.px / max(L, 1e-9)):
+        w, p = across(front, elbow + t * L * d, d, H)
+        if w is None:
+            continue
+        if best is not None and w > 1.5 * best:
+            return at if t > 0.2 else None
+        if best is None or w < best:
+            best = w
+        if w <= 1.3 * best:
+            at = p
+    return None
+
+
+def arm_line(front, verts, arm, tip, H):
+    """Hand and elbow on the arm in the front view: the wrist from the mesh (SOMA's fraction without a clear hand),
+    the elbow at SOMA's fraction of Arm -> wrist."""
+    hand = centerline_point(front, verts, arm, tip, wrist_t(arm, tip, H), H)
+    elbow = centerline_point(front, verts, arm, hand, SOMA["elbow_t"], H)
+    seen = wrist_on_mesh(front, elbow, tip, H)
+    if seen is not None:
+        hand = seen
+        elbow = centerline_point(front, verts, arm, hand, SOMA["elbow_t"], H)
+    return hand, elbow
+
+
+def knee_z(verts, f, foot, hips_z, sgn):
+    """Knee height from the leg's side contour: the point of the leg's front edge that stands furthest in front of the
+    edge 4% H above and below it - the kneecap, or the corner of a bent leg (Kusznik, Padlinozerca's digitigrade leg).
+    Searched from 0.25 of ankle -> Hips up to 0.62 of it (SOMA's knee is at 0.449) and 2% H under the crotch: above
+    hang Kusznik's loincloth flaps and Flisak's hands on his thighs. None under a robe or without a clear peak: the
+    peak is 1.8-2.3% H on the kneecaps of Kusznik, Wybuchacz and Padlinozerca, 0.8-1.4% H on Flisak's padded knee,
+    whose peaks land 1-3 cm under it."""
+    if f["robe"] or f["crotch_z"] is None:
+        return None
+    H = f["H"]
+    step, n = 0.003 * H, int(round(0.04 / 0.003))
+    lo = foot[2] + 0.25 * (hips_z - foot[2])
+    hi = min(foot[2] + 0.62 * (hips_z - foot[2]), f["crotch_z"] - 0.02 * H)
+    zs = np.arange(lo - n * step, hi + n * step + 1e-9, step)
+    if len(zs) < 2 * n + 3:
+        return None
+    front = np.full(len(zs), np.nan)
+    for i, z in enumerate(zs):
+        leg = [r for r in f["front"].runs(z) if sgn * 0.5 * (r[0] + r[1]) > 0]
+        if not leg:
+            continue
+        r = min(leg, key=lambda r: abs(0.5 * (r[0] + r[1]) - foot[0]))
+        s = verts[(np.abs(verts[:, 2] - z) < 0.006 * H) & (verts[:, 0] >= r[0]) & (verts[:, 0] <= r[1])]
+        if len(s):
+            front[i] = s[:, 1].min()     # the model faces -Y
+    ahead = 0.5 * (front[:-2 * n] + front[2 * n:]) - front[n:-n]
+    if np.all(np.isnan(ahead)):
+        return None
+    k = int(np.nanargmax(ahead))
+    if ahead[k] < 0.015 * H or k in (0, len(ahead) - 1):
+        return None
+    return float(zs[n + k])
 
 
 def solve(verts, tris):
@@ -293,8 +364,7 @@ def solve(verts, tris):
         up = ARM_T * thick if 0.04 * H < thick < 0.4 * H else ARM_UP * H
         arm = np.array([pit[0], pit[1] + up])     # straight above the top of the armpit
         tip2 = np.array([tip[0], tip[2]])
-        hand = centerline_point(f["front"], verts, arm, tip2, wrist_t(arm, tip2, H), H)
-        elbow = centerline_point(f["front"], verts, arm, hand, SOMA["elbow_t"], H)
+        hand, elbow = arm_line(f["front"], verts, arm, tip2, H)
         j[side + "Arm"] = np.array([arm[0], at_y(arm[0], arm[1]), arm[1]])
         # Depth: from the torso at ARMPIT height. The slab middle on the joint itself caught the head of a hunchback
         # hanging in front of the chest (~8% H forward).
@@ -320,8 +390,7 @@ def solve(verts, tris):
         tip = j[hi + "Tip"]
         tip2 = np.array([tip[0], tip[2]])
         arm2 = np.array([-src[0], src[2]])
-        hand = centerline_point(f["front"], verts, arm2, tip2, wrist_t(arm2, tip2, H), H)
-        elbow = centerline_point(f["front"], verts, arm2, hand, SOMA["elbow_t"], H)
+        hand, elbow = arm_line(f["front"], verts, arm2, tip2, H)
         arm_depths(hi, elbow, hand, tip)
 
     # ---- ankles: height from the foot's length (generated boots and big feet stand higher than a body's 3.5% H)
@@ -367,15 +436,24 @@ def solve(verts, tris):
         tip_y = foot_v[:, 1].min()
         j[side + "Toe_End"] = np.array([ax, tip_y, zmin + 0.01 * H])
         j[side + "ToeBase"] = np.array([ax, ay + SOMA["toe_base_t"] * (tip_y - ay), zmin + 0.01 * H])
-        knee_z = ank_z + SOMA["knee_t"] * (hips_z - ank_z)
-        runs = f["front"].runs(knee_z)
+    # one height for both knees (the body is symmetric; a hand on one thigh moves one side's peak)
+    seen = [z for z in (knee_z(verts, f, j[s + "Foot"], hips_z, 1 if s == "Left" else -1) for s in ("Left", "Right"))
+            if z is not None]
+    if len(seen) == 2 and abs(seen[0] - seen[1]) > 0.015 * H:
+        seen = []
+    f["knee_from"] = "contour" if seen else "SOMA"
+    for side in ("Left", "Right"):
+        sgn = 1 if side == "Left" else -1
+        ax, ank_z = j[side + "Foot"][0], j[side + "Foot"][2]
+        kz = float(np.mean(seen)) if seen else ank_z + SOMA["knee_t"] * (hips_z - ank_z)
+        runs = f["front"].runs(kz)
         leg = [r for r in runs if sgn * 0.5 * (r[0] + r[1]) > 0]
         kx = ax
         if leg and not f["robe"]:
             r = min(leg, key=lambda r: abs(0.5 * (r[0] + r[1]) - ax))
             kx = 0.5 * (r[0] + r[1])
-        j[side + "Leg"] = np.array([kx, at_y(kx, knee_z), knee_z])
-        ul_z = hips_z - SOMA["upleg_down"] * (hips_z - knee_z)
+        j[side + "Leg"] = np.array([kx, at_y(kx, kz), kz])
+        ul_z = hips_z - SOMA["upleg_down"] * (hips_z - kz)
         body = run_at(f["front"].runs(ul_z), 0.0)   # the narrower side: a pouch or a quiver at one hip widens the other
         ux = sgn * HIP_PER_BREADTH * min(-body[0], body[1]) if body and body[0] < 0 < body[1] else kx
         j[side + "UpLeg"] = np.array([ux, j["Hips"][1], ul_z])
@@ -481,7 +559,7 @@ def rig(src, out, template, joints_path=None, no_fingers=False, allow_asymmetry=
             print("auto_rig: template layout - spine %s of hips->neck, clavicle x %.3f of the arm's" % (
                 "/".join("%.3f" % t for t in lay["spine"]), lay["clavicle_x"]))
             json.dump({k: [round(float(c), 5) for c in v] for k, v in j.items()}, open(joints_path, "w"), indent=1)
-            print("auto_rig: crotch %s, robe=%s" % (f["crotch_z"], f["robe"]))
+            print("auto_rig: crotch %s, robe=%s, knees from the %s" % (f["crotch_z"], f["robe"], f["knee_from"]))
     else:
         own_joints_file(verts, tris, joints_path)
     symmetry_gate({k: v for k, v in json.load(open(joints_path)).items() if not k.startswith("_")},
@@ -504,7 +582,7 @@ def own_joints_file(verts, tris, joints_path):
         print("auto_rig: using EXISTING joints from %s (delete the file to detect again)" % joints_path)
     else:
         j, f = solve(verts, tris)    # spine and clavicles already from SOMA (own_skeleton.own_joints)
-        print("auto_rig: crotch %s, robe=%s" % (f["crotch_z"], f["robe"]))
+        print("auto_rig: crotch %s, robe=%s, knees from the %s" % (f["crotch_z"], f["robe"], f["knee_from"]))
     fingers = [k for k in own_skeleton.JOINT_KEYS if "Hand" in k and k[-1].isdigit()]
     if any(k not in j for k in fingers):
         fj, rep = hand_fingers.finger_joints(verts, tris, {k: np.asarray(v, float) for k, v in j.items() if not k.startswith("_")}, H)

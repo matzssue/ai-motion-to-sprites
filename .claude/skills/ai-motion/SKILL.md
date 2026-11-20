@@ -287,6 +287,10 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   knuckles 5.5 cm off the mirrored right ones (author: "the left arm is broken from the base"). Elbow and wrist now take
   the slab's layer in Y on the shoulder-wrist line / at the fingertips. A `<out>_joints.json` next to the rig is REUSED:
   delete it to detect again.
+- Auto-rig wrist and knee come from the mesh (where the hand widens; the kneecap on the leg's side contour), SOMA's
+  fractions only without them. SOMA's wrist at 0.746 of Arm -> fingertip landed in the palm of long-fingered Kusznik and
+  Wybuchacz, and the stored clip then put the forearm 9-10 cm into the torso instead of the hand; the knee as a fraction
+  of ankle -> Hips sat 7 cm under Kusznik's kneecap once Hips moved.
 - Auto-rig head: skin whose largest weight is the head carries no weight of a shoulder or anything below it. Bone heat
   gave Kusznik's forward-hanging face up to 0.15 of the right shoulder and the cheek 0.10 of the right upper arm, and the
   aim pulled the face to one side (author).
