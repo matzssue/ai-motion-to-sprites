@@ -50,7 +50,7 @@ METRICS = {
     # face skin (partly bound to the head) dragged sideways off the head moved rigidly: the head turned about its own axis
     # against the chest. Kusznik round 8: 6.2 cm at a 20 deg turn (author: "the face is skewed again"), the author's own
     # pose 2.0 cm, the turn removed 1.2 cm
-    "face_skew": (0.035, "m", "joints"),
+    "face_skew": (0.025, "m", "joints"),
     # farthest fingertip from the prop while it is in the hands: a finger standing straight up beside the stock. The nearest
     # point of a finger (loose_fingers) is its base, which touches the stock either way
     # (own chains, thumbs out: Kusznik's straight middle finger 3.6 cm, the others 0.2-2.5 cm)

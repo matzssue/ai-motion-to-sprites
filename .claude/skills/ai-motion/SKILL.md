@@ -267,9 +267,9 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   Details: [GRIP_LESSONS.md](GRIP_LESSONS.md).
 - Face skew guard (`prop_in_hands`, any skeleton, measured): after the prop and the arms are placed, a head turned about
   its own axis against the top spine bone is turned back 2 deg at a time when the audit's `face_skew` is over its limit,
-  down to half of it (m1 Mixamo: 1.8 cm, untouched). The own rig's face is bound partly to the chest (the neck bone carries no skin), so a turned head drags the
-  jaw and mouth sideways; on a face bound to the head alone the skew stays near 0 and nothing changes. Kusznik: head
-  19 -> 7 deg (the author's 7), skew 4.0 -> 1.5 cm. Run before the search, the jaw met the right hand at the cheek and the
+  down to half of it (limit 2.5 cm; m1 Mixamo: 2.2 cm, untouched). The own rig's face is bound partly to the chest (the neck bone carries no skin), so a turned head drags the
+  jaw and mouth sideways; on a face bound to the head alone the skew stays near 0 and nothing changes. Kusznik: aim head
+  19 -> 5 deg (the author's 7), skew 4.0 -> 1.1 cm; hold 15 -> 5 deg, 3.2 -> 1.0 cm. Run before the search, the jaw met the right hand at the cheek and the
   next pass moved the crossbow (hand 2.2 cm in the torso), so it runs last, as the author fixed theirs.
 - Own finger bones whose skin ends in the prop after the wrap get their skin radius raised by that depth and are wrapped
   again (the median radius missed the thick side of the thumb's metacarpal: Kusznik's left thumb base 2.9 -> 0.9 cm).

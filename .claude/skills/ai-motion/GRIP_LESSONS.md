@@ -86,7 +86,9 @@ placement was scored with the solver's own cost. What it found:
    skin), so the turn dragged them 6 cm sideways off the head. Not a weight bug the r7 fix could reach (the arms' weight
    is gone), and no audit saw it: edge stretch and `skin_tear` measure growth, a twist shears the skin and keeps the edge
    lengths. New `face_skew` (the face skin's sideways drift off the rigid head): s8/s12 4.0 cm, the author 0.8 cm. The
-   solver turns the head back while the skew is over half the limit, after the placement: 7 deg, 1.5 cm. Moving the
+   solver turns the head back while the skew is over half the limit, after the placement: 7 deg, 1.5 cm. The hold
+   (f0, head 15 deg) kept 3.2 cm under the first 3.5 cm limit and looked skewed beside the aim, so the limit is 2.5 cm:
+   f0 1.0 cm, f44 1.1 cm (head 5 deg), m1 Mixamo 2.2 cm untouched. Moving the
    turn into the neck did not help (3.4 cm): only the head's turn against the chest counts.
 
 Lesson: an exemption in the audit needs the same bounds as the thing it exempts (here: the armpit, not the arm), and
