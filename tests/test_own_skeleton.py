@@ -194,3 +194,17 @@ if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
             fn(pathlib.Path(tempfile.mkdtemp())) if "tmp_path" in fn.__code__.co_varnames else fn(); print("ok", name)
+
+
+def test_thumb_is_the_front_digit_leaving_nearest_the_wrist():
+    """Knight's gauntlet: a short thumb stub near the wrist, a separate index finger as far forward as it, the other three
+    fused. The most forward digit alone was the index: it got the thumb chain, the stub none, and the index tip shared by
+    two chains folded over at any curl (finger_tip_fold 50-64%)."""
+    def bx(x0, x1, y0, y1): return ((x0, y0, HAND_Z[0]), (x1, y1, HAND_Z[1]))
+    v, t = fine([bx(WRIST_X, PALM_END, -0.05, 0.05), bx(0.87, 0.91, -0.09, -0.05),
+                 bx(PALM_END, TIP_X, -0.104, -0.052), bx(PALM_END, TIP_X - 0.005, -0.045, 0.05)])
+    chains, rep = hand_fingers.place(v, t, np.array([WRIST_X, 0.0, 1.38]), v[v[:, 0].argmax()], H, np.array([0.5, 0.0, 1.38]))
+    assert rep.startswith("4 digits")
+    th = np.array(chains["thumb"])
+    assert np.all(th[1:, 0] < 0.92) and np.all(th[1:, 1] < -0.05)                          # in the stub
+    assert chains["index"][3][0] > PALM_END + 0.04                                          # index out along its finger

@@ -13,6 +13,7 @@ from mathutils import Matrix, Quaternion, Vector
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import own_skeleton  # noqa: E402
+import weight_reach  # noqa: E402
 from stages import PROP_MESH  # noqa: E402
 
 
@@ -491,8 +492,34 @@ def head_without_arms(arm, meshes):
         print("auto_rig: head without arms %s - %d vertices, %.1f vertex-weights moved to the head" % (o.name, cnt, moved))
 
 
+def limb_reach(arm, meshes):
+    """Arm and leg bones (fingers have their own tube) keep weight only within reach of themselves (weight_reach.py);
+    prints what moved."""
+    W_ = arm.matrix_world
+    deform = [b for b in arm.data.bones if b.use_deform]
+    group = {b[0]: b[4] for b in own_skeleton.BONES}
+    gated = [k for k, b in enumerate(deform) if group.get(b.name) in ("arm", "leg") or b.name.startswith("hand.")]
+    heads = np.array([tuple(W_ @ b.head_local) for b in deform]); tails = np.array([tuple(W_ @ b.tail_local) for b in deform])
+    for o in meshes:
+        gi = {g.name: g.index for g in o.vertex_groups}
+        col = {gi[b.name]: k for k, b in enumerate(deform) if b.name in gi}
+        co = np.array([tuple(o.matrix_world @ v.co) for v in o.data.vertices])
+        W = np.zeros((len(co), len(deform)))
+        for v in o.data.vertices:
+            for g in v.groups:
+                if g.group in col: W[v.index, col[g.group]] = g.weight
+        W2, rep = weight_reach.gate(co, np.array([e.vertices[:] for e in o.data.edges]), W, heads, tails, gated)
+        for i in np.where(np.abs(W2 - W).max(1) > 1e-6)[0]:
+            for k, b in enumerate(deform):
+                if b.name not in gi: continue
+                if W2[i, k] > 1e-6: o.vertex_groups[b.name].add([int(i)], float(W2[i, k]), "REPLACE")
+                elif W[i, k] > 0: o.vertex_groups[b.name].remove([int(i)])
+        print("auto_rig: limb reach %s - %s" % (o.name, ", ".join("%s %d vertices %.1f vertex-weights" % (deform[k].name, n, m)
+                                                                for k, (n, m) in rep.items()) or "nothing out of reach"))
+
+
 def own_weight_rules(arm, meshes):
-    limb_cores(arm, meshes); throat_on_head(arm, meshes); head_without_arms(arm, meshes)
+    limb_reach(arm, meshes); limb_cores(arm, meshes); throat_on_head(arm, meshes); head_without_arms(arm, meshes)
 
 
 # fist pose of the self-check: flexion about the bone's local X (own_skeleton roll rule: +X curls into the palm), every
