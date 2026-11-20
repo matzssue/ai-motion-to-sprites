@@ -20,7 +20,7 @@ ap.add_argument("--frames", default="", help="10,20 or 130-170:2")
 ap.add_argument("--out", required=True); ap.add_argument("--yaw", type=float, default=0.0, help="game camera: rotation around vertical (deg)")
 ap.add_argument("--pitch", type=float, default=30.0); ap.add_argument("--no-closeups", action="store_true")
 ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
-A = ap.parse_args(argv); os.makedirs(A.out, exist_ok=True)
+A = ap.parse_args(argv); A.out = os.path.abspath(A.out); os.makedirs(A.out, exist_ok=True)  # Blender saves relative render paths against C:\, not the cwd
 if not A.glb and not A.script: ap.error("give --glb with --action, or --script with --pose-expr")
 
 

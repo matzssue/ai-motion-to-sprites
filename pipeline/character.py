@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 from config import KIMODO_PYTHON, script_path
 from chain import blender, merge, audit, chain, skel
 from schema_check import load_character
-from stages import NOISE, STAGES, fresh, keys
+from stages import NOISE, STAGES, fresh, keys, rig_review
 
 ap = argparse.ArgumentParser(description="Run the whole pipeline for one character, stopping at human review gates.")
 ap.add_argument("--character", required=True); ap.add_argument("--from", dest="start", default=None, choices=STAGES)
@@ -90,8 +90,8 @@ if stage("rig", r(C["rig"]), r(C["rig_input"])):
 # 3. AI rig: prop on its own bone, fingers from claws. A new one = look at the preview before going on
 if stage("rig_ai", RIG_AI, r(C["rig"]), r(C["rig_config"]), script_path("prepare_rig.py")):
     blender("prepare_rig.py", "RIG OK", "--rig", r(C["rig"]), "--config", r(C["rig_config"]), "--out", RIG_AI, "--preview", *SK)
-    stop("new AI rig. Look at %s (the whole prop red, the thumb red = really the thumb), then run again."
-         % os.path.join(WORK, "rig_ai_preview_*.png"))
+    stop("new AI rig. Look at %s (%s), then run again."
+         % (os.path.join(WORK, "rig_ai_preview_*.png"), rig_review("prop" in json.load(open(RIG_DATA, encoding="utf-8")))))
 if end < STAGES.index("rig_ai"):
     print("\nDONE up to stage '%s'." % A.end); sys.exit(0)
 DATA = json.load(open(RIG_DATA, encoding="utf-8"))

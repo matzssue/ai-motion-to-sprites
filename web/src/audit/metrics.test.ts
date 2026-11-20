@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareMetrics, formatLimit, formatShare, formatSide, formatValue, metricGroup, metricLabel, metricUnit } from "./metrics";
+import { CATALOG, compareMetrics, formatLimit, formatShare, formatSide, formatValue, metricGroup, metricLabel, metricUnit } from "./metrics";
 
 describe("metric labels and units (review_page.py)", () => {
   it("uses the review page labels and falls back to the key", () => {
@@ -16,6 +16,20 @@ describe("metric labels and units (review_page.py)", () => {
     expect(metricUnit("skin_spread")).toBe("percent");
     expect(metricUnit("loose_fingers")).toBe("percent");
     expect(metricUnit("stretch")).toBe("cm");
+    expect(metricUnit("skin_tear")).toBe("percent");
+    expect(metricUnit("finger_tip_fold")).toBe("percent");
+    expect(metricUnit("face_skew")).toBe("cm");
+  });
+
+  it("knows every metric of the audit (catalog.json from audit_metrics.METRICS)", () => {
+    expect(CATALOG.length).toBeGreaterThan(30);
+    for (const m of CATALOG) {
+      expect(metricLabel(m.key)).not.toBe(m.key);
+      expect(metricGroup(m.key)).not.toBe("other");
+    }
+    expect(formatValue("skin_tear", 0.143)).toBe("14%");
+    expect(metricGroup("prop_in_pocket")).toBe("penetration");
+    expect(metricGroup("finger_tip_gap")).toBe("grip");
   });
 
   it("formats like review_page.py", () => {

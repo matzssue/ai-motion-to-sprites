@@ -11,23 +11,11 @@ from PIL import Image
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from chain import blender
+from audit_metrics import LABELS, METRICS
 
 DIRS = ["s", "sw", "w", "nw", "n", "ne", "e", "se"]
 COLS = 10   # frames per sheet row
-LABELS = {
-    "prop_in_head": "prop in head", "prop_in_torso": "prop in torso", "prop_in_legs": "prop in legs",
-    "prop_in_clavicles": "prop in shoulder", "hands_in_head": "hand in head", "hands_in_torso": "hand in torso",
-    "forearms_in_head": "forearm in head", "forearms_in_torso": "forearm in torso",
-    "fingers_in_prop": "fingers in prop", "wrist_bend_L": "left wrist bend",
-    "wrist_bend_R": "right wrist bend", "wrist_twist_L": "left wrist twist",
-    "wrist_twist_R": "right wrist twist", "elbow_jump": "elbow jump", "prop_jump": "prop jump",
-    "hand_jump": "hand jump", "finger_jump": "finger jump", "head_jump": "head jump", "prop_rot_jump": "prop rotation jump",
-    "loop_seam_deg": "loop seam (rotation)", "loop_seam_m": "loop seam (elbow)", "prop_above_head": "prop above head",
-    "hand_to_prop_L": "left hand to prop", "hand_to_prop_R": "right hand to prop", "loose_fingers": "loose fingers",
-    "stretch": "mesh stretch", "skin_twist": "arm skin twist", "skin_spread": "arm skin spread",
-}
-DEGREES = ("wrist", "hand_jump", "finger_jump", "head_jump", "prop_rot_jump", "loop_seam_deg", "skin_twist")
-FRACTIONS = ("loose_fingers", "skin_spread")
+UNIT = {k: v[1] for k, v in METRICS.items()}   # units and labels: one source, pipeline/lib/audit_metrics.py
 
 
 def fresh(path, glb): return os.path.exists(path) and os.path.getmtime(path) >= os.path.getmtime(glb)
@@ -35,8 +23,9 @@ def fresh(path, glb): return os.path.exists(path) and os.path.getmtime(path) >= 
 
 def fmt(k, v):
     if v is None: return "-"
-    if k.startswith(FRACTIONS): return "%.0f%%" % (100 * v)
-    return "%.1f&deg;" % v if k.startswith(DEGREES) else "%.1f cm" % (100 * v)
+    u = UNIT.get(k, "m")
+    if u == "frac": return "%.0f%%" % (100 * v)
+    return "%.1f&deg;" % v if u == "deg" else "%.1f cm" % (100 * v)
 
 
 def sheet(folder, d, px):

@@ -22,6 +22,7 @@ ap.add_argument("--rig", required=True); ap.add_argument("--config", required=Tr
 ap.add_argument("--preview", action="store_true", help="control render: prop red, fingers coloured, thumb red")
 ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
+A.out = os.path.abspath(A.out)  # Blender saves relative render paths against C:\, not the cwd
 CF = json.load(open(A.config, encoding="utf-8"))
 JOINTS_PATH = os.path.join(os.path.dirname(os.path.abspath(A.config)), CF["joints"])
 JOINTS = json.load(open(JOINTS_PATH, encoding="utf-8"))

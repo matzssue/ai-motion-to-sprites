@@ -32,6 +32,7 @@ ap.add_argument("--no-loop", action="store_true", help="one-shot action: no loop
 ap.add_argument("--under-arm", action="store_true", help="stock under the armpit (motion aim.butt_push): prop in the upper arms is scored")
 ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
+A.out = os.path.abspath(A.out)  # Blender saves relative render paths against C:\, not the cwd
 UNIT = {k: v[1] for k, v in METRICS.items()}; GROUP = {k: v[2] for k, v in METRICS.items()}
 os.makedirs(A.out, exist_ok=True)
 
