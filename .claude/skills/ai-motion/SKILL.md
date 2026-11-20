@@ -79,7 +79,9 @@ the right armpit), `recoil`, `loop_blend_s` (how many last seconds the retarget 
 (`grip right: palm from below, fingers left and 18 deg forward, 34 cm in front of the butt`) – read that line before the render.
 
 ### Order (the approved crossbow shot, one review round)
-1. **Body without hand constraints:** `kimodo_motion.py` (4 samples), each through `chain.py`; take the best by audit.
+1. **Body without hand constraints:** `kimodo_motion.py` (4 samples), each through `chain.py`; take the best by audit
+   among the samples whose hands moved (README "Choosing a sample"; a sample that held still scored 1.18 beside the real
+   rake's 17.31). Another sample: `character.py --sample <action>=N`, never by editing `body.json`.
    Do NOT use hand constraints in Kimodo: they pull the arms into the head of a hunched character (measurement in §5).
 2. **Key poses** (start, peak; end = start so it loops) on that sample: `variants.py --frames 0,44` tunes grip and head on
    the poses alone (~15 s per variant), then `preview_8.py --frames 0,44` + `hand_closeups.py`.
@@ -95,7 +97,8 @@ blender -b --python pipeline/motion/keyposes_to_kimodo.py -- <poses>.glb <work>/
    (another sample gives wrong deltas without any error).
    Keys: Kimodo frame (30 fps) : pose frame (24 fps); last key = first pose. A one-shot action (`"loop": false` in
    character.json, `loop_blend_s: 0`) ends on its last pose and the audit skips the seam.
-4. **All 4 samples** through `chain.py` (same motion file as the poses), best by audit → `review_page.py`.
+4. **All 4 samples** through `chain.py` (same motion file as the poses), best by audit among those that moved
+   (`--sample` overrides) → `review_page.py`.
    Sample spread is large (1.4 / 4.4 / 4.5 / 15.9) – one sample is a lottery.
 
 `chain.py` does retarget → merge with the walk → `prop_in_hands.py` → `motion_audit.py`. `character.py` runs these steps

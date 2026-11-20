@@ -2,7 +2,9 @@
 python pipeline/character.py --character <dir>/character.json [--from stage] [--to stage]
 Stages: prepare, rig, rig_ai, calibration, ai, merge, preview. A finished stage (output newer than its inputs) is skipped; --from forces.
 STOPs for a human decision: a new AI rig, key poses (<work>/<action>/poses_approved.json), the motion (actions.<a>.approved).
-Body sample and poses are made once: to redo, delete <action>/body.json or poses_approved.json.
+Body sample and poses are made once: to redo, delete <action>/body.json or poses_approved.json. The automatic sample is the
+lowest audit score among the samples whose hands moved (stages.pick); `--sample attack=2` takes sample 2 of the action's
+latest batch instead (body samples before the poses are approved, Kimodo-through-poses samples after).
 Paths in character.json are relative to that file. Schemas: schemas/*.schema.json, example: examples/character.example.json.
 Rig: `auto_rig_template`, else the library walk, is the Mixamo template of auto_rig (`mixamorig:*` skeleton). With neither,
 or with "skeleton": "amts", auto_rig builds the own skeleton (skeletons/amts.json) and every later stage uses that profile.
@@ -12,12 +14,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 from config import KIMODO_PYTHON, script_path
 from chain import blender, merge, audit, chain, skel
 from schema_check import load_character
-from stages import NOISE, STAGES, fresh, keys, rig_review
+from stages import NOISE, STAGES, fresh, keys, pick, rig_review
+import bvh as BV
 
 ap = argparse.ArgumentParser(description="Run the whole pipeline for one character, stopping at human review gates.")
 ap.add_argument("--character", required=True); ap.add_argument("--from", dest="start", default=None, choices=STAGES)
 ap.add_argument("--to", dest="end", default="preview", choices=STAGES)
+ap.add_argument("--sample", action="append", default=[], metavar="ACTION=N",
+                help="take sample N of the action's latest batch instead of the automatic choice (repeatable)")
 A = ap.parse_args()
+SAMPLE = {}
+for _s in A.sample:
+    _n, _, _i = _s.partition("=")
+    if not _i.isdigit(): ap.error("--sample takes ACTION=N, e.g. attack=2 (got %r)" % _s)
+    SAMPLE[_n] = int(_i)
 sys.stdout.reconfigure(encoding="utf-8")
 C = load_character(A.character)   # also the rig config and motion files: a bad key is named before any Blender step
 BASE_DIR = os.path.dirname(os.path.abspath(A.character))
@@ -70,6 +80,7 @@ if OWN_RIG and LIB_ACTIONS:
     raise SystemExit("library clips (%s) are Mixamo-skeleton clips and cannot go onto the own skeleton (amts): give "
                      "`auto_rig_template` for a Mixamo rig, or make these actions with Kimodo (`ai`)" % ", ".join(n for n, _ in LIB_ACTIONS))
 AI_ACTIONS = {n: a for n, a in C["actions"].items() if "ai" in a}
+if set(SAMPLE) - set(AI_ACTIONS): ap.error("--sample: %s is not an AI action of this character" % ", ".join(sorted(set(SAMPLE) - set(AI_ACTIONS))))
 # prop in hands: an AI action (motion file "ai") or a library action with a grip file "motion" (walk with a crossbow: `no_aim`)
 PROP_MOTION = {n: r(a.get("ai") or a["motion"]) for n, a in C["actions"].items() if a.get("prop") and (a.get("ai") or a.get("motion"))}
 # combine_actions grounds every action on this one (a Kimodo clip stood 0.5 m lower than the library walk);
@@ -117,12 +128,46 @@ def pose_frames(R, motion):
     return [int(v) for k, v in PK.items() if not k.startswith("_")]
 
 
+def hand_range(bvh, R):
+    return max(BV.activity(*BV.joints(bvh), R)["range"].values())
+
+
 def best_of(bvhs, motion, with_prop, out, loop=True):
-    scores = []
+    """Every sample through the chain -> (chosen (score, bvh, glb, range), all of them). `range` = the larger hand's extent
+    against the hips over the raw clip (m): a sample that stood still must not win on a clean audit (stages.pick)."""
+    R = json.load(open(motion, encoding="utf-8")); scores = []
     for bvh in bvhs:
         glb, rep = chain(RIG_AI, motion, bvh, out, WALK, with_prop=with_prop, loop=loop, skeleton=SKEL)
-        scores.append((rep["score"], bvh, glb)); print("   %s: %s, score %.2f" % (os.path.basename(bvh), rep["result"], rep["score"]))
-    return min(scores), scores
+        m = hand_range(bvh, R)
+        scores.append((rep["score"], bvh, glb, m))
+        print("   %s: %s, score %.2f, hands moved %.2f m" % (os.path.basename(bvh), rep["result"], rep["score"], m))
+    return scores[pick([(o, m) for o, _, _, m in scores])], scores
+
+
+def listed(all_, R):
+    """`all` of body.json / choice.json -> [(score, bvh, range)]; files from before the range get it from their BVH."""
+    return [(x[0], x[1], x[2] if len(x) > 2 else hand_range(x[1], R)) for x in all_]
+
+
+def by_hand(n, all_, R, what):
+    """--sample n=i: sample i of `all_` -> ((score, bvh, range), all rows), or a STOP naming the samples there are."""
+    i = SAMPLE[n]; rows = listed(all_, R)
+    hit = [x for x in rows if os.path.splitext(os.path.basename(x[1]))[0].endswith("_s%d" % i)]
+    if not hit: stop("action '%s': --sample %s=%d: no such %s sample (there are: %s)" % (
+        n, n, i, what, ", ".join(os.path.splitext(os.path.basename(x[1]))[0] for x in rows)))
+    return hit[0], rows
+
+
+def write_body(path, e1, score, bvh, rows, how):
+    name = os.path.splitext(os.path.basename(bvh))[0]
+    json.dump({"bvh": bvh, "idx": int(name.rsplit("_s", 1)[1]), "score": score, "merged": os.path.join(e1, "p", "merged_%s.glb" % name),
+               "all": [list(x) for x in rows], "pick": how}, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+
+
+def samples_line(rows):
+    """[(score, bvh, range)] -> 's0 1.18 / 0.37 m, ...' (audit score / how far the hands moved)."""
+    return ", ".join("%s %.2f%s" % (os.path.splitext(os.path.basename(b))[0].rsplit("_", 1)[-1], o, "" if m is None else " / %.2f m" % m)
+                     for o, b, m in rows)
 
 
 def ai_action(n, a):
@@ -133,7 +178,7 @@ def ai_action(n, a):
     Z = a.get("approved")   # {"bvh", "score", "date"}: motion after the human verdict - no Kimodo, just the chain on this BVH
     if Z:
         if not stage("ai", choice, motion, RIG_AI, r(Z["bvh"])): return json.load(open(choice, encoding="utf-8"))
-        (score, bvh, glb), _ = best_of([r(Z["bvh"])], motion, with_prop, os.path.join(D, "p"), lp)
+        (score, bvh, glb, _), _ = best_of([r(Z["bvh"])], motion, with_prop, os.path.join(D, "p"), lp)
         if score > Z["score"] + NOISE:
             stop("action '%s': the approved motion now scores %.2f instead of %.2f - the tool or the motion file changed "
                  "(compare_motion.py against the approved version)" % (n, score, Z["score"]))
@@ -151,13 +196,15 @@ def ai_action(n, a):
         python(script_path("kimodo_text.py"), "--motion", motion, "--out", emb, exe=KIMODO_PYTHON)
         python(script_path("kimodo_motion.py"), "--motion", motion, "--emb", emb, "--out", e1, "--name", "body",
                "--samples", count, "--seed", seed, exe=KIMODO_PYTHON)
-        (o, bvh, _), sc = best_of(sorted(glob.glob(os.path.join(e1, "body_s*.bvh"))), motion, with_prop, os.path.join(e1, "p"), lp)
-        name = os.path.splitext(os.path.basename(bvh))[0]
-        json.dump({"bvh": bvh, "idx": int(name.rsplit("_s", 1)[1]), "score": o, "merged": os.path.join(e1, "p", "merged_%s.glb" % name),
-                   "all": [(x, b) for x, b, _ in sc]}, open(body, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        (o, bvh, _, _), sc = best_of(sorted(glob.glob(os.path.join(e1, "body_s*.bvh"))), motion, with_prop, os.path.join(e1, "p"), lp)
+        write_body(body, e1, o, bvh, [(x, b, m) for x, b, _, m in sc], "auto")
     BD = json.load(open(body, encoding="utf-8"))
-    # 5b. key poses on this sample -> STOP for review. After the verdict write poses_approved.json {"glb": ...}
     appr = os.path.join(D, "poses_approved.json")
+    if n in SAMPLE and not os.path.exists(appr):
+        (o, bvh, _), rows = by_hand(n, BD["all"], R, "body")
+        if bvh != BD["bvh"]: print("== %s: body sample %s by hand (--sample)" % (n, os.path.basename(bvh)))
+        write_body(body, e1, o, bvh, rows, "by hand"); BD = json.load(open(body, encoding="utf-8"))
+    # 5b. key poses on this sample -> STOP for review. After the verdict write poses_approved.json {"glb": ...}
     if not os.path.exists(appr):
         P = os.path.join(D, "poses"); os.makedirs(P, exist_ok=True); g = os.path.join(P, "poses.glb"); ks = ",".join(map(str, fr))
         if with_prop:
@@ -166,22 +213,32 @@ def ai_action(n, a):
             shutil.copy(BD["merged"], g)
         blender("preview_8.py", "PREVIEW OK", "--glb", g, "--actions", n, "--frames", ks, "--out", os.path.join(P, "preview"))
         if with_prop: blender("hand_closeups.py", "CLOSEUPS OK", "--glb", g, "--action", n, "--frames", ks, "--out", os.path.join(P, "closeups"), *SK)
-        stop("action '%s': key poses (fr. %s) on sample %s (score %.2f) for review: %s. Tune the grip and head with "
-             "`variants.py --merged %s --frames %s`. After the verdict write %s with {\"glb\": <approved poses>} "
-             "(the variant's parameters copied into the motion file) and run again."
-             % (n, ks, os.path.basename(BD["bvh"]), BD["score"], P, BD["merged"], ks, appr))
+        stop("action '%s': key poses (fr. %s) on sample %s (%s; score / hands moved: %s) for review: %s. Tune the grip and head "
+             "with `variants.py --merged %s --frames %s`; another sample: --sample %s=N. After the verdict write %s with "
+             "{\"glb\": <approved poses>} (the variant's parameters copied into the motion file) and run again."
+             % (n, ks, os.path.basename(BD["bvh"]), BD.get("pick", "auto"), samples_line(listed(BD["all"], R)), P,
+                BD["merged"], ks, n, appr))
     poses_glb = json.load(open(appr, encoding="utf-8"))["glb"]
     # 5c. motion through the poses: every sample through the chain, best by audit -> review_page.py -> STOP for the verdict
-    if not stage("ai", choice, motion, RIG_AI, appr): return verdict(n, json.load(open(choice, encoding="utf-8")), D, with_prop)
+    if not stage("ai", choice, motion, RIG_AI, appr):
+        w = json.load(open(choice, encoding="utf-8"))
+        if n in SAMPLE:
+            (o, bvh, _), rows = by_hand(n, w["all"], R, "Kimodo-through-poses")
+            name = os.path.splitext(os.path.basename(bvh))[0]; pd = os.path.join(D, "p")
+            w.update(bvh=bvh, clip=os.path.join(pd, "clip_%s.glb" % name), glb=os.path.join(pd, "merged_%s.glb" % name), score=o,
+                     audit=os.path.join(pd, "audit_" + name), all=[list(x) for x in rows], pick="by hand")
+            json.dump(w, open(choice, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        return verdict(n, w, D, with_prop)
     kf = os.path.join(D, "kf"); os.makedirs(kf, exist_ok=True); pj = os.path.join(kf, "poses.json")
     blender("keyposes_to_kimodo.py", "POSES OK", poses_glb, BD["merged"], BD["bvh"], pj, ",".join(map(str, fr)), n, *SK)
     if not os.path.exists(emb): python(script_path("kimodo_text.py"), "--motion", motion, "--out", emb, exe=KIMODO_PYTHON)
     python(script_path("kimodo_keyposes.py"), "--motion", motion, "--emb", emb, "--base", "%s:%d" % (os.path.join(e1, "body.npz"), BD["idx"]),
            "--poses", pj, "--keys", keys(R, fr, lp), "--out", kf, "--name", "kf", "--samples", count, "--seed", seed, exe=KIMODO_PYTHON)
-    (score, bvh, glb), scores = best_of(sorted(glob.glob(os.path.join(kf, "kf_s*.bvh"))), motion, with_prop, os.path.join(D, "p"), lp)
+    (score, bvh, glb, _), scores = best_of(sorted(glob.glob(os.path.join(kf, "kf_s*.bvh"))), motion, with_prop, os.path.join(D, "p"), lp)
     name = os.path.splitext(os.path.basename(bvh))[0]
     out = {"bvh": bvh, "npz": os.path.join(kf, "kf.npz"), "clip": os.path.join(D, "p", "clip_%s.glb" % name), "glb": glb,
-           "score": score, "audit": os.path.join(D, "p", "audit_" + name), "pose_frames": fr, "all": [(o, b) for o, b, _ in scores]}
+           "score": score, "audit": os.path.join(D, "p", "audit_" + name), "pose_frames": fr,
+           "all": [[o, b, m] for o, b, _, m in scores], "pick": "auto"}
     json.dump(out, open(choice, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     return verdict(n, out, D, with_prop)
 
@@ -192,10 +249,11 @@ def verdict(n, w, D, with_prop):
     python(script_path("review_page.py"), "--glb", w["glb"], "--action", n, "--out", pg, "--title", "%s %s" % (C["name"], n),
            "--hand-frames", ",".join(map(str, w["pose_frames"])), *(["--prop", PROP] if with_prop else []),
            *([] if C["actions"][n].get("loop", True) else ["--no-loop"]), *SK)
-    stop("action '%s': best sample %s, score %.2f (all: %s). Review page: %s. "
+    stop("action '%s': sample %s (%s), score %.2f (score / hands moved: %s). Review page: %s. Another sample: --sample %s=N. "
          "After approval set actions.%s.approved = {\"bvh\": \"%s\", \"score\": %.2f, \"date\": \"YYYY-MM-DD\"} in character.json "
-         "and keep the BVH and %s." % (n, os.path.basename(w["bvh"]), w["score"], ", ".join("%.2f" % o for o, _ in w["all"]),
-                                       os.path.join(pg, "page.html"), n, w["bvh"].replace("\\", "/"), w["score"], w["npz"]))
+         "and keep the BVH and %s." % (n, os.path.basename(w["bvh"]), w.get("pick", "auto"), w["score"],
+                                       samples_line([(x[0], x[1], x[2] if len(x) > 2 else None) for x in w["all"]]),
+                                       os.path.join(pg, "page.html"), n, n, w["bvh"].replace("\\", "/"), w["score"], w["npz"]))
 
 
 CHOICE = {n: ai_action(n, a) for n, a in AI_ACTIONS.items()} if end >= STAGES.index("ai") else {}
