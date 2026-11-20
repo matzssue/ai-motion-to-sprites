@@ -12,9 +12,9 @@ joints-file keys <Side>Hand<Finger>1..4 (knuckle .. tip). Any detector that give
    Cloth strips hanging from a cuff (ribbons, tassels) are digits too, but thin: a digit thinner than 40% of the
    thickest is dropped, the rest are ranked by length x relative thickness^2 (Kusznik: claws 1.6-1.9 cm, ribbons
    0.6-1.0 cm mean ring radius; Wybuchacz's thinnest finger 1.3 cm).
-3. Five or more digits: the 5 best ranked; the thumb is the one furthest forward (the model faces -Y; in an A or T pose
-   the thumb points forward), the others index -> pinky from front to back.
-   Two to four (claws): the most forward one is the thumb, four fingers are spread evenly across the rest of the hand.
+3. Five or more digits: the 5 best ranked; the thumb is, of the digits in the front half (the model faces -Y; in an A or
+   T pose the thumb points forward), the one leaving the hand nearest the wrist; the others index -> pinky front to back.
+   Two to four (claws): the thumb as above, four fingers are spread evenly across the rest of the hand.
    One (a mitten or fused claws): five chains spread evenly across the hand width.
 4. Joints follow the mesh: every joint is the middle of a ring of the digit at one geodesic distance (below the finger
    webs: of the hand, in the digit's lane); the distances come from SOMA proportions (own_skeleton.KNUCKLE / PHALANX /
@@ -225,6 +225,17 @@ def _thumb(h, own, g_tip, base, Lm):
     return _apart(h, [j0, j1, j2, h.tip(own, j1, j2)])
 
 
+def _thumb_of(h, D):
+    """Index of the thumb among the digits D: of the digits in the front half (mean forwardness at least the digits' mean),
+    the one that leaves the hand nearest the wrist. Forwardness alone tied on the knight's right gauntlet (index finger and
+    thumb stub both 10.8 cm forward): the index got the thumb chain, the stub none, and the index tip, shared by the two
+    chains, folded over at any curl (finger_tip_fold 50-64%)."""
+    fwd = np.array([h.uu[d["verts"]].mean() for d in D])
+    base = [d["base"] if np.isfinite(d["base"]) else float(h.g[d["verts"]].min()) for d in D]
+    front = [i for i in range(len(D)) if fwd[i] >= fwd.mean()]
+    return min(front, key=lambda i: (base[i], -fwd[i]))
+
+
 def place(verts, tris, wrist, tip, H, elbow=None):
     """{finger: [knuckle, joint 2, joint 3, tip]} for one hand, and a one-line report."""
     wrist, tip = np.asarray(wrist, float), np.asarray(tip, float)
@@ -244,7 +255,7 @@ def place(verts, tris, wrist, tip, H, elbow=None):
     if len(D) >= 5:
         D = D[:5]
         fwd = [h.uu[d["verts"]].mean() for d in D]
-        th = int(np.argmax(fwd)); rest = sorted((i for i in range(5) if i != th), key=lambda i: -fwd[i])
+        th = _thumb_of(h, D); rest = sorted((i for i in range(5) if i != th), key=lambda i: -fwd[i])
         Lm = max(float(h.t[d["tip"]]) for d in D)
         d = D[th]; out["thumb"] = _thumb(h, d["verts"], float(h.g[d["tip"]]), d["base"], Lm)
         us = sorted(float(h.uu[D[i]["verts"]].mean()) for i in rest)
@@ -256,8 +267,7 @@ def place(verts, tris, wrist, tip, H, elbow=None):
         return out, "%d digits found%s, 5 used%s" % (found, cloth, _filled(h))
     pool = h.ok
     if len(D) >= 2:
-        fwd = [h.uu[d["verts"]].mean() for d in D]
-        d = D[int(np.argmax(fwd))]
+        d = D[_thumb_of(h, D)]
         out["thumb"] = _thumb(h, d["verts"], float(h.g[d["tip"]]), d["base"], float(h.t.max()))
         pool = np.setdiff1d(pool, d["verts"])
         names, report = OS.FINGERS[1:], "%d digits found%s: thumb + 4 fingers spread across the rest of the hand" % (found, cloth)
