@@ -1,9 +1,17 @@
-"""Auto-rig: joints from the mesh silhouette + skin weights, on a skeleton with Mixamo-compatible `mixamorig:*` names (65 bones).
-The bone hierarchy, rest orientations and finger bones still come from a user-supplied Mixamo-skeleton FBX (--template).
-python pipeline/rig/auto_rig.py --src=<x>_for_rig.fbx --out=rig_base.fbx --template=<any Mixamo FBX with the standard skeleton>
+"""Auto-rig: skeleton + skin weights from the mesh silhouette.
+python pipeline/rig/auto_rig.py --src=<x>_for_rig.fbx --out=rig_base.fbx      # own skeleton (skeletons/amts.json)
+python pipeline/rig/auto_rig.py --src=... --out=... --template=<any Mixamo FBX with the standard skeleton>
+    # Mixamo-compatible `mixamorig:*` names; hierarchy, rest orientations and finger bones come from that FBX
 python pipeline/rig/auto_rig.py --bench --mesh-dir=<npz> --gt-dir=<json>   # against rigs made by Mixamo
 Joints (numpy/scipy/PIL) -> skeleton and weights in Blender (`auto_rig_blender.py`). Joints land in `<out>_joints.json`
-(editable by hand; an existing file is reused)."""
+(editable by hand; an existing file is reused).
+
+Joints file: {key: [x, y, z]} in world metres, keys of `solve` (Hips, Spine..Spine2, Neck, Head, HeadTop_End, <Side>Shoulder,
+Arm, ForeArm, Hand, Tip, UpLeg, Leg, Foot, ToeBase, Toe_End). The own skeleton also reads <Side>Hand<Finger>1..4 (knuckle ..
+tip, Finger = Thumb, Index, Middle, Ring, Pinky); keys starting with `_` are comments. Another detector plugs in by writing
+this file before the run: missing finger keys are then placed from the mesh (hand_fingers.py), nothing else is changed.
+Without a template the spine split and the clavicle start of a fresh detection come from SOMA proportions
+(own_skeleton.own_joints), not from the Mixamo-measured SPINE_T / Shoulder rule below."""
 import argparse
 import json
 import os
@@ -16,6 +24,8 @@ from scipy import ndimage
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from config import BLENDER, script_path
+import hand_fingers
+import own_skeleton
 
 RES = 512  # pixels per character height
 
@@ -367,7 +377,7 @@ def bench(mesh_dir, gt_dir, only=None):
 
 
 def rig(src, out, template, joints_path=None, no_fingers=False):
-    """FBX for rigging -> rig_base.fbx. Joints land in `joints_path` (JSON, for manual fixes)."""
+    """FBX for rigging -> rig_base.fbx. Joints land in `joints_path` (JSON, for manual fixes). No template = own skeleton."""
     work = os.path.splitext(out)[0]
     npz = work + "_mesh.npz"
     joints_path = joints_path or work + "_joints.json"
@@ -375,17 +385,46 @@ def rig(src, out, template, joints_path=None, no_fingers=False):
     run([BLENDER, "--background", "--python-exit-code", "1", "--python", blend, "--", "export", "--src=" + src, "--out=" + npz])
     verts, tris = load_mesh(npz)
     os.remove(npz)
-    if os.path.exists(joints_path):
-        print("auto_rig: using EXISTING joints from %s (delete the file to detect again)" % joints_path)
+    if template:
+        if os.path.exists(joints_path):
+            print("auto_rig: using EXISTING joints from %s (delete the file to detect again)" % joints_path)
+        else:
+            j, f = solve(verts, tris)
+            json.dump({k: [round(float(c), 5) for c in v] for k, v in j.items()}, open(joints_path, "w"), indent=1)
+            print("auto_rig: crotch %s, robe=%s" % (f["crotch_z"], f["robe"]))
     else:
-        j, f = solve(verts, tris)
-        json.dump({k: [round(float(c), 5) for c in v] for k, v in j.items()}, open(joints_path, "w"), indent=1)
-        print("auto_rig: crotch %s, robe=%s" % (f["crotch_z"], f["robe"]))
+        own_joints_file(verts, tris, joints_path)
     cmd = [BLENDER, "--background", "--python-exit-code", "1", "--python", blend, "--",
-           "build", "--src=" + src, "--joints=" + joints_path, "--template=" + template, "--out=" + out]
+           "build", "--src=" + src, "--joints=" + joints_path, "--out=" + out]
+    if template:
+        cmd.insert(-1, "--template=" + template)
     if no_fingers:
         cmd.append("--no-fingers")
     run(cmd)
+
+
+def own_joints_file(verts, tris, joints_path):
+    """Joints of the own skeleton: a fresh detection (`solve` + SOMA spine/clavicle) or an existing file; fingers missing
+    in it are placed from the mesh. Written back to `joints_path`."""
+    H = float(verts[:, 2].max() - verts[:, 2].min())
+    if os.path.exists(joints_path):
+        j = {k: v for k, v in json.load(open(joints_path)).items()}
+        print("auto_rig: using EXISTING joints from %s (delete the file to detect again)" % joints_path)
+    else:
+        j, f = solve(verts, tris)
+        j = own_skeleton.own_joints(j)
+        print("auto_rig: crotch %s, robe=%s" % (f["crotch_z"], f["robe"]))
+    fingers = [k for k in own_skeleton.JOINT_KEYS if "Hand" in k and k[-1].isdigit()]
+    if any(k not in j for k in fingers):
+        fj, rep = hand_fingers.finger_joints(verts, tris, {k: np.asarray(v, float) for k, v in j.items() if not k.startswith("_")}, H)
+        for side, r in rep.items():
+            print("auto_rig: fingers %s - %s" % (side, r))
+        j.update({k: v for k, v in fj.items() if k not in j})
+    lost = own_skeleton.missing(j)
+    if lost:
+        raise SystemExit("auto_rig: %s lacks joints of the own skeleton: %s" % (joints_path, ", ".join(lost)))
+    json.dump({k: (v if k.startswith("_") else [round(float(c), 5) for c in v]) for k, v in j.items()},
+              open(joints_path, "w"), indent=1)
 
 
 def run(cmd):
@@ -399,7 +438,7 @@ def run(cmd):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Auto-rig a generated mesh with a Mixamo-compatible skeleton.")
+    ap = argparse.ArgumentParser(description="Auto-rig a generated mesh: own skeleton, or a Mixamo-compatible one from --template.")
     ap.add_argument("--bench", action="store_true")
     ap.add_argument("--mesh-dir"); ap.add_argument("--gt-dir"); ap.add_argument("--only"); ap.add_argument("--report")
     ap.add_argument("--src", help="FBX prepared for rigging (prepare_for_rigging.py)")
@@ -407,19 +446,23 @@ def main():
     ap.add_argument("--joints", help="joints JSON (default next to --out)")
     # The template is the CLIP DUMMY (any Mixamo FBX with the standard skeleton): every bone = its orientation rotated
     # the shortest way onto the new direction (the same relation Mixamo rigs have).
-    ap.add_argument("--template", help="Mixamo FBX with the standard 65-bone skeleton (not distributed with this repo)")
-    # Fingers do NOT deform by default: finger bones stand from the template, not from the mesh, and when a clip closes
-    # the hand they tore the claws (hand 5-11% of edges, without fingers 0.1-0.5%).
-    ap.add_argument("--fingers", action="store_true", help="finger bones deform the mesh")
+    ap.add_argument("--template", help="Mixamo FBX with the standard 65-bone skeleton (not distributed with this repo); "
+                    "without it: the own skeleton (skeletons/amts.json)")
+    # With a template fingers do NOT deform by default: finger bones stand from the template, not from the mesh, and when a
+    # clip closes the hand they tore the claws (hand 5-11% of edges, without fingers 0.1-0.5%). The own skeleton places
+    # them on the mesh, so there they deform unless --no-fingers.
+    ap.add_argument("--fingers", action=argparse.BooleanOptionalAction, default=None,
+                    help="finger bones deform the mesh (default: yes for the own skeleton, no with --template)")
     a = ap.parse_args()
     if a.bench:
         rep = bench(a.mesh_dir, a.gt_dir, a.only.split(",") if a.only else None)
         if a.report:
             json.dump(rep, open(a.report, "w"))
-    elif a.src and a.out and a.template:
-        rig(a.src, a.out, a.template, a.joints, not a.fingers)
+    elif a.src and a.out:
+        fingers = a.fingers if a.fingers is not None else not a.template
+        rig(a.src, a.out, a.template, a.joints, not fingers)
     else:
-        ap.error("give --src, --out and --template, or --bench")
+        ap.error("give --src and --out (and --template for a Mixamo skeleton), or --bench")
 
 
 if __name__ == "__main__":

@@ -21,8 +21,8 @@ model.glb ─► prepare ─► auto-rig ─► AI rig ─► calibration ─►
 | Stage | Script | What happens |
 |---|---|---|
 | prepare | `prepare_for_rigging.py` | weld UV seams, decimate to ~25k tris, shrink and embed the texture |
-| rig | `auto_rig.py` + `auto_rig_blender.py` | silhouette-based joint detection (crotch, armpits, fingertips, robe/hunchback cases), Mixamo-compatible `mixamorig:*` bone naming, voxel-proxy bone-heat weights. The bone hierarchy, rest orientations and finger bones still come from a Mixamo-skeleton FBX you supply (`--template`). Benchmarked against 18 rigs made by Mixamo (`--bench`) |
-| rig_ai | `prepare_rig.py` | cuts the prop out of the mesh onto its own bone (rule-based selection, island closure, thin-part growth for bow strings, debris cleanup), grows finger bones out of fused claws, finds the thumb and the palm side |
+| rig | `auto_rig.py` + `auto_rig_blender.py`, `hand_fingers.py` | silhouette-based joint detection (crotch, armpits, fingertips, robe/hunchback cases); the tool's own skeleton (`skeletons/amts.json`: 3-bone spine, 5 fingers x 3 bones per hand placed on the hand mesh, fist self-check of the finger skinning) or, with `--template`, a skeleton with Mixamo-compatible `mixamorig:*` names whose hierarchy, rest orientations and finger bones come from the Mixamo-skeleton FBX you supply; voxel-proxy bone-heat weights. Benchmarked against 18 rigs made by Mixamo (`--bench`) |
+| rig_ai | `prepare_rig.py` | cuts the prop out of the mesh onto its own bone (rule-based selection, island closure, thin-part growth for bow strings, debris cleanup), grows finger bones out of fused claws (keeps the rig's own fingers when it has them), finds the thumb and the palm side |
 | calibration | `merge_actions.py` + `motion_audit.py` | library clips must pass the audit on this rig, so a bad rig is not blamed on the AI motion |
 | ai | `kimodo_text.py`, `kimodo_motion.py`, `kimodo_keyposes.py`, `keyposes_to_kimodo.py` | one sentence per phase; body samples without hand constraints; key poses set on the best sample and reviewed; then Kimodo is constrained through those poses (`FullBodyConstraintSet`) |
 | (chain) | `soma_to_mixamo.py`, `prop_in_hands.py` | SOMA77 BVH to the rig, bone by role (skeleton profile), with an A/T rest-pose correction and loop closure; prop pose search without body collisions, analytic two-arm IK, Viterbi path for grip roll and elbow over the whole clip, fingers wrapped on the real prop surface (BVH), recoil |
@@ -103,18 +103,21 @@ Measured on the game's characters (assets are not included):
 
 - **Bipedal humanoids only.** The auto-rig expects an A/T pose facing −Y with two arms and two legs, and Kimodo generates
   human motion. Quadrupeds, spiders, snakes and other body plans are not supported.
-- **Bone names come from a skeleton profile; the rest of the rig is still Mixamo-shaped.** Every stage after rigging
-  finds bones by role (`skeletons/*.json`). Built in: `mixamo` (default, what the auto-rig builds) and `soma` (Kimodo's
-  output). A Wybuchacz and a Kusznik rig with every bone renamed to the SOMA convention audit identically to the Mixamo
-  originals. Still fixed: the spine must have as many bones as SOMA's (3), library clips must be on the Mixamo skeleton,
-  the auto-rig only builds Mixamo, and `prepare_rig.py` reads the auto-rig's joints file. Fingers, toes, clavicles and
-  bone tips may be declared absent; missing arms or legs are not supported.
+- **Bone names come from a skeleton profile.** Every stage after rigging finds bones by role (`skeletons/*.json`). Built
+  in: `amts` (the tool's own skeleton, what the auto-rig builds without a template), `mixamo` (built from a Mixamo
+  template; the default when `character.json` has a template or a library walk) and `soma` (Kimodo's output). A Wybuchacz
+  and a Kusznik rig with every bone renamed to the SOMA convention audit identically to the Mixamo originals. Still
+  fixed: the spine must have as many bones as SOMA's (3), library clips must be on the Mixamo skeleton (they cannot go
+  onto `amts`: clips are copied as armature-space poses, which needs the same rest frames), and `prepare_rig.py` reads
+  the auto-rig's joints file. Fingers, toes, clavicles and bone tips may be declared absent; missing arms or legs are not
+  supported.
 - **No foot IK.** Retarget copies rotations and scales the root motion by leg length. A character whose proportions are
   far from human can slide or float its feet, and the audit has no foot-contact metric yet.
 - **One prop, held in both hands**, with a stock-like long axis (crossbow, bow, staff). One-handed props (sword, shield,
   torch) are not supported.
-- **Fingers come from the prop grip only.** Finger bones are grown out of fused claws with per-character thresholds
-  measured by hand. Kimodo's own finger motion is dropped.
+- **Fingers come from the prop grip only.** The own skeleton places 5 fingers per hand from the mesh (claws or fingers
+  found on it; a mitten or fused claws get 5 chains spread evenly); on a Mixamo-template rig finger bones are grown out
+  of fused claws with per-character thresholds measured by hand. Kimodo's own finger motion is dropped.
 - **No sprite sheets yet.** The repo ends at an audited GLB and an 8-direction preview. Rendering the sheets is left to
   your own renderer.
 - **No runnable demo.** `examples/` describe a character whose assets are not included, and the first run needs Kimodo
@@ -137,10 +140,10 @@ Measured on the game's characters (assets are not included):
   `AMTS_GPU_THRESHOLD_MB` (default 2500) is the GPU memory in use above which a Kimodo script waits.
 - Host Python with `numpy`, `scipy`, `Pillow`, `jsonschema` (auto-rig, alpha check, review page, config validation, tests):
   `pip install -e .`
-- A Mixamo-skeleton FBX (any library clip): the auto-rig cannot build a rig without it today (`--template` gives the bone
-  hierarchy, rest orientations and finger bones), and the same clip is the walk used for calibration and grounding.
-  Download it yourself from Mixamo. Clips are not redistributed here, and Mixamo output must not be used to train or
-  test ML/AI systems (LICENSES.md).
+- Optional: a Mixamo-skeleton FBX (any library clip), only for a `mixamorig:*` rig (`auto_rig_template`, or the library
+  walk) and for library clips (calibration walk). Download it yourself from Mixamo. Clips are not redistributed here, and Mixamo
+  output must not be used to train or test ML/AI systems (LICENSES.md).
+  Without one the auto-rig builds the tool's own skeleton.
 
 The files in `examples/` describe a real character whose assets are not in this repo: copy them next to your own model
 and clips, fix the paths, and measure the coordinates in `rig.example.json` on your model. `schemas/` describes every key;
@@ -148,6 +151,12 @@ and clips, fix the paths, and measure the coordinates in `rig.example.json` on y
 A rig that is not Mixamo-named needs a skeleton profile: copy `skeletons/mixamo.json`, map each role to your bone, list the
 parts the rig lacks in `absent`, and set `"skeleton": "my_rig.json"` (or a built-in name) in `character.json`. Blender
 scripts take it as `--skeleton`. Without it every stage uses `mixamo`, and optional bones the rig lacks count as absent.
+The own skeleton (`amts`, [pipeline/lib/own_skeleton.py](pipeline/lib/own_skeleton.py)): Blender-style names (`hips`,
+`spine.1`-`.3`, `neck`, `head`, `shoulder.L`, `upper_arm.L`, `forearm.L`, `hand.L`, `thumb.1.L`-`pinky.3.L`, `thigh.L`,
+`shin.L`, `foot.L`, `toe.L`, and non-deforming `*_end` leaves); rest orientation: every bone's Y axis runs to the next
+joint, Z points to the character's front (-Y), or up for feet and toes, or to the palm for hands and fingers, so a
+positive rotation about a finger's X curls it into the palm. The spine split, the clavicle start and the finger joints
+use SOMA77 proportions; nothing is read from a Mixamo file.
 Then:
 
 ```bash

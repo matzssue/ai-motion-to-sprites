@@ -4,7 +4,9 @@ soma_to_mixamo / merge_actions (--base) and the audit. Next to it `<out>_data.js
 blender -b --python pipeline/rig/prepare_rig.py -- --rig rig_base.fbx --config <character>/rig.json --out rig_ai.glb [--preview]
     [--skeleton mixamo|profile.json]
 Paths inside the config are relative to the config file. `prop.parent` is a bone name without the skeleton prefix.
-The joints file comes from auto_rig.py and keeps its Mixamo keys (RightHand, LeftTip, Head)."""
+The joints file comes from auto_rig.py and keeps its Mixamo keys (RightHand, LeftTip, Head).
+A rig with its own weighted finger chains below a hand (the own skeleton of auto_rig) keeps them: no finger_* bones are grown
+on that hand, the config's `fingers` block is not needed there (its `thumb` override still applies)."""
 import bpy, bmesh, sys, os, math, json, argparse
 import numpy as np
 from mathutils import Matrix, Vector
@@ -157,8 +159,32 @@ edges = np.array([e.vertices[:] for e in body.data.edges])
 _, weld = np.unique(np.round(co0 * 2e4).astype(np.int64), axis=0, return_inverse=True); weld = weld.ravel()
 FC = CF.get("fingers")
 FING = {}
+
+
+def rig_chains(side):
+    """[[bone 1, 2, 3], ...] of the rig's own fingers below the hand: chains of 3 bones that own skin (a Mixamo template's
+    finger bones own none)."""
+    out = []
+    for c in arm.data.bones[HAND[side]].children:
+        ch = [c]
+        while len(ch) < 3 and ch[-1].children: ch.append(ch[-1].children[0])
+        if len(ch) == 3 and np.isin(dom, [b.name for b in ch]).any(): out.append([b.name for b in ch])
+    return out
+
+
+OWN = {s: c for s in ("Right", "Left") for c in [rig_chains(s)] if c}
+for side, chains in OWN.items():
+    w0 = np.array(JOINTS[side + "Hand"]); ax = np.array(JOINTS[side + "Tip"]) - w0; ax /= np.linalg.norm(ax)
+    fl = []
+    for names in chains:
+        bs = [arm.data.bones[n] for n in names]
+        end = bs[-1].children[0].head_local if bs[-1].children else bs[-1].tail_local
+        fl.append(([AW @ b.head_local for b in bs] + [AW @ end], np.where(np.isin(dom, names))[0], None, None, False))
+    FING[side] = (fl, ax, w0)
+    print(side, "fingers: %d chains of the rig itself" % len(chains))
 if FC:
     for side in ("Right", "Left"):
+        if side in OWN: continue
         w0 = np.array(JOINTS[side + "Hand"]); ax = np.array(JOINTS[side + "Tip"]) - w0; ax /= np.linalg.norm(ax)
         hm = np.where(dom == HAND[side])[0]
         t = (co0[hm] - w0) @ ax
@@ -237,6 +263,7 @@ if PC:
     kb.align_roll(AWi.to_3x3() @ up); kb.parent = eb[P + PC["parent"] if P + PC["parent"] in eb else PC["parent"]]; kb.use_deform = True
 NAMES = {}
 for side, (fl, ax, w0) in FING.items():
+    if side in OWN: NAMES[side] = OWN[side]; continue
     for k, (J, verts, s_, tv, kc) in enumerate(fl):
         prev = eb[HAND[side]]; nn = []
         for b in range(3):
@@ -250,6 +277,7 @@ for b in arm.pose.bones: b.rotation_mode = "QUATERNION"
 # ---------- 4. weights ----------
 p0, pw = FC["weight_blend"] if FC else (0, 1)
 for side, (fl, ax, w0) in FING.items():
+    if side in OWN: continue
     hg = body.vertex_groups[HAND[side]]
     for k, (J, verts, s_, tv, kc) in enumerate(fl):
         gs = [body.vertex_groups.new(name=n) for n in NAMES[side][k]]
@@ -273,7 +301,9 @@ if PC:
                     "frame_world": [list(r) for r in Cr]}
 for side, (fl, ax, w0) in FING.items():
     hm = np.where(dom == HAND[side])[0]; t = (co0[hm] - w0) @ ax
-    c = co0[hm[(t > 0.03) & (t < FC["base"])]]; c = c - c.mean(0); c = c - np.outer(c @ ax, ax)
+    # own fingers: the palm ends at the first knuckle that is not the thumb's base (the thumb starts next to the wrist)
+    knuckles = FC["base"] if side not in OWN else sorted(float((np.array(J[0]) - w0) @ ax) for J, *_ in fl)[1]
+    c = co0[hm[(t > 0.03) & (t < knuckles)]]; c = c - c.mean(0); c = c - np.outer(c @ ax, ax)
     n = np.linalg.svd(c, full_matrices=False)[2][1]; n = n - ax * (n @ ax); n /= np.linalg.norm(n)
     curl = np.zeros(3)
     for J, *_ in fl:
@@ -281,13 +311,20 @@ for side, (fl, ax, w0) in FING.items():
     if n @ curl < 0: n = -n
     # thumb: in the rest pose (A-pose, palms facing the body) it lies furthest forward (-Y). The angle from the hand axis
     # pointed at the middle finger. Always confirm on the preview (--preview, thumb in red); "thumb" in the config overrides.
+    # The rig's own fingers: the chain starting closest to the wrist, its base is the CMC joint (forward-most picked the
+    # index on Kusznik: 14.4 vs 14.0 cm).
     fwd = [round(-float(np.array(J[1] + J[2])[1] / 2 - w0[1]), 3) for J, *_ in fl]
-    k_ = (FC.get("thumb") or {}).get(side, int(np.argmax(fwd)))
+    guess = int(np.argmax(fwd))
+    if side in OWN:
+        guess = int(np.argmin([float((np.array(J[0]) - w0) @ ax) for J, *_ in fl]))
+    k_ = ((FC or {}).get("thumb") or {}).get(side, guess)
     data["thumbs"][side] = [k_]
     print(side, "fingers forward (m):", fwd, "-> thumb", k_)
     # palm side from hand anatomy: fingers along the axis, palm n -> thumb on the axis x n side (right) / n x axis (left).
     # The claw curl (above) gave the BACK of the hand: fingers bent backwards and stuck out from the stock.
-    tk = np.array(fl[k_][0][0]) - w0; tk = tk - ax * (tk @ ax)
+    # thumb side from its base; the rig's own thumb starts at the CMC next to the wrist, almost on the hand axis (Kusznik: the
+    # palm came out flipped on one hand only), so there from its second joint (MCP), where it leaves the hand
+    tk = np.array(fl[k_][0][1 if side in OWN else 0]) - w0; tk = tk - ax * (tk @ ax)
     ch_ = np.cross(ax, n) if side == "Right" else np.cross(n, ax)
     if ch_ @ tk < 0:
         n = -n; print(side, "palm flipped (claw curl pointed at the back of the hand)")

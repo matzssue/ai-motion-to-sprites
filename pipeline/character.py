@@ -4,6 +4,8 @@ Stages: prepare, rig, rig_ai, calibration, ai, merge, preview. A finished stage 
 STOPs for a human decision: a new AI rig, key poses (<work>/<action>/poses_approved.json), the motion (actions.<a>.approved).
 Body sample and poses are made once: to redo, delete <action>/body.json or poses_approved.json.
 Paths in character.json are relative to that file. Schemas: schemas/*.schema.json, example: examples/character.example.json.
+Rig: `auto_rig_template`, else the library walk, is the Mixamo template of auto_rig (`mixamorig:*` skeleton). With neither,
+or with "skeleton": "amts", auto_rig builds the own skeleton (skeletons/amts.json) and every later stage uses that profile.
 All actions are put on the ground of `ground` (default: the `walk` action, else the first library action, else the rest pose's feet)."""
 import argparse, glob, json, os, shutil, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
@@ -34,6 +36,9 @@ WALK = r(_walk) if _walk else None   # None: AI samples are merged alone (no lib
 OUTPUT = r(C["output"])
 # skeleton profile of `rig` (built-in name or path); None = Mixamo, and the scripts get no --skeleton (as before profiles)
 SKEL = C.get("skeleton") and (r(C["skeleton"]) if C["skeleton"].lower().endswith(".json") else C["skeleton"])
+TEMPLATE = C.get("auto_rig_template") or WALK
+OWN_RIG = not C.get("auto_rig_template") and (not TEMPLATE or SKEL == "amts")
+if OWN_RIG: SKEL = SKEL or "amts"
 SK = skel(SKEL)
 start = STAGES.index(A.start) if A.start else None
 end = STAGES.index(A.end)
@@ -60,6 +65,10 @@ def python(script, *args, exe=sys.executable):
 
 
 LIB_ACTIONS = [(n, r(a["library"])) for n, a in C["actions"].items() if "library" in a]
+if OWN_RIG and LIB_ACTIONS:
+    # merge_actions copies a clip bone's armature-space pose: right only between skeletons with the same rest frames
+    raise SystemExit("library clips (%s) are Mixamo-skeleton clips and cannot go onto the own skeleton (amts): give "
+                     "`auto_rig_template` for a Mixamo rig, or make these actions with Kimodo (`ai`)" % ", ".join(n for n, _ in LIB_ACTIONS))
 AI_ACTIONS = {n: a for n, a in C["actions"].items() if "ai" in a}
 # prop in hands: an AI action (motion file "ai") or a library action with a grip file "motion" (walk with a crossbow: `no_aim`)
 PROP_MOTION = {n: r(a.get("ai") or a["motion"]) for n, a in C["actions"].items() if a.get("prop") and (a.get("ai") or a.get("motion"))}
@@ -72,10 +81,10 @@ PROP = None
 if stage("prepare", r(C["rig_input"]), r(C["model"])):
     blender("prepare_for_rigging.py", "", "--src=" + r(C["model"]), "--out=" + r(C["rig_input"]), "--tris=25000", "--texture=1024")
     if not fresh(r(C["rig_input"]), r(C["model"])): raise SystemExit("prepare_for_rigging did not write %s" % C["rig_input"])
-# 2. auto-rig (mixamorig skeleton + weights + joints)
+# 2. auto-rig (skeleton + weights + joints): own skeleton, or mixamorig from the template
 if stage("rig", r(C["rig"]), r(C["rig_input"])):
-    tmpl = C.get("auto_rig_template") or _walk
-    python(script_path("auto_rig.py"), "--src=" + r(C["rig_input"]), "--out=" + r(C["rig"]), *(["--template=" + r(tmpl)] if tmpl else []))
+    python(script_path("auto_rig.py"), "--src=" + r(C["rig_input"]), "--out=" + r(C["rig"]),
+           *([] if OWN_RIG else ["--template=" + r(TEMPLATE)]))
 # 3. AI rig: prop on its own bone, fingers from claws. A new one = look at the preview before going on
 if stage("rig_ai", RIG_AI, r(C["rig"]), r(C["rig_config"]), script_path("prepare_rig.py")):
     blender("prepare_rig.py", "RIG OK", "--rig", r(C["rig"]), "--config", r(C["rig_config"]), "--out", RIG_AI, "--preview", *SK)

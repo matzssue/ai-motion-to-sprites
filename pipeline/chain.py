@@ -1,6 +1,6 @@
 """Blender chain of AI motion for one sample: retarget -> merge with the walk -> prop in hands -> audit.
 character.py drives a whole character (model -> all actions); this is its building block, used alone to fix one sample.
-python pipeline/chain.py --rig rig_ai.glb --motion <motion>.json --bvh x_s0.bvh --walk walk.fbx --out dir
+python pipeline/chain.py --rig rig_ai.glb --motion <motion>.json --bvh x_s0.bvh [--walk walk.fbx] --out dir
     [--no-prop] [--from retarget|merge|prop|audit] [--skeleton mixamo|profile.json]"""
 import argparse, json, os, subprocess, sys
 
@@ -43,7 +43,8 @@ def audit(glb, action, out, prop=None, rest_is_normal=False, loop=True, skeleton
 
 
 def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=True, skeleton=None):
-    """Returns (glb, audit report)."""
+    """Returns (glb, audit report). `walk` = library walk merged next to the action; None = the action alone (a rig without
+    library clips, e.g. the own skeleton)."""
     R = json.load(open(motion, encoding="utf-8")); action = R["action"]
     os.makedirs(out, exist_ok=True)
     name = os.path.splitext(os.path.basename(bvh))[0]

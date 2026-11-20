@@ -19,7 +19,7 @@ python pipeline/character.py --character <dir>/character.json [--from stage] [--
 |---|---|---|
 | (before) | the model: A/T pose, facing −Y | |
 | prepare | `prepare_for_rigging.py` (decimate, embed texture) | |
-| rig | `auto_rig.py --template <mixamo.fbx>` | |
+| rig | `auto_rig.py` (own skeleton `amts`; `--template <mixamo.fbx>` = `mixamorig:*`) | `auto_rig: fist` lines: share of hand edges torn on a fist |
 | rig_ai | `prepare_rig.py` + preview | **STOP**: look at the preview (§2) |
 | calibration | library actions on the AI rig + audit | FAIL = STOP, the rig or the measure is wrong, not the AI |
 | ai | §3: body (4 samples, full chain) → key poses → Kimodo through the poses → 4 samples → best → `review_page.py` | **STOP** on poses (`<work>/<action>/poses_approved.json` `{"glb"}`) and on the motion (`actions.<a>.approved` `{"bvh","score","date"}`) |
@@ -28,7 +28,9 @@ python pipeline/character.py --character <dir>/character.json [--from stage] [--
 
 Bones after the rig stage are found by role through a skeleton profile (`skeletons/<name>.json`, schema
 `schemas/skeleton.schema.json`): `character.json` `"skeleton"` (built-in name or path), every Blender script `--skeleton`.
-No key = `mixamo`, and optional bones the rig lacks count as absent (configs from before profiles run unchanged).
+No key = `mixamo` when the config has `auto_rig_template` or a library walk, else `amts` (the own skeleton the auto-rig
+builds then); optional bones the rig lacks count as absent (configs from before profiles run unchanged). Library clips
+cannot go onto `amts` (`character.py` refuses): base motions for it come from Kimodo.
 Exit code 2 = a human gate. Finished stages are skipped (output newer than inputs). A run is long (Kimodo + several
 samples at ~1.5 min each: prop 34 s, audit 31 s, retarget and merge): run it as a detached process, not inside a tool call
 with a timeout.

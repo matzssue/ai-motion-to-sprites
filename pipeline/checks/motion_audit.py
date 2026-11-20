@@ -69,6 +69,7 @@ CO_REST = vertices(body, bpy.context.evaluated_depsgraph_get()); arm.data.pose_p
 DOM_S = np.array([str(d) for d in dom]); SEGS = {s: skin.segments(PROF, s) for s in skeleton.SIDES}
 SKIN = {s: skin.select(DOM_S, CO_REST, HEADS0, SEGS[s]) for s in skeleton.SIDES} if "skin_twist" not in SKIP else {}
 TORSO = PROF.spine[-1]
+GRIP_FINGERS = [b.name for b in arm.pose.bones if b.name.startswith(FINGER_PREFIX) or (b.name in RIG.fingers and (dom == b.name).any())]
 
 
 def rr(n): return arm.data.bones[n].matrix_local.to_3x3().normalized()
@@ -138,8 +139,9 @@ for t in times:
     now = {"L": head(B["Left"]["forearm"]), "R": head(B["Right"]["forearm"]), "p": Vector(cen) if prop else None,
            "qL": pr(B["Left"]["hand"]).to_quaternion(), "qR": pr(B["Right"]["hand"]).to_quaternion(), "qH": pr(HEAD).to_quaternion(),
            "qP": arm.pose.bones[A.prop].matrix.to_quaternion() if prop and A.prop in arm.pose.bones else None,
-           # the finger_* bones the grip solver animates (rig fingers without curves stay at rest)
-           "fing": {b.name: b.matrix_basis.to_quaternion() for b in arm.pose.bones if b.name.startswith(FINGER_PREFIX)}
+           # the finger bones the grip solver animates: finger_* or the rig's own skinned fingers (rig fingers without skin
+           # - a Mixamo template's - stay at rest)
+           "fing": {n: arm.pose.bones[n].matrix_basis.to_quaternion() for n in GRIP_FINGERS}
            if "finger_jump" not in SKIP else {}}
     if prev and not FR:
         row["hand_jump"] = round(max(ang(now[k], prev[k]) for k in ("qL", "qR")), 1)

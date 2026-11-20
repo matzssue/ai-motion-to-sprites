@@ -1,13 +1,18 @@
 """Blender half of the auto-rig (`auto_rig.py`): mesh export and rig build.
 blender -b --python pipeline/rig/auto_rig_blender.py -- export --src=<x>_for_rig.fbx --out=<x>.npz
-blender -b --python pipeline/rig/auto_rig_blender.py -- build --src=... --joints=<x>.json --template=<mixamo skeleton>.fbx --out=rig_base.fbx"""
+blender -b --python pipeline/rig/auto_rig_blender.py -- build --src=... --joints=<x>.json [--template=<mixamo skeleton>.fbx] --out=rig_base.fbx
+    [--no-fingers]
+Without --template the own skeleton (pipeline/lib/own_skeleton.py) is built from the joints and checked on a fist pose."""
 import json
 import os
 import sys
 
 import bpy
 import numpy as np
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Quaternion, Vector
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+import own_skeleton  # noqa: E402
 
 
 def args():
@@ -205,6 +210,8 @@ def distance_weights(arm, proxy, power=4.0, top=3):
 
 
 def stage_build(a):
+    if not a.get("template"):
+        return build_own(a)
     joints = json.load(open(a["joints"]))
     bpy.ops.wm.read_factory_settings(use_empty=True)
     tmpl = import_fbx(a["template"])
@@ -252,6 +259,11 @@ def stage_build(a):
         short = b.name[len(P):]
         end = short.endswith("_End") or (any(f in short for f in FINGERS) and short.endswith("4"))
         b.use_deform = not end and not (no_fingers and any(f in short for f in FINGERS))
+    skin_and_export(arm, a)
+
+
+def skin_and_export(arm, a, before_export=None):
+    """Weights (bone heat on a voxel proxy, moved onto the original), parenting, FBX export."""
     meshes = [o for o in import_fbx(a["src"]) if o.type == "MESH"]
     proxy = make_proxy(meshes, float(a.get("voxel", "0.008")))
     # bone heat has thresholds in absolute units: a 1.38 m character got "failed to find solution" and ZERO weights,
@@ -274,6 +286,8 @@ def stage_build(a):
     bpy.ops.object.parent_set(type="ARMATURE_NAME")  # empty groups already exist; parent + modifier only
     for o in meshes:
         print("auto_rig: %s - groups %d, modifiers %s" % (o.name, len(o.vertex_groups), [m.type for m in o.modifiers]))
+    if before_export:
+        before_export(arm, meshes)
     bpy.ops.object.select_all(action="DESELECT")
     for o in meshes:
         o.select_set(True)
@@ -281,6 +295,76 @@ def stage_build(a):
     bpy.ops.export_scene.fbx(filepath=os.path.abspath(a["out"]), use_selection=True, add_leaf_bones=False, bake_anim=False,
                              path_mode="COPY", embed_textures=True, object_types={"ARMATURE", "MESH"})
     print("auto_rig: saved %s" % a["out"])
+
+
+def build_own(a):
+    """Own skeleton from the joints: bones, rest orientation and roll from own_skeleton.bone_frames, no template."""
+    frames = own_skeleton.bone_frames(json.load(open(a["joints"])))
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    arm = bpy.data.objects.new(own_skeleton.NAME, bpy.data.armatures.new(own_skeleton.NAME))
+    bpy.context.scene.collection.objects.link(arm)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode="EDIT")
+    eb = arm.data.edit_bones
+    for name, parent, *_ in own_skeleton.BONES:
+        head, tail, z = frames[name]
+        e = eb.new(name)
+        e.head, e.tail = Vector(head), Vector(tail)
+        e.align_roll(Vector(z))
+        if parent:
+            e.parent = eb[parent]
+    bpy.ops.object.mode_set(mode="OBJECT")
+    fingers = not a.get("no-fingers")
+    for b in arm.data.bones:
+        b.use_deform = own_skeleton.deforming(b.name, fingers)
+    print("auto_rig: own skeleton '%s' - %d bones, %d deform" % (own_skeleton.NAME, len(arm.data.bones),
+                                                                 sum(b.use_deform for b in arm.data.bones)))
+    # finger weights: bone heat like the rest. Weights along the chains (nearest chain, blended at joints and knuckles) were
+    # measured too and tore more (Kusznik, 30 deg fist: 1.8-2.3% of hand edges over 50% vs 1.2% with heat; a 0.005 voxel: 1.6%)
+    skin_and_export(arm, a, fist_check if fingers else None)
+
+
+# fist pose of the self-check: flexion about the bone's local X (own_skeleton roll rule: +X curls into the palm), every
+# finger joint at once (the grip solver turns them up to 95 deg each). Kusznik (claws, 2026-11-19): 30 deg 1.2% of hand
+# edges over 50% / 0.2% over 100%, 70 deg 5.5% / 1.6% (most of it the knuckle creases, the palm folds with the fingers).
+FIST_DEG = {"thumb": 30.0, "other": 70.0}
+TORN = (0.5, 1.0)   # edge length change (fraction of its rest length) counted as stretched / torn
+
+
+def fist_check(arm, meshes):
+    """Curls every finger into a fist and measures edge stretch of the hands (fingers used to tear claws when their bones
+    did not follow the mesh). Prints per side the share of hand edges over each TORN level; restores the rest pose."""
+    for pb in arm.pose.bones:
+        pb.rotation_mode = "QUATERNION"
+        if own_skeleton.is_finger(pb.name) and not own_skeleton.is_end(pb.name):
+            deg = FIST_DEG["thumb" if pb.name.startswith("thumb") else "other"]
+            pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0), np.radians(deg))
+    bpy.context.view_layer.update()
+    dg = bpy.context.evaluated_depsgraph_get()
+    for o in meshes:
+        names = [g.name for g in o.vertex_groups]
+        dom = []
+        for v in o.data.vertices:
+            best = max(v.groups, key=lambda g: g.weight, default=None)
+            dom.append(names[best.group] if best is not None and best.weight > 0 else "")
+        rest = np.array([v.co for v in o.data.vertices])
+        ev = o.evaluated_get(dg).to_mesh()
+        posed = np.array([v.co for v in ev.vertices])
+        o.evaluated_get(dg).to_mesh_clear()
+        e = np.array([ed.vertices[:] for ed in o.data.edges])
+        l0 = np.linalg.norm(rest[e[:, 0]] - rest[e[:, 1]], axis=1)
+        l1 = np.linalg.norm(posed[e[:, 0]] - posed[e[:, 1]], axis=1)
+        rel = np.abs(l1 - l0) / np.maximum(l0, 1e-7)
+        for s, side in (("L", "left"), ("R", "right")):
+            hand = {n for n in names if n.endswith("." + s) and (n.startswith("hand.") or own_skeleton.is_finger(n))}
+            m = np.array([dom[i] in hand and dom[j] in hand for i, j in e]) if len(e) else np.zeros(0, bool)
+            if not m.any():
+                continue
+            print("auto_rig: fist %s %s - %d hand edges, changed over %s" % (o.name, side, m.sum(), ", ".join(
+                "%d%%: %.2f%%" % (100 * x, 100.0 * (rel[m] > x).mean()) for x in TORN)))
+    for pb in arm.pose.bones:
+        pb.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
 
 
 if __name__ == "__main__":
