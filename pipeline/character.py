@@ -77,10 +77,12 @@ PROP_MOTION = {n: r(a.get("ai") or a["motion"]) for n, a in C["actions"].items()
 GROUND = C.get("ground") or ("walk" if "walk" in C["actions"] else (LIB_ACTIONS[0][0] if LIB_ACTIONS else "@rest"))
 PROP = None
 
-# 1. model -> FBX for rigging (decimation, embedded texture)
-if stage("prepare", r(C["rig_input"]), r(C["model"])):
-    blender("prepare_for_rigging.py", "", "--src=" + r(C["model"]), "--out=" + r(C["rig_input"]), "--tris=25000", "--texture=1024")
-    if not fresh(r(C["rig_input"]), r(C["model"])): raise SystemExit("prepare_for_rigging did not write %s" % C["rig_input"])
+# 1. model -> FBX for rigging (decimation, embedded texture); a separate prop mesh goes in marked, out of joint detection
+PROP_MODEL = [r(C["prop_model"])] if C.get("prop_model") else []
+if stage("prepare", r(C["rig_input"]), r(C["model"]), *PROP_MODEL):
+    blender("prepare_for_rigging.py", "", "--src=" + r(C["model"]), "--out=" + r(C["rig_input"]), "--tris=25000", "--texture=1024",
+            *["--prop=" + x for x in PROP_MODEL])
+    if not fresh(r(C["rig_input"]), r(C["model"]), *PROP_MODEL): raise SystemExit("prepare_for_rigging did not write %s" % C["rig_input"])
 # 2. auto-rig (skeleton + weights + joints): own skeleton, or mixamorig from the template
 if stage("rig", r(C["rig"]), r(C["rig_input"])):
     python(script_path("auto_rig.py"), "--src=" + r(C["rig_input"]), "--out=" + r(C["rig"]),

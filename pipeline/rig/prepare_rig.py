@@ -6,13 +6,16 @@ blender -b --python pipeline/rig/prepare_rig.py -- --rig rig_base.fbx --config <
 Paths inside the config are relative to the config file. `prop.parent` is a bone name without the skeleton prefix.
 The joints file comes from auto_rig.py and keeps its Mixamo keys (RightHand, LeftTip, Head).
 A rig with its own weighted finger chains below a hand (the own skeleton of auto_rig) keeps them: no finger_* bones are grown
-on that hand, the config's `fingers` block is not needed there (its `thumb` override still applies)."""
+on that hand, the config's `fingers` block is not needed there (its `thumb` override still applies).
+A separate prop (character.json `prop_model`, mesh objects `amts_prop*` from prepare_for_rigging) is joined in and selected
+whole: its `select` and `debris` are not needed."""
 import bpy, bmesh, sys, os, math, json, argparse
 import numpy as np
 from mathutils import Matrix, Vector, geometry as mgeo
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from collisions import dominant, rig_of, FINGER_PREFIX
 import own_skeleton
+from stages import PROP_MESH
 
 ap = argparse.ArgumentParser(description="Cut the prop onto its own bone and grow finger bones out of the claws.")
 ap.add_argument("--rig", required=True); ap.add_argument("--config", required=True); ap.add_argument("--out", required=True)
@@ -30,7 +33,8 @@ arm = next(o for o in bpy.data.objects if o.type == "ARMATURE")
 if arm.animation_data: arm.animation_data.action = None
 for b in arm.pose.bones: b.matrix_basis = Matrix()
 bpy.context.view_layer.update()
-body = max((o for o in bpy.data.objects if o.type == "MESH"), key=lambda o: len(o.data.vertices))
+PROP_OBJ = [o for o in bpy.data.objects if o.type == "MESH" and o.name.startswith(PROP_MESH)]
+body = max((o for o in bpy.data.objects if o.type == "MESH" and o not in PROP_OBJ), key=lambda o: len(o.data.vertices))
 PROF = rig_of(arm, A.skeleton).prof; P = PROF.prefix
 HAND = {s: PROF.bone("hand", s) for s in ("Left", "Right")}
 AW = arm.matrix_world; AWi = AW.inverted(); mw = body.matrix_world
@@ -74,8 +78,21 @@ def select(co, rules):
 
 PC = CF.get("prop")
 prop = None
+if PROP_OBJ and not PC:
+    raise SystemExit("prepare_rig: the rig has a separate prop mesh (character.json prop_model) but %s has no `prop` block "
+                     "(name, parent, frame)" % A.config)
+if PC and not PROP_OBJ and not PC.get("select"):
+    raise SystemExit("prepare_rig: %s: prop.select is needed when the prop is part of the model's mesh" % A.config)
 if PC:
-    sel = select(coords(), PC["select"])
+    n_body = len(body.data.vertices)
+    if PROP_OBJ:   # joined after the body's vertices: the separation below works as for a modelled-in prop
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in [body, *PROP_OBJ]: o.select_set(True)
+        bpy.context.view_layer.objects.active = body
+        bpy.ops.object.join()
+    sel = select(coords(), PC.get("select", []))
+    sel[n_body:] = True
+    if PROP_OBJ: print("separate prop mesh: %d vertices" % (len(sel) - n_body))
     # closure: an island (after welding UV seams) that is mostly selected goes in whole - string ends, fittings
     co_ = coords()
     _, wl = np.unique(np.round(co_ * 2e4).astype(np.int64), axis=0, return_inverse=True); wl = wl.ravel()
@@ -147,8 +164,8 @@ if PC:
         if i != j: par[i] = j
     islands = {}
     for v in bm.verts: islands.setdefault(fnd(v.index), []).append(v)
-    DB = PC["debris"]
-    kill = [q for c in islands.values() if len(c) < DB["max_vertices"]
+    DB = PC.get("debris")
+    kill = [q for c in islands.values() if DB and len(c) < DB["max_vertices"]
             and in_box(np.array([tuple(mw @ q.co) for q in c]), DB["box"]).all() for q in c]
     print("debris: %d vertices in %d islands" % (len(kill), sum(1 for c in islands.values() if c[0] in kill)))
     bmesh.ops.delete(bm, geom=kill, context="VERTS"); bm.to_mesh(body.data); bm.free()

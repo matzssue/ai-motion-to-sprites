@@ -1,5 +1,8 @@
 """Prepare a model from a 3D generator for rigging: decimate, shrink the texture, export FBX with the texture embedded.
 blender -b --python pipeline/rig/prepare_for_rigging.py -- --src=model.glb --out=model_for_rig.fbx [--tris=25000] [--texture=1024]
+    [--prop=prop.glb]
+--prop: a separate prop mesh in the model's frame (where it rests on the body); its objects are renamed `amts_prop*`, so the
+auto-rig detects joints on the body alone (a pole on Flisak's back put the head top on its knob) and prepare_rig takes it whole.
 Generators output product-render detail (hundreds of thousands of triangles, 4K textures) that a ~100 px sprite cannot show;
 it only slows every later step and auto-riggers reject heavy files. A separate PNG next to the FBX gets lost on upload."""
 import os
@@ -7,6 +10,9 @@ import sys
 
 import bmesh
 import bpy
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from stages import PROP_MESH  # noqa: E402
 
 
 def parse_args(argv):
@@ -53,6 +59,19 @@ def main():
     meshes = [o for o in bpy.data.objects if o.type == "MESH"]
     if not meshes:
         raise SystemExit("prepare_for_rigging: the model has no mesh")
+    if any(o.name.startswith(PROP_MESH) for o in meshes):
+        raise SystemExit("prepare_for_rigging: the model has objects named %s* - that prefix marks a separate prop" % PROP_MESH)
+    if args.get("prop"):
+        before = set(bpy.data.objects)
+        import_file(args["prop"])
+        props = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
+        if not props:
+            raise SystemExit("prepare_for_rigging: the prop %s has no mesh" % args["prop"])
+        for o in props:
+            o.name = o.data.name = PROP_MESH
+        meshes += props
+        print("prepare_for_rigging: separate prop %s - %d meshes, %d vertices" % (os.path.basename(args["prop"]), len(props),
+                                                                                sum(len(o.data.vertices) for o in props)))
     # glTF import splits vertices at UV seams. Without welding, Decimate pulls seam edges apart and the mesh becomes
     # a shell with holes (0 -> 29k open edges), which breaks auto-rig weights.
     for obj in meshes:

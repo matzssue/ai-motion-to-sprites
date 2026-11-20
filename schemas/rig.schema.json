@@ -9,7 +9,8 @@
   "joints": {"type": "string", "description": "joints JSON written by auto_rig.py, relative to this file"},
   "prop": {
    "type": "object",
-   "required": ["name", "parent", "select", "frame", "debris"],
+   "required": ["name", "parent", "frame"],
+   "description": "select and debris are needed for a prop modelled into the character's mesh; a separate prop mesh (character.json prop_model) is taken whole",
    "properties": {
     "name": {"type": "string", "minLength": 1},
     "parent": {"type": "string", "minLength": 1},
