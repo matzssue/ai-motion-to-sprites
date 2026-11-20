@@ -8,6 +8,7 @@ ap.add_argument("--glb", required=True); ap.add_argument("--action", required=Tr
 ap.add_argument("--frames", required=True); ap.add_argument("--out", required=True); ap.add_argument("--px", type=int, default=480)
 ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
+A.out = os.path.abspath(A.out)  # Blender saves relative render paths against C:\, not the cwd
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")); import gpu_queue; gpu_queue.acquire("hand_closeups.py", None)  # Eevee on the GPU
 from collisions import rig_of  # noqa: E402
 os.makedirs(A.out, exist_ok=True)
