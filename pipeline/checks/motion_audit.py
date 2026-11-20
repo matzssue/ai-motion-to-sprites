@@ -72,6 +72,7 @@ FINGERS = {}   # finger (a chain below the hand) -> vertex indices; named by its
 for i in np.where(M["fingers"])[0]: FINGERS.setdefault(re.sub(r"_?\d+$", "", PROF.short(RIG.finger_root[dom[i]])), []).append(i)
 HAND = {s: np.where((M["hands"] | M["fingers"]) & (SIDE == s))[0] for s in "LR"}
 I_HAND = np.where(M["hands"] & ~M["fingers"])[0][::2]; I_FORE = np.where(M["forearms"])[0][::2]
+I_FING = np.where(M["fingers"])[0][::4]   # claws past the finger bones are finger skin, not "hands" (fingers_in_head)
 HEADS0 = {b.name: np.array(AW @ b.head_local) for b in arm.data.bones}
 arm.data.pose_position = "REST"; bpy.context.view_layer.update()          # skin twist measured from the rig rest pose (heads from head_local)
 CO_REST = vertices(body, bpy.context.evaluated_depsgraph_get()); arm.data.pose_position = "POSE"; bpy.context.view_layer.update()
@@ -201,6 +202,7 @@ for t in times:
                 row["finger_tip_fold"] = v_; row["_finger_tip_fold"] = n; where["finger_tip_fold"] = [float(x) for x in c_.mean((0, 1))]
                 side["finger_tip_fold"] = SIDE[tris[fi[0], 0]]
     measure("hands", co[I_HAND], I_HAND)
+    if "fingers_in_head" not in SKIP and len(I_FING): measure("fingers", co[I_FING], I_FING)
     measure("forearms", co[I_FORE], I_FORE)
     if prop:
         pc = vertices(prop, dg)

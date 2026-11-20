@@ -10,6 +10,10 @@ METRICS = {
     "hands_in_head": (0.005, "m", "penetration"), "hands_in_torso": (0.02, "m", "penetration"),
     "forearms_in_head": (0.01, "m", "penetration"), "forearms_in_torso": (0.045, "m", "penetration"),
     "fingers_in_prop": (0.008, "m", "penetration"),
+    # finger and claw skin in the head (hands_in_head is the palm only). Reported only: Padlinozerca's claws went into the head
+    # only with the palm (r1 s1-s3: claws 5.2-11.7 cm, palm 6.0-11.8 cm), and the approved Kusznik aim has 1.4 cm of fingers
+    # at the cheek; no sample yet where only the claws enter
+    "fingers_in_head": (None, "m", "penetration"),
     "wrist_bend_L": (85, "deg", "joints"), "wrist_bend_R": (85, "deg", "joints"),
     "wrist_twist_L": (60, "deg", "joints"), "wrist_twist_R": (60, "deg", "joints"),
     # elbow: raw Kimodo 1.6 cm; 0.08 let through 15 cm per frame
@@ -64,6 +68,7 @@ LABELS = {
     "prop_in_head": "prop in head", "prop_in_torso": "prop in torso", "prop_in_legs": "prop in legs",
     "prop_in_clavicles": "prop in shoulder", "hands_in_head": "hand in head", "hands_in_torso": "hand in torso",
     "forearms_in_head": "forearm in head", "forearms_in_torso": "forearm in torso", "fingers_in_prop": "fingers in prop",
+    "fingers_in_head": "fingers in head",
     "wrist_bend_L": "left wrist bend", "wrist_bend_R": "right wrist bend", "wrist_twist_L": "left wrist twist",
     "wrist_twist_R": "right wrist twist", "elbow_jump": "elbow jump", "prop_jump": "prop jump", "hand_jump": "hand jump",
     "finger_jump": "finger jump", "head_jump": "head jump", "prop_rot_jump": "prop rotation jump",
@@ -94,6 +99,7 @@ NEEDS = {
     "prop_in_head": ("region:head",), "prop_in_torso": ("region:torso",), "prop_in_legs": ("region:legs",),
     "prop_in_clavicles": ("region:clavicles",), "hands_in_head": ("hand", "region:head"), "hands_in_torso": ("hand", "region:torso"),
     "forearms_in_head": ("forearm", "region:head"), "forearms_in_torso": ("forearm", "region:torso"), "fingers_in_prop": ("fingers",),
+    "fingers_in_head": ("fingers", "region:head"),
     "wrist_bend_L": ("forearm.left", "hand.left"), "wrist_bend_R": ("forearm.right", "hand.right"),
     "wrist_twist_L": ("forearm.left", "hand.left"), "wrist_twist_R": ("forearm.right", "hand.right"),
     "elbow_jump": ("forearm",), "prop_jump": (), "hand_jump": ("hand",), "finger_jump": ("fingers",), "head_jump": ("head",),

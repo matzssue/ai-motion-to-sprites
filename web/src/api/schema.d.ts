@@ -248,6 +248,11 @@ export interface components {
             merged_audit?: components["schemas"]["AuditSummary"] | null;
             /** Name */
             name: string;
+            /**
+             * Picked
+             * @description how `best` was chosen: automatically or `--sample`
+             */
+            picked?: ("auto" | "by hand") | null;
             /** Prop */
             prop: boolean;
             /**
@@ -418,6 +423,13 @@ export interface components {
              * @description the pipeline's last STOP/DONE/failed line
              */
             outcome?: string | null;
+            /**
+             * Samples
+             * @default {}
+             */
+            samples: {
+                [key: string]: number;
+            };
             /** Started At */
             started_at?: string | null;
             /**
@@ -461,11 +473,24 @@ export interface components {
         RunRequest: {
             /** From Stage */
             from_stage?: ("prepare" | "rig" | "rig_ai" | "calibration" | "ai" | "merge" | "preview") | null;
+            /**
+             * Samples
+             * @description action -> sample index of its latest batch, instead of the automatic choice (character.py --sample action=N)
+             * @default {}
+             */
+            samples: {
+                [key: string]: number;
+            };
             /** To Stage */
             to_stage?: ("prepare" | "rig" | "rig_ai" | "calibration" | "ai" | "merge" | "preview") | null;
         };
         /** SampleScore */
         SampleScore: {
+            /**
+             * Moved
+             * @description how far the hands moved in the raw sample (m, the larger hand's extent against the hips); missing in files from before it was measured
+             */
+            moved?: number | null;
             /** Name */
             name: string;
             /** Score */

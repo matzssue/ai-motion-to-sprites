@@ -37,6 +37,7 @@ Regions measured as separate volumes gave 15 cm false positives (they are open w
 | | prop_in_pocket | 0.045 (`collisions.POCKET_REST`), only with `--under-arm` on aim frames | the stock resting in the armpit's skin: points of the stock's rear 35% in the torso or in the butt-side upper arm's top 30% (`collisions.POCKET_ARM`, the fold at the shoulder joint), taken out of `prop_in_body` on those frames. The author's accepted aim on Kusznik (round 8): 3.9 cm on the ribs, which the general 1.5 cm failed. Further down the arm it is the elbow: with the whole upper arm exempt, the solver's s8 (stock 3.3 cm in the arm's middle, elbow pressed to the body; author: "it goes into the elbow, not the armpit") passed; now it fails `prop_in_body` / `prop_in_upper_arms` `upper_arms.R` 3.3 cm |
 | | hands_in_torso | 0.02 | |
 | | forearms_in_torso | 0.045 | an approved archer pose had 4.8 cm of forearm in the belly |
+| | fingers_in_head | — (reported only) | finger and claw skin in the head: `hands_in_head` is the palm only (fingers are left out of it). Padlinozerca's claws entered the head only together with the palm (round 1 s1-s3: claws 5.2-11.7 cm, palm 6.0-11.8 cm), and the approved Kusznik aim has 1.4 cm of fingers at the cheek, so there is no limit yet |
 | | fingers_in_prop | 0.008 | fingers on the stock, not in it. On the own skeleton the thumb's metacarpal (`thumb.1`, from the wrist) is a finger, so its thick base counts here; on a Mixamo rig that skin is "hand" and not measured at all (approved crossbow shot: hand skin up to 5.9–8.2 cm inside the stock; Kusznik on `amts`: thumb base 2.3 cm, hand 5.8–7.0 cm) |
 | joints | wrist_bend_L/R | 85 | |
 | | wrist_twist_L/R | 60 | hand twist vs the forearm |
@@ -72,6 +73,12 @@ order is different. The same approved shot in another file: 1.40 and 1.28 while 
 Whether a motion changed is answered by `compare_motion.py`, not by a score difference.
 
 ## What the audit still does not see (use close-ups)
+- hands held at the head without touching it. Padlinozerca s0 (claws over the face in both key poses, audit 1.18) has
+  nothing in the head: claws 3-9 cm off the head skin all clip (round 1), 4-16 cm (round 2). A distance limit would fail
+  approved motions: Wybuchacz's crouch has the hands a median 3.4 cm from the head (within 10 cm for 56% of the clip),
+  Kusznik's aim within 10 cm for 41%. Face covered as seen from the front (rays from the face skin) was 0 in that s0: the
+  claws are above and around the hanging head, not in front of it. The hand-movement measure (README "Choosing a sample")
+  drops round 1's s0, not round 2's;
 - which side of the hand touches the prop (palm or back): the sign comes from the rig, so a measure with the same sign would
   agree; the rig preview (thumb in red) and the hand close-up from below guard it;
 - "prop not where it should be" below the head: the `LIMIT prop` line from `prop_in_hands` (offset at its limit),

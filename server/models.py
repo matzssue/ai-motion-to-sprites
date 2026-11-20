@@ -40,6 +40,8 @@ class AuditSummary(BaseModel):
 class SampleScore(BaseModel):
     name: str
     score: float
+    moved: Optional[float] = Field(None, description="how far the hands moved in the raw sample (m, the larger hand's extent "
+                                   "against the hips); missing in files from before it was measured")
 
 
 class Approved(BaseModel):
@@ -58,6 +60,7 @@ class ActionState(BaseModel):
     detail: str
     gate: Optional[Gate] = None
     best: Optional[SampleScore] = None
+    picked: Optional[Literal["auto", "by hand"]] = Field(None, description="how `best` was chosen: automatically or `--sample`")
     samples: list[SampleScore] = []
     approved: Optional[Approved] = None
     audit: Optional[AuditSummary] = None
@@ -70,6 +73,7 @@ class JobSummary(BaseModel):
     character_id: str
     from_stage: Optional[StageName] = None
     to_stage: Optional[StageName] = None
+    samples: dict[str, int] = {}
     state: JobState
     exit_code: Optional[int] = None
     outcome: Optional[str] = Field(None, description="the pipeline's last STOP/DONE/failed line")
@@ -151,6 +155,8 @@ class VerdictResult(BaseModel):
 class RunRequest(BaseModel):
     from_stage: Optional[StageName] = None
     to_stage: Optional[StageName] = None
+    samples: dict[str, int] = Field({}, description="action -> sample index of its latest batch, instead of the automatic "
+                                    "choice (character.py --sample action=N)")
 
 
 class Health(BaseModel):

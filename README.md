@@ -48,7 +48,7 @@ inputs, and stops with an exit code of 2 at each human gate.
 
 | Group | Metrics | Limit (for a 1.8 m character, scaled by height) |
 |---|---|---|
-| penetration | prop / hands / forearms in head, torso, legs, clavicles; fingers in prop | 0.5 cm (head) to 4.5 cm (forearm in torso) |
+| penetration | prop / hands / forearms in head, torso, legs, clavicles; fingers in prop; fingers in head (reported only) | 0.5 cm (head) to 4.5 cm (forearm in torso) |
 | joints | wrist bend and twist, mesh stretch (a bad weight makes a "stick"), **arm skin twist** | 85°, 60°, 30 cm, 120° / 0.5 |
 | smoothness | elbow, hand, finger, head, prop jumps; loop seam | 3 cm, 8°, 6°, 4°, 10 cm; 15° / 12 cm |
 | grip | gap between each palm and the prop | 3 cm |
@@ -56,7 +56,27 @@ inputs, and stops with an exit code of 2 at each human gate.
 "Inside" is decided by a 10-ray vote against the arm-less body volume. The sign of the nearest face alone gave 10 cm
 false positives next to open cloth sheets. On failure the audit renders close-ups from 5 sides at the deepest point.
 The `score` (sum of max/limit − 1) only ranks Kimodo samples. Approval stays with a person: one approved clip still
-scored FAIL 1.40. A metric that needs a part the skeleton does not have (fingers, clavicles: `absent` in its profile) is
+scored FAIL 1.40.
+
+### Choosing a sample
+
+A clean audit also rewards a sample that did nothing: hands held still cannot go through anything. So `character.py`
+also measures how far the hands moved in each raw Kimodo sample (`pipeline/lib/bvh.py`: the larger hand's extent
+against the hips over the clip) and takes the lowest score only among the samples that moved at least 40% as much as the
+most active one in the batch (`stages.ACTIVE_SHARE`). Both numbers are printed for every sample, in the STOP messages and
+in the review service. Measured (share of the batch's most active sample):
+
+| batch | samples that stood still or held the hands at the head | approved / chosen by a person |
+|---|---|---|
+| Padlinozerca attack, round 1 | s0 0.31 (audit 1.18, hands at the head all clip), s2 0.18 | s1 1.00 (the only real claw rake, audit 17.31) |
+| Wybuchacz run, body | s0 0.18, s2 0.23 (audit 0.00) | s1 1.00 |
+| Wybuchacz attack and run, through the key poses | none | attack s1 0.89, run s0 0.50 |
+
+A cut between 0.31 and 0.50 separates them, so the cut is 0.4. It does not catch a whole batch that missed the phases.
+In Padlinozerca round 2 no sample did the swipe: 0.72-1.00, and s0, with the claws held at the head, still wins the tie at
+1.18. To take another sample:
+`python pipeline/character.py --character <c>.json --sample attack=2` (or the "Sample of attack" choice in the review
+service's run panel). Before the key poses are approved it picks a body sample, after that a sample made through the poses. A metric that needs a part the skeleton does not have (fingers, clavicles: `absent` in its profile) is
 listed in `skipped` with the reason and left out of the score.
 
 ### Skin twist (`skin.py`, `skin_check.py`)

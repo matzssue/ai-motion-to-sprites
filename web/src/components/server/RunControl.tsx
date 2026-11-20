@@ -3,25 +3,31 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { useResource } from "@/api/resource";
-import { STAGES, type JobSummary, type StageName } from "@/api/types";
+import { STAGES, type ActionState, type JobSummary, type StageName } from "@/api/types";
 import { JOB_STATE, STAGE_LABEL, runEndText } from "@/pipeline/labels";
 import { isActive } from "@/runs/log";
+import { sampleIndex } from "@/runs/samples";
 import { useRunLog } from "@/runs/useRunLog";
 import { StatusText } from "./ServerState";
 import styles from "./server.module.css";
 
-/** Start a pipeline run for this character (optional stage range), follow its log, cancel it, see how it ended. */
+/** Start a pipeline run for this character (optional stage range and a sample picked by hand per AI action), follow its
+ * log, cancel it, see how it ended. */
 export function RunControl({
   characterId,
+  actions = [],
   activeJob,
   onEnded,
 }: {
   characterId: string;
+  actions?: ActionState[];
   activeJob: JobSummary | null | undefined;
   onEnded: (job: JobSummary) => void;
 }) {
   const id = useId();
   const [from, setFrom] = useState<StageName | "">("");
+  const [picked, setPicked] = useState<Record<string, string>>({});
+  const pickable = actions.filter((a) => a.kind === "ai" && a.step !== "approved" && a.samples.length > 1);
   const [to, setTo] = useState<StageName>("preview");
   const [error, setError] = useState<string | null>(null);
   const [follow, setFollow] = useState(true);
@@ -44,7 +50,8 @@ export function RunControl({
   async function start() {
     setError(null);
     try {
-      attach(await api.startRun(characterId, { from_stage: from || null, to_stage: to }));
+      const samples = Object.fromEntries(Object.entries(picked).filter(([, v]) => v !== "").map(([k, v]) => [k, Number(v)]));
+      attach(await api.startRun(characterId, { from_stage: from || null, to_stage: to, samples }));
       setFollow(true);
     } catch (e) {
       setError((e as Error).message);
@@ -94,6 +101,27 @@ export function RunControl({
             ))}
           </select>
         </label>
+        {pickable.map((a) => (
+          <label key={a.name}>
+            Sample of {a.name}
+            <select
+              value={picked[a.name] ?? ""}
+              onChange={(e) => setPicked({ ...picked, [a.name]: e.target.value })}
+              disabled={running}
+            >
+              <option value="">automatic ({a.best?.name ?? "?"})</option>
+              {a.samples.map((s) => {
+                const i = sampleIndex(s.name);
+                return i === null ? null : (
+                  <option key={s.name} value={i}>
+                    {s.name}: score {s.score.toFixed(2)}
+                    {s.moved == null ? "" : `, hands moved ${s.moved.toFixed(2)} m`}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+        ))}
         <button type="button" className={styles.primary} onClick={start} disabled={running || rangeBad}>
           Start run
         </button>
