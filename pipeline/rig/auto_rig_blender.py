@@ -455,8 +455,31 @@ def throat_on_head(arm, meshes):
         print("auto_rig: throat on head %s - %d vertices" % (o.name, cnt))
 
 
+# head free of the arms: skin whose largest weight is the head's carries no weight of a shoulder or anything below it.
+# Kusznik's head hangs forward between his shoulders: bone heat gave the face up to 0.15 of the right shoulder and the
+# right cheek up to 0.10 of the right upper arm, and the aim's shoulder and arm pulled the face to one side (author).
+def head_without_arms(arm, meshes):
+    """Moves arm-chain weight of head-dominated vertices onto the head bone; prints how many vertices changed."""
+    hb = arm.data.bones.get("head")
+    if hb is None: return
+    limb = {b.name for s, _ in own_skeleton.SIDES for r in ("shoulder.%s" % s,) if arm.data.bones.get(r)
+            for b in [arm.data.bones[r]] + list(arm.data.bones[r].children_recursive)}
+    for o in meshes:
+        h = o.vertex_groups.get("head")
+        if h is None: continue
+        lg = {g.index for g in o.vertex_groups if g.name in limb}; cnt, moved = 0, 0.0
+        for v in o.data.vertices:
+            if not v.groups or max(v.groups, key=lambda g: g.weight).group != h.index: continue
+            extra = [(g.group, g.weight) for g in v.groups if g.group in lg and g.weight > 0.0]
+            if not extra: continue
+            hw = next(g.weight for g in v.groups if g.group == h.index)
+            for gi_, w in extra: o.vertex_groups[gi_].remove([v.index]); hw += w; moved += w
+            h.add([v.index], hw, "REPLACE"); cnt += 1
+        print("auto_rig: head without arms %s - %d vertices, %.1f vertex-weights moved to the head" % (o.name, cnt, moved))
+
+
 def own_weight_rules(arm, meshes):
-    limb_cores(arm, meshes); throat_on_head(arm, meshes)
+    limb_cores(arm, meshes); throat_on_head(arm, meshes); head_without_arms(arm, meshes)
 
 
 # fist pose of the self-check: flexion about the bone's local X (own_skeleton roll rule: +X curls into the palm), every

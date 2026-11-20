@@ -29,6 +29,8 @@ Regions measured as separate volumes gave 15 cm false positives (they are open w
 | | prop_in_torso / prop_in_legs | 0.015 | stock pressed to the shoulder, not in it |
 | | prop_in_clavicles | 0.03 | a stock in the shoulder pocket is real contact |
 | | prop_in_upper_arms | 0.015, only with `--under-arm` | the arms are not part of the body volume above (they move with the prop), so a stock butt under the armpit went 5.5 cm into the right upper arm unmeasured (author: "the crossbow goes through the shoulder"). Measured on its own upper-arm volume. Off by default: a stock on the shoulder sits in it by design (approved Mixamo shot 7.4 cm); `chain.py` / `character.py` pass `--under-arm` when the motion has `aim.butt_push` |
+| | prop_in_body | 0.015 | ANY prop against the WHOLE skin, every region by skeleton role (head, torso, clavicles, legs, upper arms, forearms, hands, fingers; `_prop_in_body` = depth per region, e.g. `forearms.R`). The only exemption is the grip zone of each holding side (hand within 3 cm of the prop): its hand, fingers and the forearm within `GRIP_ZONE` = 0.25 of its length from the wrist. Kusznik r6: 3.1 cm `forearms.R` (author: "the weapon goes through the forearm"); the approved Mixamo shot fails it honestly: butt 7.4 cm in the right shoulder (`upper_arms.R`). The author's own hand-placed under-armpit pose: 4.4 cm (torso) / 3.4 cm (upper arm). `prop_in_hands` measures the same volume |
+| | rest_gap | 0.02, only with `--under-arm` on aim frames (`_arms.json` "aim" >= 0.5) | positive armpit test (`collisions.pocket_gap`): the stock's end nearest a shoulder lies 0.1-0.6 of the upper arm below the shoulder joint, not outside the arm's axis, at most the arm's + stock's radius in front of or behind it, within 6 cm of the torso and of the upper arm skin. Kusznik r6: 15.8 cm (butt on the forearm); missing `_arms.json` = skipped |
 | | hands_in_torso | 0.02 | |
 | | forearms_in_torso | 0.045 | an approved archer pose had 4.8 cm of forearm in the belly |
 | | fingers_in_prop | 0.008 | fingers on the stock, not in it. On the own skeleton the thumb's metacarpal (`thumb.1`, from the wrist) is a finger, so its thick base counts here; on a Mixamo rig that skin is "hand" and not measured at all (approved crossbow shot: hand skin up to 5.9–8.2 cm inside the stock; Kusznik on `amts`: thumb base 2.3 cm, hand 5.8–7.0 cm) |
@@ -57,7 +59,8 @@ Grip metrics are measured only when the prop should be in the hands (`--prop` wi
 `--rest-is-normal` adds to the limit the penetration the model already has at rest – only for a prop carried where it was
 modelled (e.g. a crossbow on the back in the walk).
 `--frames 10,45,56`: only these frames, no smoothness – for a quick grip try (`variants.py --frames`).
-`--under-arm`: also scores `prop_in_upper_arms` (a stock under the armpit).
+`--under-arm`: also scores `prop_in_upper_arms` and `rest_gap` (a stock under the armpit; `rest_gap` needs the
+`<glb>_arms.json` that `prop_in_hands` writes, with the aim weight of every frame).
 
 **±0.1 score noise:** the audit samples 700 prop vertices and every other hand vertex; after a re-export of the GLB the vertex
 order is different. The same approved shot in another file: 1.40 and 1.28 while `compare_motion` = IDENTICAL.

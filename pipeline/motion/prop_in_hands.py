@@ -11,6 +11,8 @@ from mathutils import Matrix, Vector, Quaternion
 from mathutils.bvhtree import BVHTree
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from collisions import dominant, labels, vertices, inside, joint_angles, rig_of, FINGER_PREFIX
+from collisions import labels_all, skin_tree, prop_in_body, depths, stock_end, pocket_gap, limb_radius
+from audit_metrics import METRICS
 from grip_words import grip_from_words, grip_in_words
 
 ap = argparse.ArgumentParser(description="Put the prop in both hands: prop pose, two-arm IK, finger wrap, recoil.")
@@ -171,11 +173,58 @@ if CURL:
 tris = np.array([p.vertices[:3] for p in body.data.polygons])
 T_ALL = tris[(LAB[tris] != "").all(1)].tolist()
 T_CORE = tris[np.isin(LAB[tris], ("head", "torso")).all(1)].tolist()    # no clavicles: the upper arm always touches the shoulder
+_LA = labels_all(dom, RIG); _SV = np.array([RIG.bone_side(d) for d in dom])
+T_ARM = {s_: tris[np.isin(_LA[tris], ("upper_arms", "forearms")).all(1) & (_SV[tris] == s_[0]).all(1)].tolist() for s_ in ("Left", "Right")}
+
+
+# the skin of every upper arm and forearm in its bone's frame: the arm solver moves it rigidly with a candidate setup.
+# Only skin that follows the bone (weight >= ARM_CORE_W): the armpit fold, half on the ribs, swung rigidly with an open
+# arm read 11 cm of stock inside the arm; the fold is left to the real skin in skin_cost
+ARM_CORE_W = 0.9
+ARM_COLL = bool(CURL) or "butt_push" in MO.get("aim", {})
+
+
+def bone_weight(name):
+    gi = body.vertex_groups.get(name)
+    w = np.zeros(len(body.data.vertices))
+    if gi is None: return w
+    for v in body.data.vertices:
+        for g in v.groups:
+            if g.group == gi.index: w[v.index] = g.weight
+    return w
+
+
+T_SEG = {(s_, sg): tris[(bone_weight(BN[s_][sg]) >= ARM_CORE_W)[tris].all(1)].tolist() if ARM_COLL else []
+         for s_ in ("Left", "Right") for sg in ("upper_arm", "forearm")}
+
+
+def arm_local(V):
+    """{(side, bone): (BVH of its skin in the bone's frame, axial range [m])} on the current pose."""
+    out = {}
+    for (s_, sg), T in T_SEG.items():
+        if not T: continue
+        R = np.array(wrot(BN[s_][sg])); h = np.array(head(BN[s_][sg])); L = (np.asarray(V) - h) @ R   # world -> bone
+        y = L[np.unique(np.array(T))][:, 1]
+        out[(s_, sg)] = (BVHTree.FromPolygons(L.tolist(), T, all_triangles=True), float(y.min()) + 0.01, float(y.max()) - 0.01)
+    return out
 
 
 def trees(f):
     sc.frame_set(f); V = vertices(body, bpy.context.evaluated_depsgraph_get()).tolist()
-    return BVHTree.FromPolygons(V, T_ALL, all_triangles=True), BVHTree.FromPolygons(V, T_CORE, all_triangles=True)
+    return (BVHTree.FromPolygons(V, T_ALL, all_triangles=True), BVHTree.FromPolygons(V, T_CORE, all_triangles=True),
+            BVHTree.FromPolygons(V, T_ARM[BUTT_SIDE], all_triangles=True) if UNDER else None,   # the arm round the pocket
+            arm_local(V) if ARM_COLL else None)
+
+
+def arm_depth(loc, R, h, pts):
+    """Deepest of `pts` inside a limb skin moved rigidly to rotation R and head h (m, 0 = none). Only points within the
+    skin's own axial range count: the tube is open at both ends and a point past its end looked inside."""
+    if loc is None or not len(pts): return 0.0
+    tree, y0, y1 = loc; L = (pts - np.array(h)) @ np.array(R); dmax = 0.0
+    for q in L[(L[:, 1] > y0) & (L[:, 1] < y1)]:
+        v = Vector(q); hit, nor, _, d = tree.find_nearest(v, 0.12)
+        if hit is not None and d > dmax and (v - hit).dot(nor) < 0: dmax = d
+    return dmax
 
 
 def hits(p, tree, r):
@@ -186,6 +235,71 @@ def hits(p, tree, r):
 
 rng = np.random.default_rng(1)
 SAMP = Lc[rng.choice(len(Lc), min(260, len(Lc)), replace=False)]
+
+
+# the arms are not in the collision trees (they move with the prop): a stock butt under the armpit went through the right
+# forearm and upper arm unseen (author, Kusznik: "the weapon goes through the forearm"). On the own skeleton and with a
+# stock under the arm the arm solver keeps the prop out of the real upper arm and forearm skin, moved rigidly with each
+# candidate (capsules round the bones saw 1 cm where the audit found 7 cm by the armpit); the forearm's last WRIST_FREE
+# next to the gripping hand is left out, the stock lies in that palm. The Mixamo path keeps its tuned setup.
+WRIST_FREE = 0.08
+REACH_SLACK = 0.04   # own skeleton: share of the arm's length a grip should stay short of a straight arm
+
+
+def prop_pts(C4): return SAMP @ np.array(C4.to_3x3()).T + np.array(C4.translation)
+
+
+# the audit's prop_in_body on the solved pose (same skin, regions and grip zone): on the own skeleton and under
+# the armpit a frame over its limit goes into the next pass, so a pose the audit fails is not handed on silently
+LAB_ALL = labels_all(dom, RIG); SIDE_V = np.array([RIG.bone_side(d) for d in dom])
+_zr = np.array([(body.matrix_world @ v.co).z for v in body.data.vertices]); BODY_LIM = METRICS["prop_in_body"][0] * float(np.ptp(_zr)) / 1.8
+BODYD = {}
+
+
+def body_check(f, C4):
+    """(deepest prop point in the skin outside the grip zone and rest contact [m], region) on the posed frame."""
+    sc.frame_set(f); BODYD[f] = body_depth(C4)
+    return BODYD[f]
+
+
+# the audit's hands/forearms in the head and torso, with its limits: the left forearm across a hunched chest went 4.5 cm
+# into the jaw while the solver's few test points saw one collision
+_T_BODY = np.array(T_ALL); _REG_BODY = LAB[_T_BODY[:, 0]]
+_I_LIMB = {w_: np.where(LAB_ALL == w_)[0][::2] for w_ in ("hands", "forearms")}
+LIMB_LIM = {(w_, r_): METRICS["%s_in_%s" % (w_, r_)][0] * float(np.ptp(_zr)) / 1.8 for w_ in ("hands", "forearms") for r_ in ("head", "torso")}
+
+
+# the audit's armpit pocket test (collisions.pocket_gap) on the solved pose: rear end and stock radius in the prop's frame
+(_END_L, STOCK_RM) = stock_end(np.asarray(Lc))
+_co0 = np.array([tuple(body.matrix_world @ v.co) for v in body.data.vertices])
+UA_R = {s_: limb_radius(_co0, dom == BN[s_]["upper_arm"], np.array(AW @ bone(BN[s_]["upper_arm"]).head_local),
+                        np.array(AW @ bone(BN[s_]["forearm"]).head_local)) for s_ in ("Left", "Right")}
+POCKET_LIM = METRICS["rest_gap"][0] or 0.02
+
+
+def limbs_excess(co, C4=None):
+    """Sum of hands/forearms depth in the head and torso past the audit's limits [m]; with C4 also the rear end's
+    distance from the armpit pocket (as the audit's rest_gap)."""
+    T = BVHTree.FromPolygons(co.tolist(), _T_BODY.tolist(), all_triangles=True); e = 0.0
+    for w_, I in _I_LIMB.items():
+        for r_, (d, _, _) in depths(T, _REG_BODY, co[I]).items():
+            if (w_, r_) in LIMB_LIM: e += max(0.0, d - 0.8 * LIMB_LIM[(w_, r_)])
+    if C4 is None: return e, 0.0
+    S = {s_: np.array(head(BN[s_]["upper_arm"])) for s_ in ("Left", "Right")}
+    b, sd = min(((np.array(C4 @ Vector(e_)), s_) for e_ in _END_L for s_ in S), key=lambda x: np.linalg.norm(x[0] - S[x[1]]))
+    up = np.array(head(PROF.spine[-1]) - head(PROF.spine[0])); up /= np.linalg.norm(up)
+    rt = S["Right"] - S["Left"]; rt -= up * (rt @ up); rt /= np.linalg.norm(rt)
+    return e, pocket_gap(b, S[sd], np.array(head(BN[sd]["forearm"])), up, rt if sd == "Right" else -rt, STOCK_RM,
+                         UA_R[sd], T, co[dom == BN[sd]["upper_arm"]])
+
+
+def body_depth(C4, limbs=False, pocket_=False):
+    """body_check on the current pose (arms as set, not as keyed); `limbs` adds limbs_excess and the pocket gap."""
+    co = vertices(body, bpy.context.evaluated_depsgraph_get())
+    hold = {s_[0]: (head(BN[s_]["hand"]), (head(BN[s_]["hand"]) - head(BN[s_]["forearm"])).length) for s_ in ("Left", "Right")}
+    dd = prop_in_body(*skin_tree(co, tris, LAB_ALL, SIDE_V), prop_pts(C4), hold)
+    k_ = max(dd, key=lambda x: dd[x][0]) if dd else ""
+    return (dd[k_][0] if dd else 0.0, k_) + (limbs_excess(co, C4 if pocket_ else None) if limbs else ())
 
 
 def prop_hits(C4, tr):
@@ -223,6 +337,7 @@ for f in all_frames:
         d[s + "palm"] = head(BN[s]["hand"]) + wrot(BN[s]["hand"]) @ Vector((0, PALM, 0))
         d[s + "E"] = head(BN[s]["forearm"]); d[s + "S"] = head(BN[s]["upper_arm"]); d[s + "W"] = head(BN[s]["hand"])
         d[s + "Rua"] = wrot(BN[s]["upper_arm"]); d[s + "Rfa"] = wrot(BN[s]["forearm"])
+    d["chest"] = head(PROF.spine[-1])
     K[f] = d
 zR = np.array([K[f]["Rightpalm"].z for f in all_frames])
 z_lo, z_hi = np.median(zR[:8]), np.percentile(zR, 92)
@@ -235,6 +350,7 @@ AIM = MO.get("aim", {})
 # head slightly back while aiming: makes room for the stock and the right elbow
 HEAD_BACK = AIM.get("head_back_deg", 0)
 BUTT_PUSH = Vector(AIM.get("butt_push", tuple(FWD))).normalized()
+BUTT_SIDE = "Right" if BUTT_PUSH.dot(RIGHT) >= 0 else "Left"   # the arm whose armpit holds the butt
 for f in all_frames:
     if not HEAD_BACK or W_AIM[f] < 1e-3: continue
     sc.frame_set(f)
@@ -279,9 +395,10 @@ def solve_arm(side, f, C4, tr, rolls=(0,), poles=(0,), all_=False):
     """Cheapest arm setup over the grid (grip roll x elbow plane); `all_` = list of (cost, roll, elbow)."""
     k = K[f]; Sp, E0, W0 = k[side + "S"], k[side + "E"], k[side + "W"]
     la, lb = (E0 - Sp).length, (W0 - E0).length
-    best = None
+    best = None; PP = prop_pts(C4) if ARM_COLL else None
     for roll in rolls:
         Wt, Rh, palm = grip(side, C4, roll)
+        PF = PP[np.linalg.norm(PP - np.array(Wt), axis=1) > WRIST_FREE] if ARM_COLL else None
         dist = min((Wt - Sp).length, (la + lb) * 0.999); dr = (Wt - Sp).normalized()
         pole0 = (E0 - Sp) - dr * (E0 - Sp).dot(dr)
         if pole0.length < 1e-6: pole0 = -UP - dr * (-UP).dot(dr)
@@ -302,6 +419,12 @@ def solve_arm(side, f, C4, tr, rolls=(0,), poles=(0,), all_=False):
             dn = (palm - Wt).normalized()
             coll += sum(hits(p_, tr[1], GP["hand_clearance"]) for p_ in (Wt, palm, palm + dn * 0.06, palm + dn * 0.12))
             cost = 3 * max(0, bend - 60) + 3 * max(0, abs(twist) - 45) + 40 * coll + 400 * max(0, reach)
+            # own skeleton: the arm stays a little bent (REACH_SLACK of its length short of straight); at 400/m the left
+            # hand reached 2.3 cm past a straight arm with the wrist turned 47 deg (author: "reaches unnaturally far")
+            if ARM_COLL: cost += 4000 * max(0.0, reach + REACH_SLACK * (la + lb))
+            parm = max(arm_depth(tr[3].get((side, "upper_arm")), q1.to_matrix() @ k[side + "Rua"], Sp, PP),
+                       arm_depth(tr[3].get((side, "forearm")), Rfa3, En, PF)) if ARM_COLL else 0.0
+            cost += 4000 * parm   # 40 per cm of prop inside the arm, as one collision point
             cost += 0.05 * abs(pa)
             et = GR[side].get("elbow_target")   # [outward, forward, up] while aiming
             if et:
@@ -312,22 +435,72 @@ def solve_arm(side, f, C4, tr, rolls=(0,), poles=(0,), all_=False):
                     cost += GR[side].get("elbow_target_weight", 80) * W_AIM[f] * (1 - eo.normalized().dot(tc.normalized()))
             if all_: best = (best or []) + [(cost, roll, pa)]; continue
             if best is None or cost < best["cost"]:
-                best = dict(cost=cost, roll=roll, pa=pa, q1=q1, Rfa3=Rfa3, Rh=Rh, bend=bend, twist=twist, coll=coll, reach=reach)
+                best = dict(cost=cost, roll=roll, pa=pa, q1=q1, Rfa3=Rfa3, Rh=Rh, bend=bend, twist=twist, coll=coll, reach=reach,
+                            parm=parm)
     return best
 
 
-def pose_cost(C4, f, tr):
+# where the prop's rear end rests while aiming, by skeleton roles: "shoulder" (default: butt_from_shoulder, pushed out of
+# the body forward) or "armpit" (between the ribs and the inner upper arm below the shoulder joint; also implied by
+# `butt_push`). In the armpit the prop is the target: its rear end is pinned in the pocket found on this frame's body, the
+# search only turns the prop about it, and both arms are fitted to it. Kusznik round 6 (fixed body, prop pushed out and
+# moved by the search) ended with the butt on the right forearm in front of the elbow
+REST = AIM.get("rest_at", "armpit" if "butt_push" in AIM else "shoulder")
+UNDER = REST == "armpit"
+POCKET_DEPTH = (0.15, 0.25, 0.35, 0.45)   # the armpit's hollow is searched this far below the shoulder joint (x upper arm)
+POCKET_INFO = {}
+STOCK_R = r_at(BUTT + 0.03)
+SKIN_W = 3000   # own skeleton: cost per metre of prop (or limb past its limit, or rear end off the pocket) on the real skin
+POCKET_TRY = (0.3, 0.42, 0.54)   # pocket depths below the shoulder joint tried while aiming [x upper arm]
+AIM_FREE = 10   # deg the stock may yaw or pitch off the aim about a pinned rear end before it costs 10x
+STOCK_SLIDE = 0.1   # how far the stock may slide back through the pocket while aiming [m]
+POCKET_SLIP = 0.03   # how far the rear end may leave the pocket's centre while aiming [m]
+NX = 6 if UNDER else 4   # pose offset: translation + yaw (+ pitch and roll about a pinned rear end)
+
+
+def pose_cost(C4, f, tr, arms=None):
     c = 50 * prop_hits(C4, tr)
     for side in ("Right", "Left"):
         # a grid of 5 grips x 3 elbows instead of one setup was tried: audit score 15.5 -> 23.4, worse
-        b = solve_arm(side, f, C4, tr); c += 20 * b["coll"] + 400 * max(0, b["reach"])
+        # under the armpit the arm next to the butt opens round it: its elbow plane is searched here too, else the search
+        # moved the prop out of a closed arm (Kusznik: butt 5-7 cm out, on the forearm)
+        pl = range(-ranges(side)[1], ranges(side)[1] + 1, 15) if UNDER else (0,)
+        if side == BUTT_SIDE and FORCE_POLE: pl = FORCE_POLE
+        b = solve_arm(side, f, C4, tr, poles=pl); c += 20 * b["coll"] + 400 * max(0, b["reach"]) + 2000 * b["parm"]
+        if arms is not None: arms[side] = b
     return c
 
 
-def shift(C4, x):
-    """x = (right, up, forward, yaw in deg); yaw around the right-hand grip."""
-    C2 = (Matrix.Translation(C4.translation) @ Quaternion(UP, math.radians(x[3])).to_matrix().to_4x4()
-          @ Matrix.Translation(-C4.translation) @ C4)
+FORCE_POLE = []   # pinned search: the butt-side elbow plane(s) tried on the real skin
+LAST_ARMS = {}   # arm setups of the last skin_cost
+ARMS_FIX = {}    # pinned frames: {f: {side: (roll, elbow)}} measured on the real skin, kept by path()
+
+
+def skin_cost(C4, f, tr):
+    """pose_cost plus the audit's prop_in_body on the real skin with both arms set by their IK. The arm capsules and the
+    body volume alone saw no contact where the audit found the stock 7 cm in the torso and the upper arm round the pocket."""
+    arms = {}; c = pose_cost(C4, f, tr, arms); sc.frame_set(f)
+    LAST_ARMS.clear(); LAST_ARMS.update({side: (b["roll"], b["pa"]) for side, b in arms.items()})
+    for side, b in arms.items():
+        setw(BN[side]["upper_arm"], b["q1"].to_matrix() @ K[f][side + "Rua"]); setw(BN[side]["forearm"], b["Rfa3"]); setw(BN[side]["hand"], b["Rh"])
+    d_, _, e_, g_ = body_depth(C4, True, pinned(f))
+    return c + SKIN_W * (d_ + e_ + max(0.0, g_ - 0.5 * POCKET_LIM * BODY_LIM / METRICS["prop_in_body"][0]))
+
+
+def pinned(f): return UNDER and W_AIM[f] >= 0.5   # aiming with the rear end in the armpit
+
+
+def shift(C4, x, f=None):
+    """x = (right, up, forward, yaw in deg); yaw around the right-hand grip. While the rear end rests in its pocket
+    (pinned) the prop turns about it: x = (right, up, forward, yaw, pitch, roll about the stock in deg)."""
+    if f is not None and pinned(f):
+        pv = C4 @ Vector((BUTT, 0, 0)); st = C4.to_3x3().col[0].normalized(); lat = st.cross(UP).normalized()
+        R = (Quaternion(UP, math.radians(x[3])) @ Quaternion(lat, math.radians(x[4]))
+             @ Quaternion(st, math.radians(x[5]))).to_matrix().to_4x4()
+        C2 = Matrix.Translation(pv) @ R @ Matrix.Translation(-pv) @ C4
+    else:
+        C2 = (Matrix.Translation(C4.translation) @ Quaternion(UP, math.radians(x[3])).to_matrix().to_4x4()
+              @ Matrix.Translation(-C4.translation) @ C4)
     C2.translation += RIGHT * x[0] + UP * x[1] + FWD * x[2]
     return C2
 
@@ -336,22 +509,60 @@ def search(C4, f, tr):
     """Coordinate descent in both directions (an old grid only in +: the left elbow stayed in the torso)."""
     # offset with a limit and a stronger penalty: at 30/m without a limit the crossbow escaped collisions 37 cm above the head at the shot
     MX, KP = GP.get("max_offset", 0.08), GP.get("offset_penalty", 100)
+    pin = pinned(f)
+    # pinned: the rear end stays within POCKET_SLIP of its pocket. Turning only about it (no slip) the stock found no
+    # room in front of the chest and swung 60 deg out to the side; 2 cm off the ribs it points 10 deg in, no contact
+    if pin: MX = POCKET_SLIP
+    # own skeleton / under the arm: the real skin as the audit sees it (the volume without arms is open at the shoulders:
+    # its inside test missed the stock 7.7 cm deep in the front armpit fold)
+    COST = skin_cost if ARM_COLL else pose_cost
 
-    def cost(x):
+    st_ = C4.to_3x3().col[0].normalized()
+
+    def cost(x, Cb=C4):
         d = math.sqrt(x[0] ** 2 + x[1] ** 2 + x[2] ** 2)
-        return 1e9 if d > MX + 1e-9 else pose_cost(shift(C4, x), f, tr) + KP * d + 0.3 * abs(x[3])
-    x = [0.0, 0.0, 0.0, 0.0]; best = cost(x)
-    if best == 0: return C4, x
-    STEPS = ((0.08, 0.04, 0.02), (0.08, 0.04, 0.02), (0.08, 0.04, 0.02), (20, 10, 5))
+        if pin:   # the stock may also slide back through the pocket by up to STOCK_SLIDE (the front hand reaches less far)
+            t = RIGHT * x[0] + UP * x[1] + FWD * x[2]; al = t.dot(st_)
+            d = (t - st_ * al).length + max(0.0, al) + max(0.0, -al - STOCK_SLIDE)
+        if d > MX + 1e-9: return 1e9
+        # pinned: the aim stays ahead, yaw or pitch past AIM_FREE costs 10x (free, the stock swung 50-60 deg out or 40 up)
+        turn = 0.3 * sum(abs(v) for v in x[3:]) + (3 * sum(max(0.0, abs(v) - AIM_FREE) for v in x[3:5]) if pin else 0.0)
+        return COST(shift(Cb, x, f), f, tr) + KP * d + turn
+    if pin:   # start from the pocket at every depth to try: just under the shoulder the stock ran into the front armpit fold
+        b0 = C4 @ Vector((BUTT, 0, 0)); starts = []
+        for dep in POCKET_TRY:
+            dv = pocket(f, BUTT_SIDE, (dep,)) - b0; Cb = C4.copy(); Cb.translation += dv
+            starts.append((cost([0.0] * NX, Cb), dv, Cb))
+        _, dv, Cb = min(starts, key=lambda t: t[0])
+        # the elbow plane next to the pocket is chosen on the real skin too: by the arm cost alone the arm stayed in
+        # front of the chest and the butt ended outside it, or the arm closed through the butt
+        tries = []
+        for pl_ in ([],) + tuple([p_] for p_ in range(-ranges(BUTT_SIDE)[1], 1, 15)) if COST is skin_cost else ([],):
+            FORCE_POLE[:] = pl_; x_, b_ = descend(cost, Cb, pin, NX); tries.append((b_, x_, list(pl_)))
+        best, x, pl_ = min(tries, key=lambda t: t[0]); FORCE_POLE[:] = pl_
+        x[0] += dv.dot(RIGHT); x[1] += dv.dot(UP); x[2] += dv.dot(FWD)
+        C2 = shift(C4, x, f)
+        if COST is skin_cost: skin_cost(C2, f, tr); ARMS_FIX[f] = dict(LAST_ARMS)
+        FORCE_POLE[:] = []
+        return C2, x
+    x, best = descend(cost, C4, pin, NX)
+    return (C4 if best == 0 and not any(x) else shift(C4, x, f)), x
+
+
+def descend(cost, Cb, pin, nx):
+    x = [0.0] * nx; best = cost(x, Cb)
+    if best == 0: return x, best
+    T = (0.08, 0.04, 0.02)
+    STEPS = (((0.02, 0.01),) * 2 + ((0.04, 0.02, 0.01),) + ((20, 10, 5), (10, 5), (10, 5))) if pin else (T, T, T, (20, 10, 5)) + ((),) * (nx - 4)
     for _ in range(3):
         better = False
-        for axis in range(4):
+        for axis in range(nx):
             for st in STEPS[axis]:
                 for sg in (1, -1):
-                    y = list(x); y[axis] += sg * st; c = cost(y)
+                    y = list(x); y[axis] += sg * st; c = cost(y, Cb)
                     if c < best: best, x, better = c, y, True
         if not better or best == 0: break
-    return shift(C4, x), x
+    return x, best
 
 
 HOLD = MO.get("hold")
@@ -364,6 +575,32 @@ def out_of_body(p, direction, tree, clearance):
         if loc is None or ((p - loc).dot(nor) > 0 and dd > clearance): break
         p = p + direction * 0.01
     return p
+
+
+def pocket(f, side, deps=None):
+    """The armpit pocket on this frame's body, from roles: below the shoulder joint (POCKET_DEPTH of the upper arm) and
+    around its front-back position, walking out from the chest's midline: where the torso ends and where the upper arm
+    begins (two volumes: they overlap where the arm lies on the ribs). The widest gap wins; the butt goes to its middle,
+    or the stock's radius off the ribs when it is narrower than the stock (it touches both). Walked out of a body without
+    arms at one fixed spot the butt landed 2 cm outside the shoulder joint, through the arm and out of the back."""
+    k = K[f]; S = k[side + "S"]; la = (k[side + "E"] - S).length; out = RIGHT if side == "Right" else -RIGHT
+    tor, arm_t = TR[f][1], TR[f][2]
+    ins = lambda tree, q: (lambda h: h[0] is not None and (q - h[0]).dot(h[1]) < 0)(tree.find_nearest(q, 0.3))
+    best = None
+    for dep in deps or POCKET_DEPTH:
+        for fw in (-0.08, -0.04, 0.0, 0.04, 0.08):
+            p = S - UP * (dep * la) + FWD * fw; p = p - out * (p - k["chest"]).dot(out)
+            qs = [p + out * (0.005 * i) for i in range(90)]; it = [ins(tor, q) for q in qs]; ia = [ins(arm_t, q) for q in qs]
+            t_exit = next((i for i in range(1, 90) if it[i - 1] and not it[i]), None)
+            if t_exit is None: continue
+            a_in = next((i for i in range(90) if ia[i]), None)
+            gap = 1.0 if a_in is None else 0.005 * (a_in - t_exit)
+            g0 = qs[t_exit]; c = g0 + out * (gap / 2 if gap > 2 * STOCK_R and a_in is not None else STOCK_R)
+            key = (min(gap, 2 * STOCK_R + 0.02), -abs(fw) - abs(dep - 0.3) * la)   # widest (enough) gap, then nearest the middle
+            if best is None or key > best[0]: best = (key, c, gap, dep, fw)
+    if best is None: return out_of_body(S - UP * (0.3 * la), out, TR[f][1], STOCK_R)
+    POCKET_INFO[f] = "gap %.1f cm at %.2f of the upper arm below the shoulder, %+.0f cm forward" % (100 * best[2], best[3], 100 * best[4])
+    return best[1]
 
 
 def hold_pose(f):
@@ -393,8 +630,10 @@ def base_pose(f):
     # Pushed sideways it leaves the torso alone: the upper arm closes over it (out of the whole body it went through the arm
     # and stopped 13 cm outside the shoulder joint)
     butt = out_of_body(butt, BUTT_PUSH, TR[f][1] if "butt_push" in AIM else TR[f][0], 0.01)
+    if UNDER: butt = pocket(f, BUTT_SIDE)
     Ca = frame3(fd, UP).to_4x4(); Ca.translation = butt - fd * BUTT
     w = W_AIM[f]
+    if UNDER: w = min(1.0, 2 * w)   # in the pocket from half-aim on (pinned frames): there the butt is exactly at it
     C = Ck.to_quaternion().slerp(Ca.to_quaternion(), w).to_matrix().to_4x4()
     C.translation = Ck.translation.lerp(Ca.translation, w)
     # forward arc between hold and aim: a straight line went through the chest
@@ -406,7 +645,7 @@ def smooth(OFF):
     if A.frames: return {f: list(OFF[f]) for f in frames}
     SM = {}
     for f in frames:
-        acc, ws = np.zeros(4), 0
+        acc, ws = np.zeros(NX), 0
         for g in range(f - 3, f + 4):
             if g in OFF: ww = 1 - abs(g - f) / 4; acc += np.array(OFF[g]) * ww; ws += ww
         SM[f] = list(acc / ws)
@@ -541,6 +780,8 @@ def path(side, CP, TR):
     for f in frames:
         u = np.full(len(st), 1e9)
         for c, r, p in solve_arm(side, f, CP[f], TR[f], rolls, poles, all_=True): u[ix[(r, p)]] = c
+        if f in ARMS_FIX and ARMS_FIX[f][side] in ix:   # the setup the prop pose was measured with on the real skin
+            k_ = ix[ARMS_FIX[f][side]]; u_ = u[k_]; u[:] = 1e9; u[k_] = u_
         if acc is None: acc = u; continue
         m = acc[:, None] + trans; b = m.argmin(0); back.append(b); acc = m[b, np.arange(len(st))] + u
     k = int(acc.argmin()); pth = [k]
@@ -583,18 +824,19 @@ def stopwatch(what, t0):
 t0 = time.perf_counter()
 TR = {f: trees(f) for f in frames}; t0 = stopwatch("trees", t0)
 BASE = {f: base_pose(f) for f in frames}; t0 = stopwatch("base pose", t0)
-OFF = {f: [0.0, 0.0, 0.0, 0.0] for f in frames}
+OFF = {f: [0.0] * NX for f in frames}
 todo = frames
 for it in range(GP.get("passes", 4)):
     for f in todo:
         OFF[f] = search(BASE[f][0], f, TR[f])[1]
     t0 = stopwatch("search", t0)
     SM = smooth(OFF)
-    CP = {f: shift(BASE[f][0], SM[f]) for f in frames}
+    CP = {f: shift(BASE[f][0], SM[f], f) for f in frames}
     prevs = {s: path(s, CP, TR) for s in ("Left", "Right")}; PREV_F.clear(); t0 = stopwatch("path", t0)
     WR = {f: place(f, CP[f], prevs, TR[f]) for f in frames}; t0 = stopwatch("place (IK + fingers)", t0)
     TR = {f: trees(f) for f in frames}; t0 = stopwatch("trees", t0)
-    todo = [f for f in frames if prop_hits(CP[f], TR[f]) or any(WR[f][s]["collisions"] for s in WR[f])]; t0 = stopwatch("check", t0)
+    todo = [f for f in frames if prop_hits(CP[f], TR[f]) or any(WR[f][s]["collisions"] for s in WR[f])
+            or (ARM_COLL and body_check(f, CP[f])[0] > BODY_LIM)]; t0 = stopwatch("check", t0)
     print("pass", it + 1, "frames with collision:", len(todo), todo[:25])
     if not todo: break
 print("time [s]:", ", ".join("%s %.1f" % kv for kv in TIME.items()))
@@ -611,6 +853,12 @@ print("PROP POSE: offset from requested max %.0f cm (fr. %d), mean %.0f cm" % (1
 u = sum(v >= MX_ - 0.005 for v in offs.values()) / len(frames)
 if u >= 0.1: print("LIMIT prop: offset from the requested pose at the %.0f cm limit in %.0f%% of frames" % (100 * MX_, 100 * u))
 for f in frames: WR[f]["offset"] = [round(v, 4) for v in SM[f]]
+for f in frames:
+    if f not in BODYD: body_check(f, CP[f])
+fb = max(frames, key=lambda f: BODYD[f][0])
+if UNDER: print("POCKET:", {f: POCKET_INFO.get(f, "-") for f in frames if pinned(f)})
+print("PROP IN BODY: max %.1f cm (fr. %d, %s), limit %.1f cm, frames over it %d" % (
+    100 * BODYD[fb][0], fb, BODYD[fb][1] or "-", 100 * BODY_LIM, sum(BODYD[f][0] > BODY_LIM for f in frames)))
 
 # finger smoothing in time: frame-by-frame wrapping jumped (95 deg between frames); collisions are checked by the audit.
 # Arms are NOT smoothed: +-2 frames broke the grip (hand in head 3.1 -> 7.2 cm, wrist twist 77 deg, score 10.4 -> 21.7)
@@ -641,6 +889,7 @@ def smooth_curves(match, window):
 
 if not A.frames: print("smoothed: fingers", smooth_curves(lambda d: d.startswith('pose.bones["' + FINGER_PREFIX) or d.split('"')[1] in FING_NAMES, 3))
 
-json.dump({str(f): v for f, v in WR.items()}, open(A.out.replace(".glb", "_arms.json"), "w"), indent=0)
+# per frame: arm setups, prop offset and the aim weight (the audit checks the armpit pocket on aim frames)
+json.dump({str(f): dict(v, aim=round(W_AIM[f], 3)) for f, v in WR.items()}, open(A.out.replace(".glb", "_arms.json"), "w"), indent=0)
 bpy.ops.export_scene.gltf(filepath=A.out, export_format="GLB", export_animations=True)
 print("OK", A.out)

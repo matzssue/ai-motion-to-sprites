@@ -87,6 +87,75 @@ def labels(dom, rig):
     return lab
 
 
+ARM_REGIONS = (("upper_arms", "upper_arm"), ("forearms", "forearm"), ("hands", "hand"))
+GRIP_ZONE = 0.25   # share of a holding arm's forearm next to its wrist that may touch the prop (the prop lies in that palm)
+
+
+def labels_all(dom, rig):
+    """Region of every vertex over the WHOLE skin: the body regions plus upper arms, forearms, hands and fingers by role."""
+    lab = labels(dom, rig)
+    for r, role in ARM_REGIONS:
+        lab[np.isin(dom, rig.prof.bones(role))] = r
+    lab[np.isin(dom, sorted(rig.fingers))] = "fingers"
+    return lab
+
+
+def skin_tree(co, tris, lab, side):
+    """BVH of the whole labelled skin + region and side of every face (for prop_in_body)."""
+    t = tris[(lab[tris] != "").all(1)]
+    return BVHTree.FromPolygons([Vector(c) for c in co], t.tolist(), all_triangles=True), lab[t[:, 0]], side[t[:, 0]]
+
+
+def prop_in_body(tree, reg, side, pts, holders, reach=0.12):
+    """Deepest penetration of prop points into the whole skin, per region and side: {"forearms.R": (m, point)}.
+    Only the grip zone of every holding side in `holders` ({side: (wrist, forearm length)}) is left out: its hand, fingers
+    and the forearm within GRIP_ZONE x its length of the wrist. A rest contact (a butt on the shoulder) is not left out:
+    the approved Mixamo shot's butt sat 7.4 cm inside the right shoulder and no audit saw it."""
+    out = {}
+    for p in pts:
+        v = Vector(p); loc, nor, fi, d = tree.find_nearest(v, reach)
+        if loc is None or (v - loc).dot(nor) >= 0: continue
+        r, s = reg[fi], side[fi]
+        if s in holders and (r in ("hands", "fingers") or (r == "forearms" and (v - holders[s][0]).length < GRIP_ZONE * holders[s][1])):
+            continue
+        k = r + ("." + s if s else "")
+        if d > out.get(k, (0.0,))[0] and inside(tree, v): out[k] = (d, p)
+    return out
+
+
+# armpit pocket: a prop's rear end resting under an arm lies between the inner upper arm and the ribs - from POCKET_U[0] to
+# POCKET_U[1] of the upper arm below the shoulder joint, not outside the arm's axis, not in front of or behind the arm by
+# more than its radius + the stock's, and within POCKET_TOUCH of the torso and of the upper arm's skin. Kusznik round 6:
+# butt on the forearm in front of the elbow (author: "it does not go under the armpit")
+POCKET_U, POCKET_TOUCH = (0.1, 0.6), 0.06
+
+
+def stock_end(pc):
+    """(end of the prop's long axis nearest-first pair, its radius): both ends (mean of the last 3 cm) and the median
+    distance of the points from the axis."""
+    c0 = pc.mean(0); ax = np.linalg.svd(pc - c0, full_matrices=False)[2][0]; pr = (pc - c0) @ ax
+    ends = [pc[pr < pr.min() + 0.03].mean(0), pc[pr > pr.max() - 0.03].mean(0)]
+    return ends, float(np.median(np.linalg.norm((pc - c0) - np.outer(pr, ax), axis=1)))
+
+
+def pocket_gap(b, S, E, up, out, r_stock, ua_r, tree, ua_pts):
+    """How far a rear end `b` is from the armpit pocket of the arm with shoulder joint S and elbow E (m, 0 = in it).
+    up = the spine's direction, out = away from the body on that side, tree = the body without arms."""
+    fw = np.cross(up, out); la = np.linalg.norm(E - S)
+    h = (S - b) @ up; u = np.clip((b - S) @ (E - S) / la ** 2, 0, 1); a = S + u * (E - S)
+    loc, _, _, dt = tree.find_nearest(Vector(b), 1.0)
+    da = float(np.linalg.norm(ua_pts - b, axis=1).min()) if len(ua_pts) else 1.0
+    gap = max(POCKET_U[0] * la - h, h - POCKET_U[1] * la, (b - a) @ out, abs((b - a) @ fw) - ua_r - r_stock,
+              (dt if loc is not None else 1.0) - POCKET_TOUCH, da - POCKET_TOUCH)
+    return max(0.0, float(gap))
+
+
+def limb_radius(co, sel, a, b):
+    """Median distance of the vertices `sel` from the segment a-b (an upper arm's skin radius at rest)."""
+    u = np.clip((co[sel] - a) @ (b - a) / ((b - a) @ (b - a)), 0, 1)
+    return float(np.median(np.linalg.norm(co[sel] - (a + u[:, None] * (b - a)), axis=1)))
+
+
 def body_tree(co, tris, lab):
     """BVH of the body without arms (almost closed: holes only at the shoulders) + the region of every face."""
     keep = (lab[tris] != "").all(1)

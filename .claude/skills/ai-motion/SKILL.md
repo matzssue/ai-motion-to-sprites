@@ -230,6 +230,24 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   arm and stopped 13 cm outside the shoulder joint. The arms are not in the collision volume, so the butt also sat 5 cm in
   the right upper arm (author: "through the shoulder instead of under it"): lower it (`aim.butt_from_shoulder` z) until
   the audit's `prop_in_upper_arms` (`--under-arm`) passes.
+- `aim.rest_at`: where the prop's rear end rests while aiming, by roles - `shoulder` (default) or `armpit` (default when
+  `butt_push` is given). In the armpit the PROP is the target: the rear end is pinned in the pocket of that frame's body
+  (depths `POCKET_TRY` x the upper arm below the shoulder joint), the prop only turns about it (aim kept within
+  `AIM_FREE` = 10 deg), may slide back through the pocket by `STOCK_SLIDE` and leave it by `POCKET_SLIP`, and both arms
+  are fitted to it. On the own skeleton every candidate is scored on the REAL skin with the audit's own checks
+  (`prop_in_body`, hands/forearms in head/torso, `pocket_gap`); the old proxies (a body volume open at the shoulders, arm
+  capsules) missed 7.7 cm of stock in the front armpit fold and every try swung the crossbow 50-60 deg sideways. The arm
+  solver moves the real upper arm/forearm skin rigidly with each setup (only skin weighted >= 0.9 to the bone) and keeps a
+  grip `REACH_SLACK` = 4% short of a straight arm (the left hand reached 2.3 cm past it). Kusznik: no pose has the butt
+  under the arm with < 1.6 cm in the skin (best 3.9 cm; the author's own pose 4.4 cm): the armpit skin closes over it.
+- Auto-rig elbow and wrist depth: the middle of ALL vertices in a slab around the joint put Kusznik's left elbow 8 cm
+  behind the arm (the crossbow on his back lay behind it): upper arm 27.9 vs 31.6 cm, the skin off the bone, the left
+  knuckles 5.5 cm off the mirrored right ones (author: "the left arm is broken from the base"). Elbow and wrist now take
+  the slab's layer in Y on the shoulder-wrist line / at the fingertips. A `<out>_joints.json` next to the rig is REUSED:
+  delete it to detect again.
+- Auto-rig head: skin whose largest weight is the head carries no weight of a shoulder or anything below it. Bone heat
+  gave Kusznik's forward-hanging face up to 0.15 of the right shoulder and the cheek 0.10 of the right upper arm, and the
+  aim pulled the face to one side (author).
 - An own finger bent joint by joint swings its straight rest into the stock and stops half bent (right middle finger
   straight, tip 8.7 cm off). The grip also tries the rest of the finger curling with each joint; audit `finger_tip_gap`. Kimodo's aim frame (stock to the cheek) lifts the right clavicle and
   leans the neck onto where the stock goes: the key pose takes both from the hold frame before `prop_in_hands --frames`.

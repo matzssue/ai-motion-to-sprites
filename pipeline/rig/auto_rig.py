@@ -108,6 +108,17 @@ def slab_center(verts, x, z, radius, axis_y=1):
     return 0.5 * (near[:, axis_y].min() + near[:, axis_y].max())
 
 
+def slab_center_near(verts, x, z, radius, y_ref, gap):
+    """slab_center of the one layer in Y nearest y_ref: the slab is split where Y jumps by more than `gap`. Behind
+    Kusznik's left elbow lay the crossbow carried on his back; the middle of both put the elbow 8 cm behind the arm."""
+    near = verts[(np.abs(verts[:, 0] - x) < radius) & (np.abs(verts[:, 2] - z) < radius)]
+    if len(near) < 4:
+        return None
+    ys = np.sort(near[:, 1]); layers = np.split(ys, np.where(np.diff(ys) > gap)[0] + 1)
+    lay = min(layers, key=lambda g: 0.0 if g[0] <= y_ref <= g[-1] else min(abs(g[0] - y_ref), abs(g[-1] - y_ref)))
+    return 0.5 * (lay[0] + lay[-1])
+
+
 # ---------------------------------------------------------------- detection
 def detect(verts, tris):
     """Features from geometry (crotch, armpits, fingertips, feet, neck) -> joints."""
@@ -234,6 +245,20 @@ def solve(verts, tris):
         y = slab_center(verts, x, z, r * H)
         return y if y is not None else 0.0
 
+    def limb_y(x, z, y_ref, r=0.03):
+        """Depth of an elbow or wrist: the layer of the slab nearest the previous joint (a prop or a strap behind
+        or in front of the arm is another layer)."""
+        y = slab_center_near(verts, x, z, r * H, y_ref, 0.01 * H)
+        return y if y is not None else 0.0
+
+    def arm_depths(side, elbow, hand, tip):
+        """Wrist in the layer of the fingertips, elbow in the layer on the shoulder-wrist line: the arm of a hunchback
+        hangs 15 cm in front of the shoulder joint, so the layer nearest the shoulder was the crossbow on the back."""
+        hy = limb_y(hand[0], hand[1], tip[1])
+        sy = j[side + "Arm"][1]
+        ey = limb_y(elbow[0], elbow[1], sy + CAL["elbow_t"] * (hy - sy))
+        j[side + "ForeArm"] = np.array([elbow[0], ey, elbow[1]]); j[side + "Hand"] = np.array([hand[0], hy, hand[1]])
+
     # ---- arms
     for side in ("Left", "Right"):
         sgn = 1 if side == "Left" else -1
@@ -247,14 +272,14 @@ def solve(verts, tris):
         tip2 = np.array([tip[0], tip[2]])
         hand = centerline_point(f["front"], verts, arm, tip2, CAL["wrist_t"], H)
         elbow = centerline_point(f["front"], verts, arm, hand, CAL["elbow_t"], H)
-        for name, p in (("Arm", arm), ("ForeArm", elbow), ("Hand", hand)):
-            j[side + name] = np.array([p[0], at_y(p[0], p[1]), p[1]])
+        j[side + "Arm"] = np.array([arm[0], at_y(arm[0], arm[1]), arm[1]])
         # Shoulder: torso depth at ARMPIT height (lower than the head of a hunchback, which hangs in front of the chest
         # and pulled the slab middle ~8% H forward). Mixamo places the joint at 61% of the depth from the front (median of 18).
         torso = verts[(np.abs(verts[:, 0]) < abs(pit[0])) & (np.abs(verts[:, 2] - pit[1]) < 0.02 * H)]
         if len(torso) > 8:
             yf, yb = torso[:, 1].min(), torso[:, 1].max()
             j[side + "Arm"][1] = yf + CAL["arm_depth"] * (yb - yf)
+        arm_depths(side, elbow, hand, tip)
         j[side + "Tip"] = tip
 
     # A prop above a shoulder pulls that shoulder top up on one side. The body is not made crooked: when the sides
@@ -274,8 +299,7 @@ def solve(verts, tris):
         arm2 = np.array([-src[0], src[2]])
         hand = centerline_point(f["front"], verts, arm2, tip2, CAL["wrist_t"], H)
         elbow = centerline_point(f["front"], verts, arm2, hand, CAL["elbow_t"], H)
-        for name, p in (("ForeArm", elbow), ("Hand", hand)):
-            j[hi + name] = np.array([p[0], at_y(p[0], p[1]), p[1]])
+        arm_depths(hi, elbow, hand, tip)
 
     # ---- torso
     arm_z = 0.5 * (j["LeftArm"][2] + j["RightArm"][2])

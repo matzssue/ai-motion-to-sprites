@@ -35,6 +35,15 @@ METRICS = {
     # prop inside the upper arms (the body tree leaves the arms out): a stock butt "under the armpit" sat in the shoulder.
     # Scored only with --under-arm (motion_audit.UNDER_ARM): a stock on the shoulder sits in it by design
     "prop_in_upper_arms": (None, "m", "penetration"),
+    # the prop (a separate mesh) inside ANY part of the skin - head, torso, legs, upper arms, forearms, hands - by skeleton role;
+    # only the grip zone of a holding hand (its hand, fingers, the forearm's quarter next to the wrist) is left out. The report
+    # names the region (`_prop_in_body`, e.g. forearms.R). Not seen before (the arms were never in the body volume): Kusznik's
+    # stock through the right forearm (round 6) 3.1 cm, and the approved Mixamo shot's butt 7.4 cm inside the right shoulder
+    "prop_in_body": (0.015, "m", "penetration"),
+    # where the prop's rear end should rest while aiming, from skeleton roles (--under-arm = the armpit pocket: between the
+    # inner upper arm and the ribs below the shoulder joint, touching both), on aim frames: its distance from that pocket.
+    # Kusznik round 6: butt on the forearm in front of the elbow, 0 penetration and nothing failed
+    "rest_gap": (None, "m", "grip"),
     # farthest fingertip from the prop while it is in the hands: a finger standing straight up beside the stock. The nearest
     # point of a finger (loose_fingers) is its base, which touches the stock either way
     # (own chains, thumbs out: Kusznik's straight middle finger 3.6 cm, the others 0.2-2.5 cm)
@@ -55,7 +64,7 @@ NEEDS = {
     "prop_rot_jump": (), "loop_seam_deg": ("hand", "head"), "loop_seam_m": ("forearm",),
     "hand_to_prop_L": ("hand.left",), "hand_to_prop_R": ("hand.right",), "prop_above_head": ("region:head",),
     "loose_fingers": ("fingers",), "stretch": (), "skin_twist": ARM, "skin_spread": ARM,
-    "skin_tear": ("shoulder", "upper_arm", "forearm"), "prop_in_upper_arms": ("upper_arm",), "finger_tip_gap": ("fingers",),
+    "skin_tear": ("shoulder", "upper_arm", "forearm"), "prop_in_upper_arms": ("upper_arm",), "prop_in_body": (), "rest_gap": ("upper_arm", "forearm"), "finger_tip_gap": ("fingers",),
     "finger_tip_fold": ("fingers",),
 }
 
