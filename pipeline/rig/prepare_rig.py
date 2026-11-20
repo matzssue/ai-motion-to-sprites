@@ -50,6 +50,39 @@ for n, b in (("RightHand", HAND["Right"]), ("LeftHand", HAND["Left"]), ("Head", 
     if d > 0.02: raise SystemExit("prepare_rig: %s is %.1f cm from the joint in %s - different coordinate frame" % (n, d * 100, CF["joints"]))
 
 
+def rig_chains(side, dom):
+    """[[bone 1, 2, 3], ...] of the rig's own fingers below the hand: chains of 3 bones that own skin (a Mixamo template's
+    finger bones own none)."""
+    out = []
+    for c in arm.data.bones[HAND[side]].children:
+        ch = [c]
+        while len(ch) < 3 and ch[-1].children: ch.append(ch[-1].children[0])
+        if len(ch) == 3 and np.isin(dom, [b.name for b in ch]).any(): out.append([b.name for b in ch])
+    return out
+
+
+# check: every limb bone owns skin, and every palm has vertices from 3 cm past the wrist to the knuckles (step 5 fits the
+# palm plane there). A wrist inside a gauntlet's cuff or past the palm leaves it empty - stop before the prop cut.
+JOINT_OF = {"upper_arm": "Arm", "forearm": "ForeArm", "hand": "Hand", "upper_leg": "UpLeg", "lower_leg": "Leg", "foot": "Foot"}
+dom = dominant(body); co0 = coords()
+for side in ("Left", "Right"):
+    for role, jn in JOINT_OF.items():
+        if PROF.has(role, side) and not (dom == PROF.bone(role, side)).any():
+            raise SystemExit("prepare_rig: no vertex is skinned to the %s %s (bone %s): check %s%s in %s"
+                             % (side.lower(), role.replace("_", " "), PROF.bone(role, side), side, jn, JOINTS_PATH))
+    chains = rig_chains(side, dom)
+    if len(chains) < 2 and not CF.get("fingers"): continue
+    w0 = np.array(JOINTS[side + "Hand"]); ax = np.array(JOINTS[side + "Tip"]) - w0; ax /= np.linalg.norm(ax)
+    t = (co0[dom == HAND[side]] - w0) @ ax
+    if len(chains) > 1:     # as in step 5: the palm ends at the first knuckle that is not the thumb's base
+        knuckles = sorted(float((AW @ arm.data.bones[c[0]].head_local - Vector(w0)) @ Vector(ax)) for c in chains)[1]
+    else:
+        knuckles = CF["fingers"]["base"]
+    if ((t > 0.03) & (t < knuckles)).sum() < 3:
+        raise SystemExit("prepare_rig: the %s palm has no vertices between 3 cm past the wrist and the knuckles (%.1f cm): "
+                         "check %sHand in %s - inside a cuff, or past the palm?" % (side.lower(), 100 * knuckles, side, JOINTS_PATH))
+
+
 # ---------- 1. prop vertex selection ----------
 def in_box(co, bx):
     lo, hi = np.array(bx[0]), np.array(bx[1]); return ((co >= lo) & (co <= hi)).all(1)
@@ -338,18 +371,7 @@ FC = CF.get("fingers")
 FING = {}
 
 
-def rig_chains(side):
-    """[[bone 1, 2, 3], ...] of the rig's own fingers below the hand: chains of 3 bones that own skin (a Mixamo template's
-    finger bones own none)."""
-    out = []
-    for c in arm.data.bones[HAND[side]].children:
-        ch = [c]
-        while len(ch) < 3 and ch[-1].children: ch.append(ch[-1].children[0])
-        if len(ch) == 3 and np.isin(dom, [b.name for b in ch]).any(): out.append([b.name for b in ch])
-    return out
-
-
-OWN = {s: c for s in ("Right", "Left") for c in [rig_chains(s)] if c}
+OWN = {s: c for s in ("Right", "Left") for c in [rig_chains(s, dom)] if c}
 for side, chains in OWN.items():
     w0 = np.array(JOINTS[side + "Hand"]); ax = np.array(JOINTS[side + "Tip"]) - w0; ax /= np.linalg.norm(ax)
     fl = []
