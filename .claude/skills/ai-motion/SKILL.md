@@ -296,6 +296,14 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   and `prepare_rig` found an empty palm. The knee now follows the leg's own run in a side raster and takes the apex of
   the bulge nearest SOMA's knee; the wrist takes the start of the neck after a cuff. `prepare_rig` stops early on an
   empty limb bone or palm, naming the joint to move.
+- Bone heat gives a vertex the nearest bone it can SEE in a straight line, at any distance. The knight's tabard hem saw
+  none of its own bones behind the leg plates, only the front half of `toe.L` poking out of the sabaton, and took it at
+  0.85-1.0 from 46 cm away (a spike in front of the hips in every leg pose; hem edges x13-24). Arm and leg bones keep
+  weight only within 3-4 x their own skin radius (`pipeline/lib/weight_reach.py`); what is taken comes from the mesh
+  neighbours, so cloth follows what the cloth above it hangs from.
+- Thumb = of the front digits, the one leaving the hand nearest the wrist. "Most forward" alone tied on the knight's right
+  gauntlet (index finger and thumb stub 10.8 cm each): the thumb chain went into the index finger, the stub got no bone,
+  and the index tip shared by two chains folded at any curl (`finger_tip_fold` 21-64%, 0% after).
 - Auto-rig head: skin whose largest weight is the head carries no weight of a shoulder or anything below it. Bone heat
   gave Kusznik's forward-hanging face up to 0.15 of the right shoulder and the cheek 0.10 of the right upper arm, and the
   aim pulled the face to one side (author).
