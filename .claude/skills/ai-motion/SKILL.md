@@ -94,6 +94,8 @@ blender -b --python pipeline/motion/keyposes_to_kimodo.py -- <poses>.glb <work>/
 <kimodo python> pipeline/motion/kimodo_keyposes.py --motion <motion>.json --emb <work>/emb.pt --base <work>/e1/body.npz:<N>
     --poses <work>/kf/poses.json --keys 0:0,55:44,125:0 --out <work>/kf --name kf
 ```
+   Check the poses without Kimodo: add `--dry-run <out>.npz` to `kimodo_keyposes.py` (CPU, no model, no GPU lock; `--emb`,
+   `--out`, `--name` may be left out): it prints hips and the lowest foot joint per key (Kimodo ground = 0).
    `<work>` here = `character.py`'s `<work_dir>/<action>`. `merged_body_s<N>` = retarget of THE sample the poses were set on
    (another sample gives wrong deltas without any error).
    Keys: Kimodo frame (30 fps) : pose frame (24 fps); last key = first pose. A one-shot action (`"loop": false` in
@@ -174,6 +176,13 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - One long sentence = a static pose for the whole clip. One sentence per phase.
 - **Locomotion pinned in place comes out standing** (a Kimodo sprint: all 4 samples moved < 0.2 deg). Set `root_speed` (m/s)
   in the motion file: the root travels forward during generation and the travel is subtracted before saving (clip in place).
+- **Key poses passed bone rotations only (until 2026-11):** the pose was rebuilt on the base sample's hips, so a crouch set
+  by hand reached Kimodo at standing hip height and floated (Padlinozerca: hips 0.94 m, lowest foot joint 39.5 cm up; the
+  generated clip floated 41 cm). `keyposes_to_kimodo.py` now writes `hips` (the source hips the retarget turns into the
+  pose's, `keypose_root.py`) and `kimodo_keyposes.py` builds the pose on them: crouch 0.52 m, foot joint -3.1 cm; the leap
+  pose 1.15 m with the feet 8 cm up. A `poses.json` from before prints WARNING and keeps the old behaviour: rerun
+  `keyposes_to_kimodo.py`. Kimodo has no foot-contact input in its API; feet follow from the hips + rotations (the
+  rig's leg proportions leave ~3 cm).
 - **Kimodo cannot do a deep forward bend from text** ("curls forward, chest on knees" twice gave a squat with the shoulders
   22 cm BEHIND the hips). Set such a key pose by hand from a reference picture (bone directions + 2-bone IK from bone heads)
   and run the motion through it. Measure the lean (shoulder vs hip along the forward axis), do not judge from a thumbnail.
