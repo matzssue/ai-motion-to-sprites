@@ -4,7 +4,7 @@ python pipeline/rig/auto_rig.py --src=... --out=... --template=<any Mixamo FBX w
     # Mixamo-compatible `mixamorig:*` names; hierarchy, rest orientations and finger bones come from that FBX
 python pipeline/rig/auto_rig.py --bench --mesh-dir=<npz> --gt-dir=<json>   # against rigs made by Mixamo
 Joints (numpy/scipy/PIL) -> skeleton and weights in Blender (`auto_rig_blender.py`). Joints land in `<out>_joints.json`
-(editable by hand; an existing file is reused).
+(editable by hand; an existing file is reused). Before Blender the mirrored L/R joints are checked (`symmetry_gate`).
 
 Joints file: {key: [x, y, z]} in world metres, keys of `solve` (Hips, Spine..Spine2, Neck, Head, HeadTop_End, <Side>Shoulder,
 Arm, ForeArm, Hand, Tip, UpLeg, Leg, Foot, ToeBase, Toe_End). The own skeleton also reads <Side>Hand<Finger>1..4 (knuckle ..
@@ -359,6 +359,47 @@ def solve(verts, tris):
     return j, f
 
 
+# ---------------------------------------------------------------- symmetry
+SYM_JOINTS = ("Shoulder", "Arm", "ForeArm", "Hand", "UpLeg", "Leg", "Foot", "ToeBase", "Toe_End") + tuple(
+    "Hand%s1" % f.capitalize() for f in own_skeleton.FINGERS)
+
+
+def asymmetry(j):
+    """([(distance m, joint name without the side)] worst first, midline x): left joints against the right ones mirrored in
+    the median midline of the pairs (a model 0.9 cm off x = 0 put every Kusznik pair 1.9 cm apart; one broken pair does not
+    move the median). Body joints and finger knuckles; fingertips and outer finger joints follow each hand's own pose."""
+    pairs = [(n, np.asarray(j["Left" + n], float), np.asarray(j["Right" + n], float))
+             for n in SYM_JOINTS if "Left" + n in j and "Right" + n in j]
+    if not pairs: return [], 0.0
+    mid = float(np.median([0.5 * (L[0] + R[0]) for _, L, R in pairs]))
+    out = [(float(np.linalg.norm(L - np.array([2 * mid - R[0], R[1], R[2]]))), n) for n, L, R in pairs]
+    return sorted(out, reverse=True), mid
+
+
+# limits as fractions of the character height (derivation: .claude/skills/ai-motion/AUDIT.md, "Rig symmetry")
+ASYM_BODY, ASYM_KNUCKLE = 0.03, 0.05
+
+
+def symmetry_gate(j, H, where, allow=False):
+    """Stops the rig when a mirrored joint pair is further apart than its limit: one side was detected on a prop, a strap
+    or a wrong layer (Kusznik's left elbow 9.1 cm off) and no later audit sees it. `allow`: the model is posed asymmetrically."""
+    a, mid = asymmetry(j)
+    if not a: return
+    knuckle = lambda n: n.startswith("Hand") and n != "Hand"
+    groups = (("body", [x for x in a if not knuckle(x[1])], ASYM_BODY), ("knuckles", [x for x in a if knuckle(x[1])], ASYM_KNUCKLE))
+    print("auto_rig: symmetry (midline x %+.1f cm) %s" % (100 * mid, ", ".join(
+        "%s worst %s %.1f cm (limit %.1f)" % (g, x[0][1], 100 * x[0][0], 100 * lim * H) for g, x, lim in groups if x)))
+    bad = [(d, n, lim) for _, x, lim in groups for d, n in x if d > lim * H]
+    if not bad: return
+    text = ", ".join("Left/Right%s %.1f cm (limit %.1f)" % (n, 100 * d, 100 * lim * H) for d, n, lim in bad)
+    if allow:
+        print("auto_rig: asymmetric pose allowed - %s" % text); return
+    raise SystemExit("auto_rig: the rig is lopsided - mirrored joints too far apart: %s. One side was detected on a prop, a strap "
+                     "or the wrong body layer. Look at %s; fix the joint by hand (the file is reused) or delete it to detect again, "
+                     "give a separate prop as its own mesh (character.json prop_model), or for a model posed asymmetrically pass "
+                     "--allow-asymmetry (character.json rig_asymmetric)" % (text, where))
+
+
 # ---------------------------------------------------------------- bench
 def load_mesh(npz):
     z = np.load(npz)
@@ -400,7 +441,7 @@ def bench(mesh_dir, gt_dir, only=None):
     return report
 
 
-def rig(src, out, template, joints_path=None, no_fingers=False):
+def rig(src, out, template, joints_path=None, no_fingers=False, allow_asymmetry=False):
     """FBX for rigging -> rig_base.fbx. Joints land in `joints_path` (JSON, for manual fixes). No template = own skeleton."""
     work = os.path.splitext(out)[0]
     npz = work + "_mesh.npz"
@@ -418,6 +459,8 @@ def rig(src, out, template, joints_path=None, no_fingers=False):
             print("auto_rig: crotch %s, robe=%s" % (f["crotch_z"], f["robe"]))
     else:
         own_joints_file(verts, tris, joints_path)
+    symmetry_gate({k: v for k, v in json.load(open(joints_path)).items() if not k.startswith("_")},
+                  float(verts[:, 2].max() - verts[:, 2].min()), joints_path, allow_asymmetry)
     cmd = [BLENDER, "--background", "--python-exit-code", "1", "--python", blend, "--",
            "build", "--src=" + src, "--joints=" + joints_path, "--out=" + out]
     if template:
@@ -481,6 +524,8 @@ def main():
     # them on the mesh, so there they deform unless --no-fingers.
     ap.add_argument("--fingers", action=argparse.BooleanOptionalAction, default=None,
                     help="finger bones deform the mesh (default: yes for the own skeleton, no with --template)")
+    ap.add_argument("--allow-asymmetry", action="store_true",
+                    help="the model is posed asymmetrically: the symmetry gate reports, but does not stop the rig")
     a = ap.parse_args()
     if a.bench:
         rep = bench(a.mesh_dir, a.gt_dir, a.only.split(",") if a.only else None)
@@ -488,7 +533,7 @@ def main():
             json.dump(rep, open(a.report, "w"))
     elif a.src and a.out:
         fingers = a.fingers if a.fingers is not None else not a.template
-        rig(a.src, a.out, a.template, a.joints, not fingers)
+        rig(a.src, a.out, a.template, a.joints, not fingers, a.allow_asymmetry)
     else:
         ap.error("give --src and --out (and --template for a Mixamo skeleton), or --bench")
 

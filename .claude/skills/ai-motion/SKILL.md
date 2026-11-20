@@ -19,7 +19,7 @@ python pipeline/character.py --character <dir>/character.json [--from stage] [--
 |---|---|---|
 | (before) | the model: A/T pose, facing −Y | |
 | prepare | `prepare_for_rigging.py` (decimate, embed texture; `prop_model` joins a separate prop, marked) | |
-| rig | `auto_rig.py` (own skeleton `amts`; `--template <mixamo.fbx>` = `mixamorig:*`) | `auto_rig: fist` lines: share of hand edges torn on a fist |
+| rig | `auto_rig.py` (own skeleton `amts`; `--template <mixamo.fbx>` = `mixamorig:*`) | `auto_rig: symmetry` (STOP past the limit, AUDIT.md "Rig symmetry"); `auto_rig: fist` lines: share of hand edges torn on a fist |
 | rig_ai | `prepare_rig.py` + preview | **STOP**: look at the preview (§2) |
 | calibration | library actions on the AI rig + audit | FAIL = STOP, the rig or the measure is wrong, not the AI |
 | ai | §3: body (4 samples, full chain) → key poses → Kimodo through the poses → 4 samples → best → `review_page.py` | **STOP** on poses (`<work>/<action>/poses_approved.json` `{"glb"}`) and on the motion (`actions.<a>.approved` `{"bvh","score","date"}`) |

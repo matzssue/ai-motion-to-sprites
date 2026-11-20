@@ -78,6 +78,26 @@ def test_robe_without_leg_gap():
         assert mirrored(j, n), n
 
 
+def test_symmetry_gate():
+    """Mirrored L/R joints: the body within 3% of the height, knuckles within 5%; a model off x = 0 is not lopsided."""
+    import pytest
+    j, _ = auto_rig.solve(*humanoid())
+    j = {k: np.asarray(v, float) for k, v in j.items()}
+    j.update(LeftHandIndex1=np.array([0.97, -0.03, 1.38]), RightHandIndex1=np.array([-0.97, -0.03, 1.38]))
+    a, mid = auto_rig.asymmetry(j)
+    assert a[0][0] < 0.01 and abs(mid) < 1e-3
+    auto_rig.symmetry_gate(j, H, "x.json")
+    moved = {k: v + np.array([0.03, 0.0, 0.0]) for k, v in j.items()}
+    assert auto_rig.asymmetry(moved)[0][0][0] < 0.01 and abs(auto_rig.asymmetry(moved)[1] - 0.03) < 1e-3
+    elbow = dict(j, LeftForeArm=j["LeftForeArm"] + np.array([0.0, 0.09, 0.0]))     # Kusznik: elbow on the crossbow's layer
+    with pytest.raises(SystemExit, match=r"Left/RightForeArm 9\.\d cm \(limit 5\.4\).*x\.json"):
+        auto_rig.symmetry_gate(elbow, H, "x.json")
+    auto_rig.symmetry_gate(elbow, H, "x.json", allow=True)
+    auto_rig.symmetry_gate(dict(j, LeftHandIndex1=j["LeftHandIndex1"] + np.array([0.0, 0.08, 0.0])), H, "x.json")
+    with pytest.raises(SystemExit, match="Left/RightHandIndex1"):
+        auto_rig.symmetry_gate(dict(j, LeftHandIndex1=j["LeftHandIndex1"] + np.array([0.0, 0.1, 0.0])), H, "x.json")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"): fn(); print("ok", name)

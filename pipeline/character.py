@@ -86,7 +86,7 @@ if stage("prepare", r(C["rig_input"]), r(C["model"]), *PROP_MODEL):
 # 2. auto-rig (skeleton + weights + joints): own skeleton, or mixamorig from the template
 if stage("rig", r(C["rig"]), r(C["rig_input"])):
     python(script_path("auto_rig.py"), "--src=" + r(C["rig_input"]), "--out=" + r(C["rig"]),
-           *([] if OWN_RIG else ["--template=" + r(TEMPLATE)]))
+           *([] if OWN_RIG else ["--template=" + r(TEMPLATE)]), *(["--allow-asymmetry"] if C.get("rig_asymmetric") else []))
 # 3. AI rig: prop on its own bone, fingers from claws. A new one = look at the preview before going on
 if stage("rig_ai", RIG_AI, r(C["rig"]), r(C["rig_config"]), script_path("prepare_rig.py")):
     blender("prepare_rig.py", "RIG OK", "--rig", r(C["rig"]), "--config", r(C["rig_config"]), "--out", RIG_AI, "--preview", *SK)
