@@ -2,7 +2,6 @@
 python pipeline/rig/auto_rig.py --src=<x>_for_rig.fbx --out=rig_base.fbx      # own skeleton (skeletons/amts.json)
 python pipeline/rig/auto_rig.py --src=... --out=... --template=<any Mixamo FBX with the standard skeleton>
     # Mixamo-compatible `mixamorig:*` names; hierarchy, rest orientations and finger bones come from that FBX
-python pipeline/rig/auto_rig.py --bench --mesh-dir=<npz> --gt-dir=<json>   # against rigs made by Mixamo
 Joints (numpy/scipy/PIL) -> skeleton and weights in Blender (`auto_rig_blender.py`). Joints land in `<out>_joints.json`
 (editable by hand; an existing file is reused). Before Blender the mirrored L/R joints are checked (`symmetry_gate`).
 
@@ -10,8 +9,10 @@ Joints file: {key: [x, y, z]} in world metres, keys of `solve` (Hips, Spine..Spi
 Arm, ForeArm, Hand, Tip, UpLeg, Leg, Foot, ToeBase, Toe_End). The own skeleton also reads <Side>Hand<Finger>1..4 (knuckle ..
 tip, Finger = Thumb, Index, Middle, Ring, Pinky); keys starting with `_` are comments. Another detector plugs in by writing
 this file before the run: missing finger keys are then placed from the mesh (hand_fingers.py), nothing else is changed.
-Without a template the spine split and the clavicle start of a fresh detection come from SOMA proportions
-(own_skeleton.own_joints), not from the Mixamo-measured SPINE_T / Shoulder rule below."""
+Sources of every number (no Mixamo rig is used as a source or a check): body proportions of the SOMA77 skeleton
+(`SOMA`), joint-to-surface relations from ANSUR II (`HIPS_ABOVE_CROTCH`, `ARM_UP`), the rest from the mesh itself. The
+spine split and the clavicle start come from SOMA (own_skeleton.own_joints); with --template from that template's own
+layout (`template_layout`), so a `mixamorig:*` rig keeps the skeleton the user's file defines."""
 import argparse
 import json
 import os
@@ -29,27 +30,42 @@ import own_skeleton
 
 RES = 512  # pixels per character height
 
-# Mixamo proportions measured on 18 rigs (--bench prints them). Mixamo places the spine and clavicle RIGIDLY:
-# Spine/Spine1/Spine2 = 0.2/0.433/0.7 of Hips->Neck, Shoulder.x = Arm.x/3 - identical to a thousandth on all of them.
-SPINE_T = (0.2, 0.433, 0.7)
-CAL = {
-    "hips_above_crotch": 0.172,  # Hips.z - crotch, fraction of H
-    "hips_t": 0.666,             # Hips on ankle->Arm (when the crotch is hidden: robe, loincloth)
-    "upleg_x": 0.834,            # UpLeg.x / Leg.x
-    "upleg_down": 0.13,          # UpLeg below Hips, fraction of Hips->knee
-    "knee_t": 0.448,             # knee: fraction of ankle->Hips (from the ankle)
-    "ankle_z": 0.072,            # Foot.z above the floor, fraction of H
-    "arm_in": 0.0,               # Arm.x relative to the armpit, fraction of H
-    "arm_t": 0.65,               # Arm.z: fraction of armpit->shoulder top
-    "arm_up": 0.139,             # Arm.z above the armpit when the shoulder top cannot be measured
-    "arm_depth": 0.61,           # Arm.y: fraction of torso depth from the front, at armpit height
-    "wrist_t": 0.678,            # Hand: fraction of Arm->fingertip
-    "elbow_t": 0.477,            # ForeArm: fraction of Arm->Hand
-    "neck_above_arm": 0.043,     # Neck.z above Arm.z, fraction of H
-    "head_above_neck": 0.037,
-    "head_to_snout": 0.06,       # Head.y: fraction of the way neck -> snout tip
-    "toe_base_t": 0.639,         # ToeBase: fraction of ankle->toe tip (in Y)
+# Proportions of the SOMA77 skeleton (`kimodo/assets/skeletons/somaskel77/somaskel77_standard_tpose.bvh`, Kimodo
+# repository, Apache-2.0; the skeleton the motion is generated on). Recompute: tools/soma_proportions.py <bvh>.
+# H = SOMA's head top (HeadEnd) above the floor; both sides averaged.
+SOMA = {
+    "hips_z": 0.5685,          # Hips above the floor, fraction of H
+    "hips_t": 0.686,           # Hips on ankle -> Arm, by height
+    "upleg_down": 0.162,       # UpLeg below Hips, fraction of Hips -> knee
+    "knee_t": 0.449,           # knee: fraction of ankle -> Hips (from the ankle)
+    "wrist_t": 0.746,          # Hand: fraction of Arm -> middle fingertip
+    "arm_len": 0.317,          # Arm -> Hand (upper arm + forearm), fraction of H
+    "elbow_t": 0.515,          # ForeArm: fraction of Arm -> Hand
+    "neck_above_arm": 0.018,   # Neck (SOMA Neck1, the base of the neck) above Arm, fraction of H
+    "head_above_neck": 0.079,  # Head (skull base) above Neck
+    "head_forward": 0.024,     # Head in front of Neck (Neck stands at the shoulders' depth: SOMA 0.1% H apart)
+    "toe_base_t": 0.672,       # ToeBase: fraction of ankle -> toe tip (in Y)
 }
+# Joint-to-surface relations: SOMA joint heights against landmarks of ANSUR II (Gordon et al. 2014, "2012 Anthropometric
+# Survey of U.S. Army Personnel: Methods and Summary Statistics", NATICK/TR-15/007; summary statistics, printed page numbers; mean of the
+# female and male means over stature 162.85 / 175.62 cm, p. 194). The surveyed body is a real adult: a generated character's
+# boots, pauldrons or hump are not in it.
+# crotch height 78.23 / 84.59 cm (p. 98) = 0.481 of stature: Hips this far above the crotch
+HIPS_ABOVE_CROTCH = SOMA["hips_z"] - 0.481
+# UpLeg.x: SOMA's hip joints 0.114 H apart over hip breadth (35.38 / 34.57 cm, p. 144) = 0.552 of the body's half-width at
+# the hip joints (the thigh does not stand vertical over a generated character's knee: Wybuchacz's knees stand wide)
+HIP_PER_BREADTH = 0.552
+# Ankle above the floor: lateral malleolus height (6.27 / 7.29 cm, p. 162) over foot length (24.63 / 27.12 cm, p. 116)
+ANKLE_PER_FOOT = 0.262
+# Arm above the armpit when the shoulder top cannot be measured: half of acromial height (133.51 / 144.07 cm, p. 48) minus
+# axilla height (123.90 / 132.91 cm, p. 54) = 0.5 x 0.061 of stature, the middle of the arm's root as with a measured top
+ARM_UP = 0.5 * 0.061
+# Arm.z: the middle of the arm's root between the armpit and the shoulder top above it (the joint on the limb's axis, as
+# the elbow and the wrist are centred across the silhouette). SOMA's joint height against ANSUR's landmarks would give
+# 0.88: the pivot at the top of the deltoid, and on a pauldron above it.
+ARM_T = 0.5
+# Arm.y: fraction of the torso's depth at armpit height from the front - its middle, the mid-axillary line
+ARM_DEPTH_T = 0.5
 
 
 # ---------------------------------------------------------------- 2D silhouettes
@@ -236,6 +252,13 @@ def centerline_point(front, verts, a, b, t, H):
     return p
 
 
+def wrist_t(arm, tip, H):
+    """Wrist as a fraction of Arm -> fingertip: SOMA's, or SOMA's arm length (upper arm + forearm) over the height when that
+    ends nearer. A claw or an oversized hand lengthens Arm -> tip, not the arm: Padlinozerca's claws put the wrist at 0.746
+    of it inside the hand, the depth of one wrist on a claw layer (sides 7.1 cm apart)."""
+    return min(SOMA["wrist_t"], SOMA["arm_len"] * H / max(float(np.linalg.norm(np.asarray(tip) - np.asarray(arm))), 1e-6))
+
+
 def solve(verts, tris):
     f = detect(verts, tris)
     H, zmin = f["H"], f["zmin"]
@@ -256,7 +279,7 @@ def solve(verts, tris):
         hangs 15 cm in front of the shoulder joint, so the layer nearest the shoulder was the crossbow on the back."""
         hy = limb_y(hand[0], hand[1], tip[1])
         sy = j[side + "Arm"][1]
-        ey = limb_y(elbow[0], elbow[1], sy + CAL["elbow_t"] * (hy - sy))
+        ey = limb_y(elbow[0], elbow[1], sy + SOMA["elbow_t"] * (hy - sy))
         j[side + "ForeArm"] = np.array([elbow[0], ey, elbow[1]]); j[side + "Hand"] = np.array([hand[0], hy, hand[1]])
 
     # ---- arms
@@ -267,18 +290,18 @@ def solve(verts, tris):
         if pit is None:
             pit = np.array([sgn * 0.12 * H, zmin + 0.7 * H])
         thick = pit[2] - pit[1] if len(pit) > 2 else 0.0
-        up = CAL["arm_t"] * thick if 0.04 * H < thick < 0.4 * H else CAL["arm_up"] * H
-        arm = np.array([pit[0] - sgn * CAL["arm_in"] * H, pit[1] + up])
+        up = ARM_T * thick if 0.04 * H < thick < 0.4 * H else ARM_UP * H
+        arm = np.array([pit[0], pit[1] + up])     # straight above the top of the armpit
         tip2 = np.array([tip[0], tip[2]])
-        hand = centerline_point(f["front"], verts, arm, tip2, CAL["wrist_t"], H)
-        elbow = centerline_point(f["front"], verts, arm, hand, CAL["elbow_t"], H)
+        hand = centerline_point(f["front"], verts, arm, tip2, wrist_t(arm, tip2, H), H)
+        elbow = centerline_point(f["front"], verts, arm, hand, SOMA["elbow_t"], H)
         j[side + "Arm"] = np.array([arm[0], at_y(arm[0], arm[1]), arm[1]])
-        # Shoulder: torso depth at ARMPIT height (lower than the head of a hunchback, which hangs in front of the chest
-        # and pulled the slab middle ~8% H forward). Mixamo places the joint at 61% of the depth from the front (median of 18).
+        # Depth: from the torso at ARMPIT height. The slab middle on the joint itself caught the head of a hunchback
+        # hanging in front of the chest (~8% H forward).
         torso = verts[(np.abs(verts[:, 0]) < abs(pit[0])) & (np.abs(verts[:, 2] - pit[1]) < 0.02 * H)]
         if len(torso) > 8:
             yf, yb = torso[:, 1].min(), torso[:, 1].max()
-            j[side + "Arm"][1] = yf + CAL["arm_depth"] * (yb - yf)
+            j[side + "Arm"][1] = yf + ARM_DEPTH_T * (yb - yf)
         arm_depths(side, elbow, hand, tip)
         j[side + "Tip"] = tip
 
@@ -297,46 +320,44 @@ def solve(verts, tris):
         tip = j[hi + "Tip"]
         tip2 = np.array([tip[0], tip[2]])
         arm2 = np.array([-src[0], src[2]])
-        hand = centerline_point(f["front"], verts, arm2, tip2, CAL["wrist_t"], H)
-        elbow = centerline_point(f["front"], verts, arm2, hand, CAL["elbow_t"], H)
+        hand = centerline_point(f["front"], verts, arm2, tip2, wrist_t(arm2, tip2, H), H)
+        elbow = centerline_point(f["front"], verts, arm2, hand, SOMA["elbow_t"], H)
         arm_depths(hi, elbow, hand, tip)
+
+    # ---- ankles: height from the foot's length (generated boots and big feet stand higher than a body's 3.5% H)
+    feet = {}
+    for side in ("Left", "Right"):
+        sgn = 1 if side == "Left" else -1
+        foot_v = verts[(verts[:, 2] < zmin + 0.05 * H) & (sgn * verts[:, 0] > 0)]
+        feet[side] = (foot_v, zmin + ANKLE_PER_FOOT * float(foot_v[:, 1].max() - foot_v[:, 1].min()))
 
     # ---- torso
     arm_z = 0.5 * (j["LeftArm"][2] + j["RightArm"][2])
-    ank_z = zmin + CAL["ankle_z"] * H
-    by_arm = ank_z + CAL["hips_t"] * (arm_z - ank_z)
+    ank_z = 0.5 * (feet["Left"][1] + feet["Right"][1])
+    by_arm = ank_z + SOMA["hips_t"] * (arm_z - ank_z)
     by_crotch = None
     if f["crotch_z"] is not None and not f["robe"]:
-        by_crotch = f["crotch_z"] + CAL["hips_above_crotch"] * H
+        by_crotch = f["crotch_z"] + HIPS_ABOVE_CROTCH * H
     f["hips_by_arm"], f["hips_by_crotch"] = by_arm, by_crotch
     if by_crotch is None or by_crotch < by_arm - 0.08 * H:
         hips_z = by_arm  # the gap between the legs ends at the hem of a robe/loincloth
     else:
         hips_z = 0.5 * (by_arm + by_crotch)
-    neck_z = arm_z + CAL["neck_above_arm"] * H
+    neck_z = arm_z + SOMA["neck_above_arm"] * H
     j["Hips"] = np.array([0.0, at_y(0.0, hips_z, 0.06), hips_z])
-    # Mixamo runs the spine at shoulder depth (Spine2.y = Shoulder.y = Arm.y on 18 rigs); the slab middle moved
-    # a hunchback's neck ~6% H forward.
+    # Neck and head from the shoulders, not from the slab middle: that moved a hunchback's neck ~6% H forward and caught
+    # the head hanging in front of the chest.
     arm_y = 0.5 * (j["LeftArm"][1] + j["RightArm"][1])
     j["Neck"] = np.array([0.0, arm_y, neck_z])
-    # Head: Mixamo places it almost vertically ABOVE the neck (3.7% H higher, 6% of the way to the snout tip) - the slab
-    # middle at that height caught a hunchback's head.
-    head_z = neck_z + CAL["head_above_neck"] * H
-    face = verts[(np.abs(verts[:, 0]) < 0.08 * H) & (verts[:, 2] > arm_z - 0.12 * H)]
-    snout_y = face[:, 1].min() if len(face) else arm_y
-    j["Head"] = np.array([0.0, arm_y + CAL["head_to_snout"] * (snout_y - arm_y), head_z])
+    head_z = neck_z + SOMA["head_above_neck"] * H
+    j["Head"] = np.array([0.0, arm_y - SOMA["head_forward"] * H, head_z])     # the model faces -Y
     j["HeadTop_End"] = np.array([0.0, j["Head"][1], f["zmax"]])
-    for name, t in zip(("Spine", "Spine1", "Spine2"), SPINE_T):
-        j[name] = j["Hips"] + t * (j["Neck"] - j["Hips"])
-    for side in ("Left", "Right"):
-        arm = j[side + "Arm"]
-        j[side + "Shoulder"] = np.array([arm[0] / 3.0, j["Spine2"][1], arm[2] + 0.015 * H])
+    j.update(own_skeleton.own_joints(j))     # Spine..Spine2 and the clavicles (SOMA); a template replaces them
 
     # ---- legs
     for side in ("Left", "Right"):
         sgn = 1 if side == "Left" else -1
-        foot_v = verts[(verts[:, 2] < zmin + 0.05 * H) & (sgn * verts[:, 0] > 0)]
-        ank_z = zmin + CAL["ankle_z"] * H
+        foot_v, ank_z = feet[side]
         ring = verts[(np.abs(verts[:, 2] - ank_z) < 0.01 * H) & (sgn * verts[:, 0] > 0.01 * H)]
         if len(ring) < 4:
             ring = foot_v
@@ -345,8 +366,8 @@ def solve(verts, tris):
         j[side + "Foot"] = np.array([ax, ay, ank_z])
         tip_y = foot_v[:, 1].min()
         j[side + "Toe_End"] = np.array([ax, tip_y, zmin + 0.01 * H])
-        j[side + "ToeBase"] = np.array([ax, ay + CAL["toe_base_t"] * (tip_y - ay), zmin + 0.01 * H])
-        knee_z = ank_z + CAL["knee_t"] * (hips_z - ank_z)
+        j[side + "ToeBase"] = np.array([ax, ay + SOMA["toe_base_t"] * (tip_y - ay), zmin + 0.01 * H])
+        knee_z = ank_z + SOMA["knee_t"] * (hips_z - ank_z)
         runs = f["front"].runs(knee_z)
         leg = [r for r in runs if sgn * 0.5 * (r[0] + r[1]) > 0]
         kx = ax
@@ -354,9 +375,41 @@ def solve(verts, tris):
             r = min(leg, key=lambda r: abs(0.5 * (r[0] + r[1]) - ax))
             kx = 0.5 * (r[0] + r[1])
         j[side + "Leg"] = np.array([kx, at_y(kx, knee_z), knee_z])
-        ul_z = hips_z - CAL["upleg_down"] * (hips_z - knee_z)
-        j[side + "UpLeg"] = np.array([CAL["upleg_x"] * kx, j["Hips"][1], ul_z])
+        ul_z = hips_z - SOMA["upleg_down"] * (hips_z - knee_z)
+        body = run_at(f["front"].runs(ul_z), 0.0)   # the narrower side: a pouch or a quiver at one hip widens the other
+        ux = sgn * HIP_PER_BREADTH * min(-body[0], body[1]) if body and body[0] < 0 < body[1] else kx
+        j[side + "UpLeg"] = np.array([ux, j["Hips"][1], ul_z])
     return j, f
+
+
+# ---------------------------------------------------------------- template layout
+def template_layout(heads):
+    """Spine split and clavicle placement of the template the user supplies ({short bone name: rest head, world}), so a
+    `mixamorig:*` rig keeps the layout that file defines: Spine..Spine2 as fractions of Hips -> Neck, each clavicle's
+    x as a fraction of its Arm's x from the midline and its y/z offsets from Spine2/Arm in units of Hips -> Neck."""
+    h = {k: np.asarray(v, float) for k, v in heads.items()}
+    hips, neck = h["Hips"], h["Neck"]
+    d = neck - hips; L = float(np.linalg.norm(d))
+    out = {"spine": [float((h[k] - hips) @ d) / L ** 2 for k in ("Spine", "Spine1", "Spine2")]}
+    mid = hips[0]
+    out["clavicle_x"] = float(np.mean([(h[s + "Shoulder"][0] - mid) / (h[s + "Arm"][0] - mid) for s in ("Left", "Right")]))
+    out["clavicle_dy"] = float(np.mean([h[s + "Shoulder"][1] - h["Spine2"][1] for s in ("Left", "Right")])) / L
+    out["clavicle_dz"] = float(np.mean([h[s + "Shoulder"][2] - h[s + "Arm"][2] for s in ("Left", "Right")])) / L
+    return out
+
+
+def apply_layout(j, lay):
+    """Spine..Spine2 and the clavicles of joints `j` placed by a template layout (`template_layout`); returns a new dict."""
+    out = {k: np.asarray(v, float) for k, v in j.items()}
+    hips, neck = out["Hips"], out["Neck"]
+    L = float(np.linalg.norm(neck - hips))
+    for k, t in zip(("Spine", "Spine1", "Spine2"), lay["spine"]):
+        out[k] = hips + t * (neck - hips)
+    for s in ("Left", "Right"):
+        arm = out[s + "Arm"]
+        out[s + "Shoulder"] = np.array([lay["clavicle_x"] * arm[0], out["Spine2"][1] + lay["clavicle_dy"] * L,
+                                        arm[2] + lay["clavicle_dz"] * L])
+    return out
 
 
 # ---------------------------------------------------------------- symmetry
@@ -400,45 +453,10 @@ def symmetry_gate(j, H, where, allow=False):
                      "--allow-asymmetry (character.json rig_asymmetric)" % (text, where))
 
 
-# ---------------------------------------------------------------- bench
+# ---------------------------------------------------------------- run
 def load_mesh(npz):
-    z = np.load(npz)
-    return z["verts"], z["tris"]
-
-
-MAIN = ["Hips", "Spine2", "Neck", "Head", "LeftArm", "LeftForeArm", "LeftHand", "RightArm",
-        "RightForeArm", "RightHand", "LeftUpLeg", "LeftLeg", "LeftFoot", "RightUpLeg",
-        "RightLeg", "RightFoot", "LeftToeBase", "RightToeBase"]
-
-
-def bench(mesh_dir, gt_dir, only=None):
-    """Joint error vs Mixamo-made rigs: gt_dir/<name>.json {"rest": {"mixamorig:Bone": [x,y,z]}}, mesh_dir/<name>.npz."""
-    errs, report = {}, {}
-    for name in sorted(os.listdir(gt_dir)):
-        if not name.endswith(".json"):
-            continue
-        n = name[:-5]
-        if only and n not in only:
-            continue
-        gt = {k.split(":")[1]: np.array(v) for k, v in json.load(open(os.path.join(gt_dir, name)))["rest"].items()}
-        verts, tris = load_mesh(os.path.join(mesh_dir, n + ".npz"))
-        j, f = solve(verts, tris)
-        H = f["H"]
-        row = {b: float(np.linalg.norm(j[b] - gt[b]) / H) for b in MAIN}
-        report[n] = {"pred": {b: j[b].tolist() for b in j}, "feat": {
-            "crotch_z": f["crotch_z"], "robe": bool(f["robe"]),
-            "hips_by_arm": f["hips_by_arm"], "hips_by_crotch": f["hips_by_crotch"],
-            "armpits": {k: (v.tolist() if v is not None else None) for k, v in f["armpits"].items()}}}
-        for b, e in row.items():
-            errs.setdefault(b, []).append(e)
-        worst = sorted(row.items(), key=lambda kv: -kv[1])[:3]
-        print("%-18s mean %4.1f%% H  robe=%d  worst: %s" % (
-            n, 100 * np.mean(list(row.values())), f["robe"], ", ".join("%s %.1f%%" % (b, 100 * e) for b, e in worst)))
-    print("\nJOINT             median  max   (%% of character height)")
-    for b in MAIN:
-        print("%-17s %6.1f %6.1f" % (b, 100 * np.median(errs[b]), 100 * np.max(errs[b])))
-    print("TOTAL median %.1f%%" % (100 * np.median([e for v in errs.values() for e in v])))
-    return report
+    with np.load(npz) as z:
+        return z["verts"], z["tris"]
 
 
 def rig(src, out, template, joints_path=None, no_fingers=False, allow_asymmetry=False):
@@ -447,14 +465,21 @@ def rig(src, out, template, joints_path=None, no_fingers=False, allow_asymmetry=
     npz = work + "_mesh.npz"
     joints_path = joints_path or work + "_joints.json"
     blend = script_path("auto_rig_blender.py")
-    run([BLENDER, "--background", "--python-exit-code", "1", "--python", blend, "--", "export", "--src=" + src, "--out=" + npz])
+    cmd = [BLENDER, "--background", "--python-exit-code", "1", "--python", blend, "--", "export", "--src=" + src, "--out=" + npz]
+    run(cmd + (["--template=" + template] if template else []))
     verts, tris = load_mesh(npz)
-    os.remove(npz)
+    z = np.load(npz)
+    heads = dict(zip([str(n) for n in z["tmpl_names"]], z["tmpl_heads"])) if "tmpl_names" in z.files else None
+    z.close(); os.remove(npz)
     if template:
         if os.path.exists(joints_path):
             print("auto_rig: using EXISTING joints from %s (delete the file to detect again)" % joints_path)
         else:
             j, f = solve(verts, tris)
+            lay = template_layout(heads)
+            j = apply_layout(j, lay)
+            print("auto_rig: template layout - spine %s of hips->neck, clavicle x %.3f of the arm's" % (
+                "/".join("%.3f" % t for t in lay["spine"]), lay["clavicle_x"]))
             json.dump({k: [round(float(c), 5) for c in v] for k, v in j.items()}, open(joints_path, "w"), indent=1)
             print("auto_rig: crotch %s, robe=%s" % (f["crotch_z"], f["robe"]))
     else:
@@ -471,15 +496,14 @@ def rig(src, out, template, joints_path=None, no_fingers=False, allow_asymmetry=
 
 
 def own_joints_file(verts, tris, joints_path):
-    """Joints of the own skeleton: a fresh detection (`solve` + SOMA spine/clavicle) or an existing file; fingers missing
+    """Joints of the own skeleton: a fresh detection (`solve`) or an existing file; fingers missing
     in it are placed from the mesh. Written back to `joints_path`."""
     H = float(verts[:, 2].max() - verts[:, 2].min())
     if os.path.exists(joints_path):
         j = {k: v for k, v in json.load(open(joints_path)).items()}
         print("auto_rig: using EXISTING joints from %s (delete the file to detect again)" % joints_path)
     else:
-        j, f = solve(verts, tris)
-        j = own_skeleton.own_joints(j)
+        j, f = solve(verts, tris)    # spine and clavicles already from SOMA (own_skeleton.own_joints)
         print("auto_rig: crotch %s, robe=%s" % (f["crotch_z"], f["robe"]))
     fingers = [k for k in own_skeleton.JOINT_KEYS if "Hand" in k and k[-1].isdigit()]
     if any(k not in j for k in fingers):
@@ -510,13 +534,11 @@ def run(cmd):
 
 def main():
     ap = argparse.ArgumentParser(description="Auto-rig a generated mesh: own skeleton, or a Mixamo-compatible one from --template.")
-    ap.add_argument("--bench", action="store_true")
-    ap.add_argument("--mesh-dir"); ap.add_argument("--gt-dir"); ap.add_argument("--only"); ap.add_argument("--report")
     ap.add_argument("--src", help="FBX prepared for rigging (prepare_for_rigging.py)")
     ap.add_argument("--out", help="output rig_base.fbx")
     ap.add_argument("--joints", help="joints JSON (default next to --out)")
     # The template is the CLIP DUMMY (any Mixamo FBX with the standard skeleton): every bone = its orientation rotated
-    # the shortest way onto the new direction (the same relation Mixamo rigs have).
+    # the shortest way onto the new direction; the spine split and the clavicles keep the template's own layout.
     ap.add_argument("--template", help="Mixamo FBX with the standard 65-bone skeleton (not distributed with this repo); "
                     "without it: the own skeleton (skeletons/amts.json)")
     # With a template fingers do NOT deform by default: finger bones stand from the template, not from the mesh, and when a
@@ -527,15 +549,11 @@ def main():
     ap.add_argument("--allow-asymmetry", action="store_true",
                     help="the model is posed asymmetrically: the symmetry gate reports, but does not stop the rig")
     a = ap.parse_args()
-    if a.bench:
-        rep = bench(a.mesh_dir, a.gt_dir, a.only.split(",") if a.only else None)
-        if a.report:
-            json.dump(rep, open(a.report, "w"))
-    elif a.src and a.out:
+    if a.src and a.out:
         fingers = a.fingers if a.fingers is not None else not a.template
         rig(a.src, a.out, a.template, a.joints, not fingers, a.allow_asymmetry)
     else:
-        ap.error("give --src and --out (and --template for a Mixamo skeleton), or --bench")
+        ap.error("give --src and --out (and --template for a Mixamo skeleton)")
 
 
 if __name__ == "__main__":

@@ -225,13 +225,12 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   back, folded over itself. Stray weight on another finger's outer bone goes to that bone (audit `finger_tip_fold`).
 - Cords hanging from a wrist wrap sit inside the finger tube of the thumb's/pinky's first bone: weighted to it, the grip
   pulled them 4 cm and they showed as strings across the crossbow. Thin mesh beside a finger's first bone goes to the hand.
-- `aim.head_back_deg` turns the neck back and the head forward. On Mixamo the `Neck` bone has no skin, so only the head
-  moved; bone heat gave the own skeleton's neck a third of the throat and the 50 deg tuned on Mixamo stretched it (amts throat
-  edges p95 1.5-1.8 x rest vs Mixamo 1.2-1.4). The auto-rig moves the neck's weight to the head by height above the neck
+- `aim.head_back_deg` turns the neck back and the head forward. Bone heat gave the own skeleton's neck a third of the
+  throat and the 50 deg tuned on an earlier rig stretched it (amts throat edges p95 1.5-1.8 x rest). The auto-rig moves the neck's weight to the head by height above the neck
   joint; moved whole, the base of the neck turned with the head into the hand at the cheek (hands_in_head 0 -> 1.8 cm), and
   the rule by height leaves most of that stretch: set `head_back_deg` per character, 0 when the stock is not at the cheek.
 - Bone heat leaves the chest, clavicle and forearm on the middle of the upper arm: the elbow bend flattened the biceps
-  (-23% radius vs -19% on Mixamo's rig). The auto-rig gives the middle of the upper arm to the upper arm alone, close to
+  (-23% radius). The auto-rig gives the middle of the upper arm to the upper arm alone, close to
   its axis and below the shoulder (from 0.6 of the bone, fading in from 0.45): taken from 0.15 and 0.2 m out, it moved the
   shoulder mass with the arm and tore the shoulder (author: "the left shoulder disappeared"; audit `skin_tear` 10-14%,
   now 0.4% with the biceps still -10%).

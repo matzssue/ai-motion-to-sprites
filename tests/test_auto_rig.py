@@ -98,6 +98,32 @@ def test_symmetry_gate():
         auto_rig.symmetry_gate(dict(j, LeftHandIndex1=j["LeftHandIndex1"] + np.array([0.0, 0.1, 0.0])), H, "x.json")
 
 
+def test_template_layout():
+    """Without a template the spine split and the clavicles are SOMA's (own_skeleton); with one they come from that
+    template's own joints, scaled onto the detected body, and nothing else moves."""
+    import own_skeleton as OS
+    j, _ = auto_rig.solve(*humanoid())
+    hips, neck = j["Hips"], j["Neck"]
+    for k, t in zip(("Spine", "Spine1", "Spine2"), OS.SPINE_SPLIT):
+        assert np.allclose(j[k], hips + t * (neck - hips))
+    T = {k: np.array(v, float) for k, v in {
+        "Hips": [0, 0, 1.0], "Neck": [0, 0.02, 1.5], "Spine": [0, 0, 1.1], "Spine1": [0, 0.01, 1.2], "Spine2": [0, 0.01, 1.35],
+        "LeftArm": [0.18, 0.02, 1.42], "RightArm": [-0.18, 0.02, 1.42],
+        "LeftShoulder": [0.06, 0.01, 1.43], "RightShoulder": [-0.06, 0.01, 1.43]}.items()}
+    lay = auto_rig.template_layout(T)
+    d = T["Neck"] - T["Hips"]
+    assert np.allclose(lay["spine"], [(T[k] - T["Hips"]) @ d / (d @ d) for k in ("Spine", "Spine1", "Spine2")])
+    assert abs(lay["clavicle_x"] - 1 / 3) < 1e-9
+    k = auto_rig.apply_layout(j, lay)
+    L = np.linalg.norm(neck - hips)
+    assert np.allclose(k["Spine1"], hips + lay["spine"][1] * (neck - hips))
+    for s in ("Left", "Right"):
+        assert abs(k[s + "Shoulder"][0] - j[s + "Arm"][0] / 3) < 1e-9
+        assert abs(k[s + "Shoulder"][2] - (j[s + "Arm"][2] + 0.01 / np.linalg.norm(d) * L)) < 1e-9
+        assert abs(k[s + "Shoulder"][1] - k["Spine2"][1]) < 1e-9
+    assert all(np.allclose(k[n], j[n]) for n in j if "Spine" not in n and "Shoulder" not in n)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"): fn(); print("ok", name)
