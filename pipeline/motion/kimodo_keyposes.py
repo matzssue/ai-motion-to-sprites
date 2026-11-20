@@ -2,25 +2,29 @@
 Poses = a Kimodo base sample with bones rotated by the difference "posed vs the same frame after retarget" (keyposes_to_kimodo.py).
 $KIMODO_PYTHON pipeline/motion/kimodo_keyposes.py --motion <motion>.json --emb emb.pt --base e1/body.npz:2
     --poses poses.json --keys 0:0,55:44,125:0 --out dir --name kf     (Kimodo frame at 30 fps : pose frame at 24 fps)
+Each pose keeps its hips where the pose has them ("hips" from keyposes_to_kimodo.py): a crouch set by hand stays low.
+--dry-run out.npz builds the key poses only (CPU, no model, no GPU lock) and prints hip and foot heights per key.
 A multi_prompt phase without a key frame crashed Kimodo on reshape: `Poses.crop_move` returns an empty set then."""
 import argparse, json, os, sys
 
 ap = argparse.ArgumentParser(description="Generate motion with Kimodo constrained by full-body key poses.")
-ap.add_argument("--motion", required=True); ap.add_argument("--emb", required=True); ap.add_argument("--out", required=True)
-ap.add_argument("--name", required=True); ap.add_argument("--samples", type=int, default=4); ap.add_argument("--seed", type=int, default=0)
+ap.add_argument("--motion", required=True); ap.add_argument("--emb"); ap.add_argument("--out"); ap.add_argument("--name")
+ap.add_argument("--samples", type=int, default=4); ap.add_argument("--seed", type=int, default=0)
 ap.add_argument("--base", required=True); ap.add_argument("--poses", required=True)
 ap.add_argument("--keys", required=True, help="Kimodo frame:pose frame (24 fps), e.g. 0:0,55:44,125:0")
+ap.add_argument("--dry-run", default=None, metavar="OUT.npz", help="only build the key poses (CPU, no model) and save them")
 A = ap.parse_args()
+if not A.dry_run and not (A.emb and A.out and A.name): ap.error("--emb, --out and --name are required (except with --dry-run)")
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import kimodo_common
-kimodo_common.setup(os.path.basename(__file__))
+import keypose_root
+if not A.dry_run: kimodo_common.setup(os.path.basename(__file__))
 import numpy as np, torch
-from kimodo.model.load_model import load_model
-from kimodo.skeleton import global_rots_to_local_rots
+from kimodo.skeleton import global_rots_to_local_rots, SOMASkeleton30
 from kimodo.constraints import Root2DConstraintSet, FullBodyConstraintSet
 
-R = json.load(open(A.motion, encoding="utf-8")); emb = torch.load(A.emb)
+R = json.load(open(A.motion, encoding="utf-8"))
 texts = [f["text"] for f in R["phases"]]; durs = [f["duration"] for f in R["phases"]]
 keep_s = sum(durs); durs[-1] += R.get("tail_padding", 0.0)
 
@@ -40,9 +44,14 @@ class Empty:
     def to(self, *a, **k): return self
 
 
-dev = "cuda:0"
-model = load_model(kimodo_common.KIMODO_MODEL, device=dev, text_encoder=kimodo_common.CachedEncoder(emb, dev))
-sk30 = model.skeleton; FPS = model.fps; sk77 = sk30.somaskel77.to(dev)
+if A.dry_run:
+    dev = "cpu"; sk30 = SOMASkeleton30(); FPS = 30
+else:
+    from kimodo.model.load_model import load_model
+    dev = "cuda:0"; emb = torch.load(A.emb)
+    model = load_model(kimodo_common.KIMODO_MODEL, device=dev, text_encoder=kimodo_common.CachedEncoder(emb, dev))
+    sk30 = model.skeleton; FPS = model.fps
+sk77 = sk30.somaskel77.to(dev)
 nfs = [int(round(d * FPS)) for d in durs]; T = sum(nfs)
 path, idx = A.base.rsplit(":", 1); d = np.load(path)
 P = torch.from_numpy(d["posed_joints"][int(idx)]).float().to(dev); G = torch.from_numpy(d["global_rot_mats"][int(idx)]).float().to(dev)
@@ -54,9 +63,15 @@ for n, v in W["control"].items():
 C = torch.tensor(W["C"], device=dev); Gt = C @ M                              # Kimodo -> character world
 sl = sk30.get_skel_slice(sk77)
 keys = [tuple(int(x) for x in k.split(":")) for k in A.keys.split(",")]
+if "hips" not in W:
+    print("WARNING %s has no hips (written before they were carried): poses keep the base sample's hip height" % A.poses)
+FEET = [bi[n] for n in ("LeftFoot", "LeftToeBase", "LeftToeEnd", "RightFoot", "RightToeBase", "RightToeEnd")]
 pos, rot = [], []
 for fk, fb in keys:
     fb0 = int(round(fb * FPS / 24)); Go = G[fb0]; loc = global_rots_to_local_rots(Go[None], sk77)[0]
+    root = P[fb0, sk77.root_idx]
+    if "hips" in W:   # the pose's own hips (a hand-set crouch); the base sample's standing hips floated it 34 cm
+        root = torch.tensor(keypose_root.to_kimodo(W["hips"][str(fb)], W.get("src_scale", 1.0)), device=dev, dtype=P.dtype)
     _, spr, _ = sk77.fk(loc[None], P[fb0, sk77.root_idx][None])
     Gn = Go.clone()
     for j, n in enumerate(names):
@@ -64,11 +79,16 @@ for fk, fb in keys:
             Dk = Gt.T @ torch.tensor(W["D"][str(fb)][n], device=dev) @ Gt; Gn[j] = Dk @ Go[j]
         elif par[j] >= 0: Gn[j] = Gn[par[j]] @ loc[j]
     locn = global_rots_to_local_rots(Gn[None], sk77)[0]
-    _, pn, _ = sk77.fk(locn[None], P[fb0, sk77.root_idx][None])
+    _, pn, _ = sk77.fk(locn[None], root[None])
     print("Kimodo key %3d <- pose fr. %2d (base %d): FK check %.4f m, hands moved R %.2f m, L %.2f m" % (
         fk, fb, fb0, float((spr[0] - P[fb0]).norm(dim=-1).max()),
         float((pn[0, bi["RightHand"]] - P[fb0, bi["RightHand"]]).norm()), float((pn[0, bi["LeftHand"]] - P[fb0, bi["LeftHand"]]).norm())))
+    print("  hips y %.3f m (base %.3f), lowest foot joint y %.3f m (base %.3f; ground = 0)" % (
+        float(root[1]), float(P[fb0, sk77.root_idx, 1]), float(pn[0, FEET, 1].min()), float(P[fb0, FEET, 1].min())))
     pos.append(pn[0][sl]); rot.append(Gn[sl])
+if A.dry_run:
+    np.savez(A.dry_run, keys=np.array(keys), positions=torch.stack(pos).cpu().numpy(), rotations=torch.stack(rot).cpu().numpy())
+    print("DRY RUN OK", A.dry_run); raise SystemExit(0)
 track = kimodo_common.root_track(R, T, FPS, dev)
 fr = torch.tensor([k[0] for k in keys])
 for p, fk in zip(pos, fr.tolist()): p[:, [0, 2]] += track[fk]   # the base sample was saved in place
