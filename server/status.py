@@ -9,7 +9,7 @@ from typing import Optional
 
 from . import trail
 from .models import ActionState, Approved, AuditSummary, CharacterSummary, Gate, ImageRef, PipelineState, SampleScore, StageState
-from .pipeline_lib import NOISE, STAGES, fresh, load_character, script_path
+from .pipeline_lib import NOISE, STAGES, fresh, load_character, rig_review, script_path
 
 
 def norm(p: str) -> str:
@@ -226,8 +226,8 @@ def derive(cfg_path: str, cid: str, entries: Optional[list] = None) -> PipelineS
         if passed: W.put("rig_ai", "up_to_date", "up to date", rel(P.rig_ai))
         else:
             gate = Gate(kind="rig", title="Review the new AI rig",
-                        needs="Look at the rig previews: the whole prop red, the thumb red = really the thumb. Approve to note it "
-                              "in the trail and run again; reject with a note and fix the rig config.",
+                        needs="Look at the rig previews: %s. Approve to note it in the trail and run again; reject with a "
+                              "note and fix the rig config." % rig_review("prop" in (read_json(P.rig_data) or {})),
                         images=_images(cid, P, "rig", None))
             if W.put("rig_ai", "waiting", "new AI rig waits for review", rel(P.rig_ai)) == "waiting": rig_gate = gate
         if not os.path.exists(P.rig_data): problems.append("%s is missing: the run needs it after the rig_ai stage" % rel(P.rig_data))

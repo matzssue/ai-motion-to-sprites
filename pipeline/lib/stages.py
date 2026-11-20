@@ -8,6 +8,11 @@ PROP_MESH = "amts_prop"
 NOISE = 0.15   # the audit score of the same motion in another GLB export differs by ~0.1 (README, "Audit noise")
 
 
+def rig_review(has_prop):
+    """What to check on the AI rig previews (the rig_ai STOP of character.py and the service's rig gate)."""
+    return ("the whole prop red, " if has_prop else "") + "fingers coloured, the thumb red = really the thumb"
+
+
 def fresh(out, *inputs):
     if not os.path.exists(out): return False
     return all(os.path.getmtime(out) >= os.path.getmtime(w) for w in inputs if os.path.exists(w))
