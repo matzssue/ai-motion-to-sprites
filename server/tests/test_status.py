@@ -55,7 +55,7 @@ def test_key_poses_wait_with_their_options(ws):
     a = next(x for x in st.actions if x.name == "attack")
     assert s["ai"] == "waiting" and a.step == "poses" and a.status == "waiting"
     assert st.character.gate.kind == "poses" and st.character.gate.action == "attack"
-    assert a.gate.poses_options == ["poses/poses.glb", "poses_v2/poses.glb"]
+    assert a.gate.poses_options == ["poses/poses.glb", "poses_by_hand/poses.glb", "poses_v2/poses.glb"]
     assert "frames 0, 12" in a.gate.needs and [i.label for i in a.gate.images] == ["attack/poses/preview/attack.png"]
 
 

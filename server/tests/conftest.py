@@ -76,6 +76,7 @@ class Workspace:
     def _poses(self):
         self.write("attack/poses/poses.glb"); self.write("attack/poses/preview/attack.png", "png")
         self.write("attack/poses_v2/poses.glb")
+        self.write("attack/poses_by_hand/poses.glb")   # pose_edit_scene.py --export
 
     def _poses_approved(self): self.write("attack/poses_approved.json", {"glb": "poses/poses.glb"})
 
