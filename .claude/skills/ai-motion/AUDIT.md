@@ -25,6 +25,9 @@ The body without arms (from the upper arm down) is one almost closed volume; eve
 Regions measured as separate volumes gave 15 cm false positives (they are open where they meet).
 
 ## Limits (m for a 1.8 m character, scaled by height; angles in deg; jumps per 1/4 frame)
+Height (`height_m`) is the rig's rest pose, one number per rig (`audit_metrics.height`). Until 2026-11-20 it came from the
+posed first frame of the action: Padlinozerca's 8 attack samples got 1.40-2.15 m against 1.90 m at rest, so a crouching
+sample had limits up to 26% tighter. Scores of approved motions moved with that change; see the PR for the numbers.
 | group | key | limit | meaning / calibration |
 |---|---|---|---|
 | penetration | prop_in_head, hands_in_head | 0.005 | nothing in the head: a reviewer sees it at once |

@@ -14,7 +14,7 @@ from mathutils.bvhtree import BVHTree
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from collisions import dominant, labels, vertices, inside, joint_angles, rig_of, FINGER_PREFIX
 from collisions import labels_all, skin_tree, prop_in_body, depths, stock_end, pocket_gap, limb_radius, POCKET_REST, POCKET_SPAN, POCKET_ARM
-from audit_metrics import METRICS
+from audit_metrics import METRICS, REF_HEIGHT, height
 from grip_words import grip_from_words, grip_in_words
 
 ap = argparse.ArgumentParser(description="Put the prop in both hands: prop pose, two-arm IK, finger wrap, recoil.")
@@ -256,7 +256,9 @@ def prop_pts(C4): return SAMP @ np.array(C4.to_3x3()).T + np.array(C4.translatio
 # the audit's prop_in_body on the solved pose (same skin, regions and grip zone): on the own skeleton and under
 # the armpit a frame over its limit goes into the next pass, so a pose the audit fails is not handed on silently
 LAB_ALL = labels_all(dom, RIG); SIDE_V = np.array([RIG.bone_side(d) for d in dom])
-_zr = np.array([(body.matrix_world @ v.co).z for v in body.data.vertices]); BODY_LIM = METRICS["prop_in_body"][0] * float(np.ptp(_zr)) / 1.8
+# limits scale with the audit's height: the unposed mesh is the rig's rest pose
+HT = height([(body.matrix_world @ v.co).z for v in body.data.vertices])
+BODY_LIM = METRICS["prop_in_body"][0] * HT / REF_HEIGHT
 BODYD = {}
 
 
@@ -270,7 +272,7 @@ def body_check(f, C4):
 # into the jaw while the solver's few test points saw one collision
 _T_BODY = np.array(T_ALL); _REG_BODY = LAB[_T_BODY[:, 0]]
 _I_LIMB = {w_: np.where(LAB_ALL == w_)[0][::2] for w_ in ("hands", "forearms")}
-LIMB_LIM = {(w_, r_): METRICS["%s_in_%s" % (w_, r_)][0] * float(np.ptp(_zr)) / 1.8 for w_ in ("hands", "forearms") for r_ in ("head", "torso")}
+LIMB_LIM = {(w_, r_): METRICS["%s_in_%s" % (w_, r_)][0] * HT / REF_HEIGHT for w_ in ("hands", "forearms") for r_ in ("head", "torso")}
 
 
 # the audit's armpit pocket test (collisions.pocket_gap) on the solved pose: rear end and stock radius in the prop's frame
@@ -305,7 +307,7 @@ def rear_end(C4, S=None):
     return b, (E2[1] if b is E2[0] else E2[0]), sd
 
 
-REST_LIM = POCKET_REST * float(np.ptp(_zr)) / 1.8
+REST_LIM = POCKET_REST * HT / REF_HEIGHT
 
 
 def body_depth(C4, limbs=False, pocket_=False):
@@ -913,7 +915,7 @@ def place(f, C4, prevs, tr):
 # Kusznik's thumb metacarpal (2.1 cm): its skin sat 2.9 cm in the fore-end (fingers_in_prop, limit 0.8 cm) -> 0.9 cm.
 # Moving the palm out instead did not help (the hand's skin met the bow mount) and lifted the fingertips 6.5 cm off
 _FV = np.array([i for i, d_ in enumerate(dom) if d_ in BONE_R])
-FING_LIM = METRICS["fingers_in_prop"][0] * float(np.ptp(_zr)) / 1.8
+FING_LIM = METRICS["fingers_in_prop"][0] * HT / REF_HEIGHT
 
 
 def finger_depths(C4):
@@ -952,7 +954,7 @@ if not A.keep_prop and HEADB in body.vertex_groups:
     FACE_I = np.where((_hw >= 0.3) & (_hw < 0.9))[0]
     FACE_REST = np.array([tuple(body.matrix_world @ body.data.vertices[i].co) for i in FACE_I])
     _ax = AW @ bone(BN["Left"]["upper_arm"]).head_local - AW @ bone(BN["Right"]["upper_arm"]).head_local; FACE_AX = np.array(_ax.normalized())
-    FACE_LIM = METRICS["face_skew"][0] * float(np.ptp(_zr)) / 1.8
+    FACE_LIM = METRICS["face_skew"][0] * HT / REF_HEIGHT
     if len(FACE_I) < 20: FACE_I = None
 
 
@@ -989,7 +991,7 @@ OFF = {f: [0.0] * NX for f in frames}
 for f in (frames if A.keep_prop else []):
     sc.frame_set(f); _Ci = K[f]["prop"].inverted(); _off = {s_: (_Ci @ K[f][s_ + "palm"]) for s_ in ("Left", "Right")}
     HELD[f] = {s_ for s_, p_ in _off.items()
-               if p_.yz.length <= r_at(p_.x) + GP["clearance"] + METRICS["hand_to_prop_" + s_[0]][0] * float(np.ptp(_zr)) / 1.8}
+               if p_.yz.length <= r_at(p_.x) + GP["clearance"] + METRICS["hand_to_prop_" + s_[0]][0] * HT / REF_HEIGHT}
     print("keep prop fr. %d: palm off the stock axis %s cm, arms kept: %s" % (
         f, {s_: round(100 * p_.yz.length, 1) for s_, p_ in _off.items()}, sorted(HELD[f]) or "-"))
 todo = frames

@@ -12,7 +12,7 @@ from collisions import dominant, masks, vertices, bvh, depth, joint_angles, labe
 from collisions import labels_all, skin_tree, prop_in_body, stock_end, pocket_gap, limb_radius, POCKET_REST, POCKET_SPAN
 import skeleton
 import skin
-from audit_metrics import METRICS, NEEDS, judge
+from audit_metrics import METRICS, NEEDS, REF_HEIGHT, height, judge, scaled
 
 LOOSE_FINGER = 0.02   # m: a finger whose nearest point is farther from the prop does not hold it
 # m: prop inside the upper arms with the stock under the armpit (the butt sits between the arm and the ribs, touching both).
@@ -61,11 +61,13 @@ ptris = np.array([p.vertices[:3] for p in prop.data.polygons]) if prop else None
 sc = bpy.context.scene
 f0, f1 = (int(v) for v in arm.animation_data.action.frame_range)
 dg0 = bpy.context.evaluated_depsgraph_get()
-co_rest = vertices(body, dg0)
-EDGE_L0 = np.linalg.norm(co_rest[EDGES[:, 0]] - co_rest[EDGES[:, 1]], axis=1)
-H = float(co_rest[:, 2].max() - co_rest[:, 2].min())
-SCALE = H / 1.8
-LIM = {k: (v * SCALE if UNIT[k] == "m" else v) for k, v in LIMITS.items() if v is not None}
+co_first = vertices(body, dg0)
+EDGE_L0 = np.linalg.norm(co_first[EDGES[:, 0]] - co_first[EDGES[:, 1]], axis=1)
+arm.data.pose_position = "REST"; bpy.context.view_layer.update()          # rig rest pose: height, and skin twist (heads from head_local)
+CO_REST = vertices(body, bpy.context.evaluated_depsgraph_get()); arm.data.pose_position = "POSE"; bpy.context.view_layer.update()
+H = height(CO_REST[:, 2])
+SCALE = H / REF_HEIGHT
+LIM = scaled(LIMITS, H)
 IN_HANDS = prop is not None and not A.rest_is_normal
 SIDE = np.array([RIG.bone_side(d) for d in dom])
 FINGERS = {}   # finger (a chain below the hand) -> vertex indices; named by its first bone without the number
@@ -74,8 +76,6 @@ HAND = {s: np.where((M["hands"] | M["fingers"]) & (SIDE == s))[0] for s in "LR"}
 I_HAND = np.where(M["hands"] & ~M["fingers"])[0][::2]; I_FORE = np.where(M["forearms"])[0][::2]
 I_FING = np.where(M["fingers"])[0][::4]   # claws past the finger bones are finger skin, not "hands" (fingers_in_head)
 HEADS0 = {b.name: np.array(AW @ b.head_local) for b in arm.data.bones}
-arm.data.pose_position = "REST"; bpy.context.view_layer.update()          # skin twist measured from the rig rest pose (heads from head_local)
-CO_REST = vertices(body, bpy.context.evaluated_depsgraph_get()); arm.data.pose_position = "POSE"; bpy.context.view_layer.update()
 DOM_S = np.array([str(d) for d in dom]); SEGS = {s: skin.segments(PROF, s) for s in skeleton.SIDES}
 SKIN = {s: skin.select(DOM_S, CO_REST, HEADS0, SEGS[s]) for s in skeleton.SIDES} if "skin_twist" not in SKIP else {}
 TORSO = PROF.spine[-1]

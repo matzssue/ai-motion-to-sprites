@@ -46,7 +46,7 @@ inputs, and stops with an exit code of 2 at each human gate.
 
 `motion_audit.py` deforms the mesh every 1/4 frame and measures:
 
-| Group | Metrics | Limit (for a 1.8 m character, scaled by height) |
+| Group | Metrics | Limit (for a 1.8 m character, scaled by the rig's rest-pose height) |
 |---|---|---|
 | penetration | prop / hands / forearms in head, torso, legs, clavicles; fingers in prop; fingers in head (reported only) | 0.5 cm (head) to 4.5 cm (forearm in torso) |
 | joints | wrist bend and twist, mesh stretch (a bad weight makes a "stick"), **arm skin twist** | 85°, 60°, 30 cm, 120° / 0.5 |

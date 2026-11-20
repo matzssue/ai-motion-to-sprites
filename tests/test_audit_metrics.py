@@ -32,3 +32,16 @@ def test_review_page_formats_fractions_as_percent():
     assert review_page.fmt("face_skew", 0.011) == "1.1 cm"
     assert review_page.fmt("wrist_twist_L", 74.2) == "74.2&deg;"
     assert review_page.LABELS["prop_in_pocket"] == "stock in armpit skin"
+
+
+def test_height_is_the_rest_pose_span():
+    rest = [0.02, 0.9, 1.92]          # feet, hips, head top: 1.90 m
+    assert abs(M.height(rest) - 1.90) < 1e-9
+
+
+def test_scaled_moves_only_metre_limits():
+    lim = {"hands_in_head": 0.005, "wrist_bend_L": 80.0, "skin_tear": 0.1, "fingers_in_head": None}
+    out = M.scaled(lim, 1.90)
+    assert abs(out["hands_in_head"] - 0.005 * 1.90 / 1.8) < 1e-12
+    assert out["wrist_bend_L"] == 80.0 and out["skin_tear"] == 0.1
+    assert "fingers_in_head" not in out          # reported only: no limit to scale
