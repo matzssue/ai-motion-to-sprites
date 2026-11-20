@@ -13,6 +13,7 @@ from mathutils import Matrix, Quaternion, Vector
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 import own_skeleton  # noqa: E402
+from stages import PROP_MESH  # noqa: E402
 
 
 def args():
@@ -46,9 +47,11 @@ def mesh_arrays(meshes):
 def stage_export(a):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     meshes = [o for o in import_fbx(a["src"]) if o.type == "MESH"]
-    verts, tris = mesh_arrays(meshes)
+    body = [o for o in meshes if not o.name.startswith(PROP_MESH)]
+    verts, tris = mesh_arrays(body)
     np.savez(a["out"], verts=verts, tris=tris)
-    print("auto_rig: exported %d vertices, %d triangles" % (len(verts), len(tris)))
+    print("auto_rig: exported %d vertices, %d triangles%s" % (len(verts), len(tris), "; separate prop left out (%d vertices)"
+          % sum(len(o.data.vertices) for o in meshes if o not in body) if len(body) < len(meshes) else ""))
 
 
 P = "mixamorig:"
@@ -265,7 +268,9 @@ def stage_build(a):
 def skin_and_export(arm, a, before_export=None):
     """Weights (bone heat on a voxel proxy, moved onto the original), parenting, FBX export."""
     meshes = [o for o in import_fbx(a["src"]) if o.type == "MESH"]
-    proxy = make_proxy(meshes, float(a.get("voxel", "0.008")))
+    # a separate prop stays out of the proxy (the voxel remesh would bridge it to the back); it takes the nearest body weights
+    # here, prepare_rig moves it onto its own bone
+    proxy = make_proxy([o for o in meshes if not o.name.startswith(PROP_MESH)], float(a.get("voxel", "0.008")))
     # bone heat has thresholds in absolute units: a 1.38 m character got "failed to find solution" and ZERO weights,
     # 1.85 m passed. Run at x10; still empty -> x100; finally weights from distance to bones.
     for factor in (10.0, 100.0):
@@ -286,8 +291,8 @@ def skin_and_export(arm, a, before_export=None):
     bpy.ops.object.parent_set(type="ARMATURE_NAME")  # empty groups already exist; parent + modifier only
     for o in meshes:
         print("auto_rig: %s - groups %d, modifiers %s" % (o.name, len(o.vertex_groups), [m.type for m in o.modifiers]))
-    if before_export:
-        before_export(arm, meshes)
+    if before_export:   # weight rules and the fist check on the body; prepare_rig gives a separate prop its own bone
+        before_export(arm, [o for o in meshes if not o.name.startswith(PROP_MESH)])
     bpy.ops.object.select_all(action="DESELECT")
     for o in meshes:
         o.select_set(True)
@@ -299,7 +304,10 @@ def skin_and_export(arm, a, before_export=None):
 
 def build_own(a):
     """Own skeleton from the joints: bones, rest orientation and roll from own_skeleton.bone_frames, no template."""
-    frames = own_skeleton.bone_frames(json.load(open(a["joints"])))
+    try:
+        frames = own_skeleton.bone_frames(json.load(open(a["joints"])))
+    except ValueError as e:
+        raise SystemExit("auto_rig: %s - %s" % (a["joints"], e))
     bpy.ops.wm.read_factory_settings(use_empty=True)
     arm = bpy.data.objects.new(own_skeleton.NAME, bpy.data.armatures.new(own_skeleton.NAME))
     bpy.context.scene.collection.objects.link(arm)

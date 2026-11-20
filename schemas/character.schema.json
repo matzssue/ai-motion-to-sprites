@@ -9,6 +9,8 @@
   "name": {"type": "string", "minLength": 1},
   "model": {"type": "string"},
   "rig_input": {"type": "string"},
+  "rig_asymmetric": {"type": "boolean", "description": "the model is posed asymmetrically (one arm raised, a twisted stance): the auto-rig's symmetry gate only reports"},
+  "prop_model": {"type": "string", "description": "optional separate prop mesh (GLB/FBX) in the model's frame, where it rests on the body: joined for rigging but left out of joint detection and weights; rig.json `prop` then needs no select or debris"},
   "rig": {"type": "string"},
   "rig_config": {"type": "string"},
   "work_dir": {"type": "string"},

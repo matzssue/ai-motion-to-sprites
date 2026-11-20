@@ -111,6 +111,34 @@ def test_mitten_gets_five_spread_chains():
     assert all(chains[f][3][0] < -TIP_X + 0.02 for f in OS.FINGERS)                         # every chain reaches the end
 
 
+def claw_hand(step):
+    """Palm, thumb and four 12 cm claws (triangular tubes); the index claw has vertices only every `step` - a long thin claw
+    on a decimated mesh, whose cross-sections between those vertices are empty."""
+    v, t = fine([((WRIST_X, -0.05, HAND_Z[0]), (PALM_END, 0.05, HAND_Z[1])), ((0.90, -0.10, HAND_Z[0]), (0.96, -0.05, HAND_Z[1]))])
+    V, T, n, zc = [v], [t], len(v), 0.5 * sum(HAND_Z)
+    for k, y in enumerate(LANES):
+        xs = np.arange(PALM_END - 0.004, PALM_END + 0.12 + 1e-9, step if k == 0 else 0.004)
+        V.append(np.array([(x, y + a, zc + b) for x in xs for a, b in ((-0.004, -0.008), (0.008, -0.008), (0.0, 0.008))]))
+        T.append(n + np.array([(3 * i + a, 3 * i + (a + 1) % 3, 3 * i + 3 + a) for i in range(len(xs) - 1) for a in range(3)]
+                              + [(3 * i + (a + 1) % 3, 3 * i + 3 + (a + 1) % 3, 3 * i + 3 + a) for i in range(len(xs) - 1) for a in range(3)]))
+        n += len(V[-1])
+    return np.vstack(V), np.vstack(T)
+
+
+@pytest.mark.parametrize("step", (0.03, 0.05, 0.08))
+def test_thin_claw_never_gives_coincident_joints(step):
+    """A station of a finger without a cross-section goes between its found neighbours (it copied the previous joint, and
+    auto_rig failed on a zero-length bone: Padlinozerca)."""
+    v, t = claw_hand(step)
+    chains, rep = hand_fingers.place(v, t, np.array([WRIST_X, 0.0, 1.38]), v[v[:, 0].argmax()], H, np.array([0.5, 0.0, 1.38]))
+    for f, J in chains.items():
+        seg = np.linalg.norm(np.diff(np.array(J), axis=0), axis=1)
+        assert np.all(seg > 0.001), (f, seg)
+    assert "no cross-section at a joint of index" in rep
+    J = np.array(chains["index"])
+    assert np.all(np.diff(J[:, 0]) > 0.01) and np.all(np.abs(J[1:, 1] - LANES[0]) < 0.015)   # outwards, along its claw
+
+
 def test_bone_frames_rule():
     v, t, j = joints_with_fingers()
     fj, _ = hand_fingers.finger_joints(v, t, j, H)
@@ -126,6 +154,9 @@ def test_bone_frames_rule():
         assert F["index.1." + s][2] @ n > 0.99 and F["hand." + s][2] @ n > 0.99
         assert F["foot." + s][2][2] > 0.5 and F["upper_arm." + s][2][1] < -0.99
     assert F["spine.2"][2][1] < -0.99 and np.allclose(F["head_end"][0], j["HeadTop_End"])
+    k = dict(j, LeftHandIndex3=j["LeftHandIndex2"])
+    with pytest.raises(ValueError, match="index finger of the left hand, bone 2 - joints LeftHandIndex2 and LeftHandIndex3"):
+        OS.bone_frames(k)
     del j["LeftHandRing3"]
     with pytest.raises(KeyError, match="LeftHandRing3"):
         OS.bone_frames(j)

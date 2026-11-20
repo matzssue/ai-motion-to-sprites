@@ -73,6 +73,18 @@ if __name__ == "__main__":
         if name.startswith("test_"): fn(); print("ok", name)
 
 
+def test_separate_prop_and_asymmetric_pose():
+    """character.json: a separate prop mesh and an asymmetric pose; rig.json: such a prop needs no select or debris."""
+    C = json.load(open(os.path.join(EXAMPLES, "character.example.json"), encoding="utf-8"))
+    C.update(prop_model="assets/pole.glb", rig_asymmetric=True)
+    assert schema_check.problems(C, "character") == []
+    C["rig_asymmetric"] = "yes"; assert schema_check.problems(C, "character") != []
+    R = json.load(open(os.path.join(EXAMPLES, "rig.example.json"), encoding="utf-8"))
+    del R["prop"]["select"]; R["prop"].pop("debris", None)
+    assert schema_check.problems(R, "rig") == []
+    del R["prop"]["frame"]; assert schema_check.problems(R, "rig") != []
+
+
 def test_character_without_any_library_clip():
     """No walk_clip and no library walk: valid (grounded on the rest pose, no Mixamo file); ground is a non-empty string."""
     C = json.load(open(os.path.join(EXAMPLES, "character.example.json"), encoding="utf-8"))

@@ -2,6 +2,9 @@
 import os
 
 STAGES = ["prepare", "rig", "rig_ai", "calibration", "ai", "merge", "preview"]
+# name prefix of a separate prop's mesh objects (character.json `prop_model`) from prepare to rig_ai: auto_rig leaves them out of
+# joint detection and of the weight proxy, prepare_rig takes them whole as the prop
+PROP_MESH = "amts_prop"
 NOISE = 0.15   # the audit score of the same motion in another GLB export differs by ~0.1 (README, "Audit noise")
 
 

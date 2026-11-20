@@ -18,8 +18,8 @@ python pipeline/character.py --character <dir>/character.json [--from stage] [--
 | stage | what | gate |
 |---|---|---|
 | (before) | the model: A/T pose, facing −Y | |
-| prepare | `prepare_for_rigging.py` (decimate, embed texture) | |
-| rig | `auto_rig.py` (own skeleton `amts`; `--template <mixamo.fbx>` = `mixamorig:*`) | `auto_rig: fist` lines: share of hand edges torn on a fist |
+| prepare | `prepare_for_rigging.py` (decimate, embed texture; `prop_model` joins a separate prop, marked) | |
+| rig | `auto_rig.py` (own skeleton `amts`; `--template <mixamo.fbx>` = `mixamorig:*`) | `auto_rig: symmetry` (STOP past the limit, AUDIT.md "Rig symmetry"); `auto_rig: fist` lines: share of hand edges torn on a fist |
 | rig_ai | `prepare_rig.py` + preview | **STOP**: look at the preview (§2) |
 | calibration | library actions on the AI rig + audit | FAIL = STOP, the rig or the measure is wrong, not the AI |
 | ai | §3: body (4 samples, full chain) → key poses → Kimodo through the poses → 4 samples → best → `review_page.py` | **STOP** on poses (`<work>/<action>/poses_approved.json` `{"glb"}`) and on the motion (`actions.<a>.approved` `{"bvh","score","date"}`) |
@@ -147,9 +147,11 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   hits the jaw (Wybuchacz crouch 16.2 -> 6.2 after moving the hands to the belly in the key poses and running Kimodo
   through them). One-character script for now: game repo `art_source/characters/wybuchacz/ruch_ai/fix_key_poses.py`;
   generalise it here when a second character needs it.
-- **A Meshy backpack fused into the torso pulls the auto-rig spine and head into the pack** (Wybuchacz: 15-30 cm back) and
-  stretches in motion. Cut it before `auto_rig`, put the prop back as a separate mesh rigid on Spine2, and keep it on the
-  upper back only: below Spine the waist bends away from it (a hip-length keg floated off the back in a sprint).
+- **A prop or pack in the body mesh pulls the auto-rig's joints onto it** (Wybuchacz's backpack: spine and head 15-30 cm
+  back; Flisak's pole behind him: head top on its knob, shoulders 19 cm off; Kusznik's crossbow: left elbow 8 cm). Give it
+  as its own mesh, in the model's frame where it rests on the body: `character.json` `prop_model` (rig.json `prop` then needs
+  no `select`/`debris`). It stays out of joint detection and of the weight proxy. Keep a pack on the upper back only:
+  below Spine the waist bends away from it (a hip-length keg floated off the back in a sprint).
 - **Hand constraints in Kimodo hurt** (same grip): samples without them scored 1.9–3.3 with no hand in the head; with them
   3.8–17.8, a hand in the head in every one. The spread between samples is larger than the gain from tuning: first every
   sample through the full chain, then parameters. Use key poses instead (§3): 1.40 vs 7.29 before.

@@ -18,7 +18,8 @@ joints-file keys <Side>Hand<Finger>1..4 (knuckle .. tip). Any detector that give
    One (a mitten or fused claws): five chains spread evenly across the hand width.
 4. Joints follow the mesh: every joint is the middle of a ring of the digit at one geodesic distance (below the finger
    webs: of the hand, in the digit's lane); the distances come from SOMA proportions (own_skeleton.KNUCKLE / PHALANX /
-   THUMB_BASE)."""
+   THUMB_BASE). A station without a cross-section (a thin claw on a decimated mesh) goes between its found neighbours, so no
+   two joints of a finger coincide."""
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components, dijkstra
@@ -32,6 +33,7 @@ BRIDGE = 0.004     # shells closer than this fraction of the character height ar
 RING = 0.04        # half-width of a ring (cross-section), fraction of the hand length
 THIN = 0.4         # a digit thinner than this fraction of the thickest one is cloth, not a digit
 WRIST_BAND = 0.03  # vertices this close to the wrist plane (fraction of the hand length) are the geodesic source
+MIN_BONE = 0.01    # shortest finger bone, fraction of the hand length
 
 
 def _neighbours(n, edges):
@@ -122,6 +124,7 @@ class _Hand:
         self.g[~ok] = -1.0
         self.ok = np.where(ok)[0]
         self.L = float(self.g.max())
+        self.filled = []   # fingers with a station placed between its neighbours (no ring there)
 
     def thickness(self, d):
         """Mean distance of the digit's middle ring from the ring's centre."""
@@ -152,20 +155,51 @@ class _Hand:
         return c + d * max(0.0, float(((cap - c) @ d).max()))
 
 
+def _between(h, S, pts, far):
+    """Stations without a ring (None in `pts`, at geodesic distances S): on the line between the nearest found neighbours,
+    by geodesic distance; below the first found one the wrist, above the last the digit's far vertex `far`. A long thin claw
+    on a decimated mesh has rings of fewer than 2 vertices: copying the previous joint gave a zero-length bone (Padlinozerca)."""
+    anchors = [(0.0, h.w0)] + [(s, p) for s, p in zip(S, pts) if p is not None] + [(float(h.g[far]), h.P[far])]
+    out = []
+    for s, p in zip(S, pts):
+        if p is None:
+            lo, hi = [x for x in anchors if x[0] <= s], [x for x in anchors if x[0] > s]
+            (s0, a), (s1, b) = max(lo, key=lambda x: x[0]) if lo else anchors[0], min(hi, key=lambda x: x[0]) if hi else anchors[-1]
+            p = a + (b - a) * (s - s0) / (s1 - s0) if s1 > s0 else a
+        out.append(p)
+    return out
+
+
+def _apart(h, pts):
+    """Every joint at least MIN_BONE x the hand length from the previous one, pushed along the chain (the last guard against a
+    zero-length bone, which Blender cannot build)."""
+    out, m = [pts[0]], MIN_BONE * h.L
+    for i, p in enumerate(pts[1:], 1):
+        d = p - out[-1]
+        if np.linalg.norm(d) < m:
+            later = [q - out[-1] for q in pts[i + 1:] if np.linalg.norm(q - out[-1]) >= m]
+            d = later[0] if later else (out[-1] - out[-2] if len(out) > 1 else h.ax)
+            p = out[-1] + d / np.linalg.norm(d) * m
+        out.append(p)
+    return out
+
+
 def _chain(h, finger, own, g_tip, base, lane, u0, band):
     """Knuckle .. tip of one finger: geodesic stations from SOMA proportions; on the digit's `own` vertices above its
     `base`, on the hand vertices of its lane (`lane`, within `band` of u0) below."""
     gk = OS.KNUCKLE.get(finger, OS.KNUCKLE["middle"]) * g_tip
     if base is not None: gk = min(gk, base)
     f = OS.PHALANX[finger]
-    out, last = [], None
-    for s in (gk, gk + f[0] * (g_tip - gk), gk + (f[0] + f[1]) * (g_tip - gk)):
+    S = (gk, gk + f[0] * (g_tip - gk), gk + (f[0] + f[1]) * (g_tip - gk))
+    pts = []
+    for s in S:
         p = h.ring(own, s) if base is not None and s > base else None
         if p is None: p = h.ring(lane, s, u0, band)
-        if p is None: p = last if last is not None else h.w0 + h.ax * s
-        last = p; out.append(p)
+        pts.append(p)
+    if any(p is None for p in pts): h.filled.append(finger)
+    out = _between(h, S, pts, own[np.argmax(h.g[own])])
     out.append(h.tip(own, out[-2], out[-1]))
-    return out
+    return _apart(h, out)
 
 
 def _thumb(h, own, g_tip, base, Lm):
@@ -184,9 +218,11 @@ def _thumb(h, own, g_tip, base, Lm):
     j1 = h.ring(own, gm)
     if j1 is None: j1 = h.P[own].mean(0)
     f = OS.PHALANX["thumb"]
-    j2 = h.ring(own, gm + f[1] / (f[1] + f[2]) * (g_tip - gm))
-    if j2 is None: j2 = j1
-    return [j0, j1, j2, h.tip(own, j1, j2)]
+    s2 = gm + f[1] / (f[1] + f[2]) * (g_tip - gm)
+    j2 = h.ring(own, s2)
+    if j2 is None:
+        h.filled.append("thumb"); j2 = _between(h, (gm, s2), [j1, None], own[np.argmax(h.g[own])])[1]
+    return _apart(h, [j0, j1, j2, h.tip(own, j1, j2)])
 
 
 def place(verts, tris, wrist, tip, H, elbow=None):
@@ -217,7 +253,7 @@ def place(verts, tris, wrist, tip, H, elbow=None):
             d = D[i]; low = d["verts"][h.g[d["verts"]] < d["base"] + RING * h.L]
             u0 = float(h.uu[low if len(low) else d["verts"]].mean())
             out[f] = _chain(h, f, d["verts"], float(h.g[d["tip"]]), d["base"], h.ok, u0, band)
-        return out, "%d digits found%s, 5 used" % (found, cloth)
+        return out, "%d digits found%s, 5 used%s" % (found, cloth, _filled(h))
     pool = h.ok
     if len(D) >= 2:
         fwd = [h.uu[d["verts"]].mean() for d in D]
@@ -229,6 +265,7 @@ def place(verts, tris, wrist, tip, H, elbow=None):
         names, report = OS.FINGERS, "%d digit found%s: 5 fingers spread across the hand" % (found, cloth)
     gw = 0.5 * float(h.g[pool].max())
     m = pool[np.abs(h.g[pool] - gw) < 2 * RING * h.L]
+    if not len(m): m = pool   # nothing at half the length (the rest of a hand without the thumb has a gap there): its whole width
     lo, hi = float(h.uu[m].min()), float(h.uu[m].max())
     k = len(names); band = 0.5 * (hi - lo) / k
     for i, f in enumerate(names):
@@ -237,7 +274,11 @@ def place(verts, tris, wrist, tip, H, elbow=None):
         if not len(lane): lane = pool
         g_tip = float(h.g[lane].max())
         out[f] = _chain(h, "middle" if f == "thumb" else f, lane, g_tip, None, lane, u0, band)
-    return out, report
+    return out, report + _filled(h)
+
+
+def _filled(h):
+    return "; no cross-section at a joint of %s: placed between its neighbours" % ", ".join(sorted(set(h.filled))) if h.filled else ""
 
 
 def finger_joints(verts, tris, joints, H):

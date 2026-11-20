@@ -75,6 +75,22 @@ Whether a motion changed is answered by `compare_motion.py`, not by a score diff
   `PROP POSE` (largest offset and frame) and the `offset` field in `*_arms.json`;
 - naturalness: elbow up, fingers wrapped the wrong way.
 
+## Rig symmetry (auto_rig, before Blender)
+A side detected on a prop or a wrong layer passes every motion audit: Kusznik's left elbow sat 8 cm behind the arm (the
+crossbow on the back) and seven grip rounds were tuned on that arm. `auto_rig.symmetry_gate` mirrors the right joints in the
+median midline of the pairs (Kusznik's model stands 0.8 cm off x = 0) and stops the rig past a limit; `--allow-asymmetry`
+(`character.json` `rig_asymmetric`) for a model posed asymmetrically. Fingertips and outer finger joints are not compared.
+Worst mirrored pair, % of the character height (2026-11-20, detection of `8f3ab95` + body-only prop):
+- **body: limit 3%** (5.7 cm at 1.9 m). Good: Kusznik after the elbow fix 1.6 (forearm 3.0 cm), Boss Warlord 2.6
+  (3.7 cm), Strażnik Brodu 1.6, 15 other rigs 0.2-1.2. Bad: Kusznik before 4.8 (elbow 9.1 cm), Dzwonnik 5.3, Rycerz 8.2,
+  Bosak 10.7, Flisak with the pole joined 12.5 (its body alone 1.2), Planetnik 19.3. Also over the limit: Utopiony Zbrojny
+  3.3 (one arm 8.5 cm off its Mixamo rig, which is symmetric to 0.9 cm), Poborca 4.3, Głębinnik Brzeg 4.4;
+- **knuckles: limit 5%** (9.5 cm). Generated hands differ between sides for real: the Mixamo rigs of the same models have
+  knuckles up to 8.7 cm apart, our approved Wybuchacz 6.1 cm (3.2%), Flisak 6.2 (4.0). Kusznik's knuckles went 5.3 ->
+  0.6 cm with the elbow fix: the elbow catches that, the knuckle limit catches a hand found on a prop (Flisak joined 17 cm).
+Symmetric errors (both arms shifted the same way) are not caught: against Mixamo rigs the detector's worst joint is
+7-30 cm also on symmetric rigs.
+
 ## Arm skin and alpha
 Bone twist and mesh collapse did NOT separate good from bad (an approved overhead strike has a 136° elbow/wrist twist, more
 cross-section collapse, shear and LBS-vs-DQS difference than a rejected swing; the crossbowman has a 145° elbow twist): the
