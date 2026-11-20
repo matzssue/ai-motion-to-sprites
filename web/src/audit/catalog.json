@@ -54,6 +54,12 @@
     "group": "penetration"
   },
   {
+    "key": "fingers_in_head",
+    "label": "fingers in head",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
     "key": "wrist_bend_L",
     "label": "left wrist bend",
     "unit": "deg",
