@@ -102,6 +102,13 @@ Mask-edge specks are 2–19 px and cut fingertips 65–374 px, so the limits are
   `IDENTICAL` (0.5 mm / 0.5°). The audit score alone has ±0.1 noise from GLB vertex reordering.
 - `variants.py`: cartesian grid (or named set) of motion-file parameters, run in parallel within free RAM, ranked table
   with per-group scores and `LIMIT` lines (a solution stuck at the edge of its search range).
+- `pose_edit_scene.py`: key poses by hand when no sample did the motion. At the key-pose STOP, `character.py` leaves
+  `<work>/<action>/poses_by_hand/edit_<sample>.blend`: that sample, bones as sticks in front of the mesh, a marker on each
+  key frame, auto-key on. It is never overwritten. Pose those frames, save, then export it with
+  `blender -b --python pipeline/review/pose_edit_scene.py -- --export <edit.blend> --out <work>/<action>/poses_by_hand/poses.glb`
+  and approve that GLB (`poses_approved.json` `{"glb": ...}`, or in the review service, which lists it among the pose
+  options). The export also writes `poses.glb.json` with the sample. Poses set on another sample than `body.json` stop the
+  run: Kimodo would get wrong deltas without any error.
 - `gpu_queue.py`: one 8 GB GPU shared by Kimodo (which allocates 14 GB and spills to RAM) and Eevee renders. It uses a PID lock
   file and waits while a foreign process holds the GPU. A render next to Kimodo took 28 min instead of 2.
 

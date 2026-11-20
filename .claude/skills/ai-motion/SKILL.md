@@ -84,7 +84,8 @@ the right armpit), `recoil`, `loop_blend_s` (how many last seconds the retarget 
    rake's 17.31). Another sample: `character.py --sample <action>=N`, never by editing `body.json`.
    Do NOT use hand constraints in Kimodo: they pull the arms into the head of a hunched character (measurement in §5).
 2. **Key poses** (start, peak; end = start so it loops) on that sample: `variants.py --frames 0,44` tunes grip and head on
-   the poses alone (~15 s per variant), then `preview_8.py --frames 0,44` + `hand_closeups.py`.
+   the poses alone (~15 s per variant), then `preview_8.py --frames 0,44` + `hand_closeups.py`. A pose no variant fixes is
+   set by hand: `poses_by_hand/edit_<sample>.blend` + `pose_edit_scene.py --export` (§5, "Kimodo hand targets").
    **The poses go to review before any motion is generated** (8 directions, previous version next to it, audit numbers).
 3. **Motion through the poses:**
 ```
@@ -148,8 +149,11 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   and Kimodo constraints only shape the body.
   Without a prop it lands in the key poses: on a rig whose shoulders sit where they really are, "hands to the chest"
   hits the jaw (Wybuchacz crouch 16.2 -> 6.2 after moving the hands to the belly in the key poses and running Kimodo
-  through them). One-character script for now: game repo `art_source/characters/wybuchacz/ruch_ai/fix_key_poses.py`;
-  generalise it here when a second character needs it.
+  through them). When no sample did the motion (Padlinozerca: no rake in 8 samples), pose the key frames by hand in the
+  scene the key-pose STOP leaves (`<action>/poses_by_hand/edit_<sample>.blend`), save, and run
+  `pose_edit_scene.py --export`. Approve that `poses.glb`. Checked: a 40 deg right forearm bend at the rake frame reaches
+  `keyposes_to_kimodo.py` as `RightForeArm` 40 deg, with every other bone at 0. The game repo's
+  `wybuchacz/ruch_ai/fix_key_poses.py` set poses with a script; this route is for posing by hand.
 - **A prop or pack in the body mesh pulls the auto-rig's joints onto it** (Wybuchacz's backpack: spine and head 15-30 cm
   back; Flisak's pole behind him: head top on its knob, shoulders 19 cm off; Kusznik's crossbow: left elbow 8 cm). Give it
   as its own mesh, in the model's frame where it rests on the body: `character.json` `prop_model` (rig.json `prop` then needs

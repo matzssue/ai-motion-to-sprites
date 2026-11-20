@@ -122,6 +122,10 @@ if LIB_ACTIONS and stage("calibration", os.path.join(WORK, "calibration_ok.json"
 
 # 5. AI actions: body without hand constraints -> best sample -> STOP key poses for review ->
 #    Kimodo through the poses -> every sample through the chain -> best. Hand constraints are not used: they hurt (README).
+def pose_names(R):
+    return [k for k in R["key_poses"] if not k.startswith("_")]
+
+
 def pose_frames(R, motion):
     PK = R.get("key_poses")
     if not PK: stop("%s: no 'key_poses' (e.g. {\"hold\": 0, \"aim\": 44}, frames at 24 fps; the first = start and end)" % motion)
@@ -213,12 +217,25 @@ def ai_action(n, a):
             shutil.copy(BD["merged"], g)
         blender("preview_8.py", "PREVIEW OK", "--glb", g, "--actions", n, "--frames", ks, "--out", os.path.join(P, "preview"))
         if with_prop: blender("hand_closeups.py", "CLOSEUPS OK", "--glb", g, "--action", n, "--frames", ks, "--out", os.path.join(P, "closeups"), *SK)
+        # a scene to fix the poses by hand, one per sample (kept once made: it may hold the author's posing)
+        HB = os.path.join(D, "poses_by_hand"); sname = os.path.splitext(os.path.basename(BD["bvh"]))[0]
+        eb = os.path.join(HB, "edit_%s.blend" % sname); hg = os.path.join(HB, "poses.glb")
+        blender("pose_edit_scene.py", "EDIT SCENE", "--glb", g, "--action", n, "--frames", ks, "--names", ",".join(pose_names(R)),
+                "--sample", BD["bvh"], "--out", eb)
         stop("action '%s': key poses (fr. %s) on sample %s (%s; score / hands moved: %s) for review: %s. Tune the grip and head "
-             "with `variants.py --merged %s --frames %s`; another sample: --sample %s=N. After the verdict write %s with "
-             "{\"glb\": <approved poses>} (the variant's parameters copied into the motion file) and run again."
+             "with `variants.py --merged %s --frames %s`; another sample: --sample %s=N. To pose by hand: open %s in Blender "
+             "(a marker on each key frame, auto-key on), change only those frames, save, then `blender -b --python %s -- --export %s "
+             "--out %s`. After the verdict write %s with {\"glb\": <approved poses>} (the variant's parameters copied into the "
+             "motion file) and run again."
              % (n, ks, os.path.basename(BD["bvh"]), BD.get("pick", "auto"), samples_line(listed(BD["all"], R)), P,
-                BD["merged"], ks, n, appr))
+                BD["merged"], ks, n, eb, script_path("pose_edit_scene.py"), eb, hg, appr))
     poses_glb = json.load(open(appr, encoding="utf-8"))["glb"]
+    meta = poses_glb + ".json"   # written by pose_edit_scene.py --export: the sample the author posed on
+    on = json.load(open(meta, encoding="utf-8")).get("sample") if os.path.exists(meta) else None
+    if on and os.path.normcase(os.path.normpath(on)) != os.path.normcase(os.path.normpath(BD["bvh"])):
+        stop("action '%s': the approved poses %s were set on %s, but the body sample is %s: Kimodo would get wrong deltas. "
+             "Take that sample (--sample %s=N with %s deleted) or pose again on this one."
+             % (n, poses_glb, os.path.basename(on), os.path.basename(BD["bvh"]), n, appr))
     # 5c. motion through the poses: every sample through the chain, best by audit -> review_page.py -> STOP for the verdict
     if not stage("ai", choice, motion, RIG_AI, appr):
         w = json.load(open(choice, encoding="utf-8"))
