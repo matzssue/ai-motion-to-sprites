@@ -5,8 +5,10 @@ $KIMODO_PYTHON pipeline/motion/kimodo_keyposes.py --motion <motion>.json --emb e
 Each pose keeps its hips where the pose has them ("hips" from keyposes_to_kimodo.py): a crouch set by hand stays low.
 --dry-run out.npz builds the key poses only (CPU, no model, no GPU lock) and prints hip and foot heights per key.
 A full-body key constrains joint POSITIONS only (Kimodo: "global rotations are not used here"), and the clip is built from
-the rotation channel: the knight's hand hit its key 2-8 cm close but turned 15-176 deg off. So the hands' global rotation is
-constrained on every key too, the channel Kimodo's own hand end-effector uses (--no-hand-rotations: positions only).
+the rotation channel: the knight's hand hit its key 2-8 cm close but turned 15-176 deg off. --hand-rotations also constrains
+both hands' global rotation on every key (the channel Kimodo's own hand end-effector uses): EXPERIMENTAL until a generation
+run shows Kimodo honours it; the working fix is key_hands.py after the retarget. After generation it prints how far each
+hand is turned from its key, in both modes.
 A multi_prompt phase without a key frame crashed Kimodo on reshape: `Poses.crop_move` returns an empty set then."""
 import argparse, json, os, sys
 
@@ -16,7 +18,7 @@ ap.add_argument("--samples", type=int, default=4); ap.add_argument("--seed", typ
 ap.add_argument("--base", required=True); ap.add_argument("--poses", required=True)
 ap.add_argument("--keys", required=True, help="Kimodo frame:pose frame (24 fps), e.g. 0:0,55:44,125:0")
 ap.add_argument("--dry-run", default=None, metavar="OUT.npz", help="only build the key poses (CPU, no model) and save them")
-ap.add_argument("--no-hand-rotations", action="store_true", help="key poses constrain joint positions only (before 2026-11-21)")
+ap.add_argument("--hand-rotations", action="store_true", help="EXPERIMENTAL: also constrain both hands' rotation on every key")
 A = ap.parse_args()
 if not A.dry_run and not (A.emb and A.out and A.name): ap.error("--emb, --out and --name are required (except with --dry-run)")
 
@@ -105,7 +107,7 @@ for fk, fb in keys:
     pos.append(pn[0][sl]); rot.append(Gn[sl])
 if A.dry_run:
     np.savez(A.dry_run, keys=np.array(keys), positions=torch.stack(pos).cpu().numpy(), rotations=torch.stack(rot).cpu().numpy())
-HANDS = [] if A.no_hand_rotations else [sk30.bone_index[n] for n in ("LeftHand", "RightHand")]
+HANDS = [sk30.bone_index[n] for n in ("LeftHand", "RightHand")] if A.hand_rotations else []
 print("hand rotations constrained: %s (%d rows)" % (", ".join(sk30.bone_order_names[j] for j in HANDS) or "none", len(HANDS) * len(keys)))
 if A.dry_run:
     probe = Poses(sk30, torch.tensor([k[0] for k in keys]), torch.stack(pos), torch.stack(rot), hands=torch.tensor(HANDS, dtype=torch.long))

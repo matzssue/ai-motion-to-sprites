@@ -96,7 +96,7 @@ blender -b --python pipeline/motion/keyposes_to_kimodo.py -- <poses>.glb <work>/
 ```
    Check the poses without Kimodo: add `--dry-run <out>.npz` to `kimodo_keyposes.py` (CPU, no model, no GPU lock; `--emb`,
    `--out`, `--name` may be left out): it prints hips and the lowest foot joint per key (Kimodo ground = 0) and the
-   constraint rows (knight, 8 keys: 240 positions, 16 hand rotations).
+   constraint rows (knight, 8 keys: 240 positions; with `--hand-rotations` 16 hand rotations).
    `<work>` here = `character.py`'s `<work_dir>/<action>`. `merged_body_s<N>` = retarget of THE sample the poses were set on
    (another sample gives wrong deltas without any error).
    Keys: Kimodo frame (30 fps) : pose frame (24 fps); last key = first pose. A one-shot action (`"loop": false` in
@@ -182,10 +182,10 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   -3.1 cm. A `poses.json` from before prints WARNING: rerun `keyposes_to_kimodo.py`. Kimodo has no foot-contact input.
 - **Kimodo keeps a key pose's joint POSITIONS, not the hands' ROTATION:** a full-body key constrains positions only and the
   clip comes from the rotation channel; the knight's sword hand hit its keys 2-8 cm close but turned 15-176 deg off (the
-  retarget is faithful: same error before and after it). Two fixes: `kimodo_keyposes.py` also constrains both hands' global
-  rotation on the keys (Kimodo's own end-effector channel; `--no-hand-rotations` = old; NOT yet proven by a run), and
-  `chain.py --key-poses` runs `key_hands.py` after the retarget: forearm roll + rest of the hand rotation per key (wrist
-  bend capped at 80 deg), smoothstep between keys, joint positions unchanged. Gate: `key_hand_rot_L/R` on the key frames
+  retarget is faithful: same error before and after it). The working fix: `chain.py --key-poses` runs `key_hands.py` after
+  the retarget: forearm roll + rest of the hand rotation per key (wrist bend capped at 80 deg), smoothstep between keys,
+  joint positions unchanged. `kimodo_keyposes.py --hand-rotations` also sends the hands' rotation to Kimodo (its own
+  end-effector channel): EXPERIMENTAL, off by default, until a generation run shows Kimodo honours it. Gate: `key_hand_rot_L/R` on the key frames
   (limit 50 deg: knight before 101-176, after 0-1, bend-capped key 6-48). Cost on the knight: hand_jump at the strike
   +0.4..+7 deg, skin_twist +10, scores +0.03..+1.9; a sample whose wrist already folds 167 deg (r3b s2) reads a 177 deg
   wrist twist there. With a prop the grip solver sets the hands: measured, not corrected or scored.
