@@ -16,7 +16,8 @@ import skeleton
 import skin
 import feet
 import shake
-from audit_metrics import METRICS, NEEDS, REF_HEIGHT, height, judge, scaled, facing, head_angles, head_summary, HEAD_YAW_WARN
+from audit_metrics import (METRICS, NEEDS, REF_HEIGHT, height, judge, scaled, facing, head_angles, head_summary, HEAD_YAW_WARN,
+                           hands_set_by_recipes)
 
 LOOSE_FINGER = 0.02   # m: a finger whose nearest point is farther from the prop does not hold it
 # m: prop inside the upper arms with the stock under the armpit (the butt sits between the arm and the ribs, touching both).
@@ -77,11 +78,15 @@ H = height(CO_REST[:, 2])
 SCALE = H / REF_HEIGHT
 LIM = scaled(LIMITS, H)
 IN_HANDS = prop is not None and not A.rest_is_normal
+RECIPES = []   # reports of the motion file's recipes (pipeline/recipes/)
+for _p in A.recipe_report or [A.glb.replace(".glb", "_recipe.json")]:
+    try: RECIPES.append(json.load(open(_p, encoding="utf-8")))
+    except (OSError, ValueError): pass
 KEYH = {}   # clip frame -> {"L"/"R": target hand rotation, armature space}
 if A.key_hands:
     KEYH = {int(f): {s_: Quaternion(v) for s_, v in d.items()} for f, d in json.load(open(A.key_hands, encoding="utf-8"))["targets"].items()}
-    if IN_HANDS:   # the prop solver sets the hands to its grip: reported, not scored
-        for k_ in ("key_hand_rot_L", "key_hand_rot_R"): LIMITS[k_] = None; LIM.pop(k_, None)
+    # the prop solver sets the hands to its grip, a recipe may solve one again (`sets_hand`): reported, not scored
+    for k_ in "LR" if IN_HANDS else hands_set_by_recipes(RECIPES, A.action): LIMITS["key_hand_rot_" + k_] = None; LIM.pop("key_hand_rot_" + k_, None)
 SIDE = np.array([RIG.bone_side(d) for d in dom])
 FINGERS = {}   # finger (a chain below the hand) -> vertex indices; named by its first bone without the number
 for i in np.where(M["fingers"])[0]: FINGERS.setdefault(re.sub(r"_?\d+$", "", PROF.short(RIG.finger_root[dom[i]])), []).append(i)
@@ -352,13 +357,8 @@ try:   # head turn the solver's face guard took back (prop_in_hands <glb>_arms.j
         open(A.glb.replace(".glb", "_arms.json"), encoding="utf-8")).items()})
 except (OSError, ValueError, AttributeError):
     report["face_guard"] = None
-report["recipes"] = []   # what the motion file's recipes measured on this action (pipeline/recipes/): reported, not scored
-for _p in A.recipe_report or [A.glb.replace(".glb", "_recipe.json")]:
-    try:
-        _r = json.load(open(_p, encoding="utf-8"))
-        if _r.get("action") == A.action: report["recipes"].append({k: v for k, v in _r.items() if k != "per_frame"})
-    except (OSError, ValueError, AttributeError):
-        pass
+# what the motion file's recipes measured on this action: reported, not scored
+report["recipes"] = [{k: v for k, v in _r.items() if k != "per_frame"} for _r in RECIPES if isinstance(_r, dict) and _r.get("action") == A.action]
 _hy = [r for r in samples if "head_yaw" in r]   # the head against the facing direction: reported with a warning, not scored
 report["head"] = head_summary([r["head_yaw"] for r in _hy], [r["head_pitch"] for r in _hy]) if _hy else None
 if KEYH:   # per key frame and side (review page table)

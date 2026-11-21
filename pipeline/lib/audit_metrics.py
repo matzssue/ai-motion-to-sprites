@@ -76,7 +76,7 @@ METRICS = {
     # hand rotation off the approved key pose on its key frame (--key-hands from key_hands.py; only key-pose clips). Knight
     # round 3, 8 samples: straight from Kimodo the worst key per sample 101-176 deg (positions 2-8 cm close); after
     # key_hands.py 0-5 deg on rounds 3 and 7 (16 samples), round 7's right hand up to 9. Reported only with a prop in the
-    # hands: its solver sets the grip
+    # hands (its solver sets the grip) and for a hand a recipe solved again (swing_arm: the accepted knight cut reads 58)
     "key_hand_rot_L": (50, "deg", "joints"), "key_hand_rot_R": (50, "deg", "joints"),
     # pelvis yaw / knee position minus their centred 5-frame mean (shake.py): a pelvis snapping to each key pose and back.
     # Knight round 7 (root forced forward between turned key poses, author: "the knees shake") 6.4-8.7 deg / 3.4-4.1 cm;
@@ -156,6 +156,12 @@ def head_summary(yaw, pitch):
     y, p = np.abs(np.asarray(yaw, float)), np.abs(np.asarray(pitch, float))
     return {"yaw_mean": round(float(y.mean()), 1), "yaw_max": round(float(y.max()), 1), "pitch_mean": round(float(p.mean()), 1),
             "pitch_max": round(float(p.max()), 1), "warn": bool(y.mean() > HEAD_YAW_WARN)}
+
+
+def hands_set_by_recipes(reports, action):
+    """Sides ("L"/"R") whose hand a recipe of this action solved again (`sets_hand` in its report): that hand left its key
+    pose on purpose, so `key_hand_rot` of that side is reported, not scored."""
+    return {r["sets_hand"] for r in reports if isinstance(r, dict) and r.get("action") == action and r.get("sets_hand") in ("L", "R")}
 
 
 def catalog():

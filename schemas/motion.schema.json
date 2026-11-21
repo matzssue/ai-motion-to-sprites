@@ -57,6 +57,25 @@
    "properties": {"butt_from_shoulder": {"$ref": "#/$defs/vec3"}, "butt_push": {"$ref": "#/$defs/vec3"}, "pitch_deg": {"type": "number"},
                   "head_back_deg": {"type": "number"}, "transition_arc": {"type": "number"}, "head_gaze": {"type": "number"}}
   },
+  "upper_body": {
+   "type": "object", "additionalProperties": false,
+   "description": "spine, shoulders, arms and hands from the approved key poses instead of the motion model (pipeline/motion/pose_upper_body.py); needs `key_poses`",
+   "properties": {
+    "tangents": {"type": "object", "additionalProperties": false, "patternProperties": {"^[0-9]+$": {"type": "number", "minimum": 0}},
+                 "description": "key frame -> speed through that key against Catmull-Rom's (1 = unchanged, under 1 brakes)"},
+    "breakdowns": {"type": "object", "additionalProperties": false,
+                   "description": "frame -> an in-between pose of the weapon arm built from the track on that frame",
+                   "patternProperties": {"^[0-9]+$": {"type": "object", "additionalProperties": false, "minProperties": 1,
+                                                    "properties": {"wrist_move": {"$ref": "#/$defs/vec3", "description": "m, world"},
+                                                                   "weapon_toward": {"$ref": "#/$defs/vec3", "description": "world direction of the blade"}}}}}
+   }
+  },
+  "head": {
+   "type": "object", "additionalProperties": false,
+   "description": "the head turned to the direction the character faces (pipeline/motion/head_forward.py)",
+   "properties": {"mode": {"enum": ["lock", "keep"]}, "pitch_deg": {"type": "number"}, "keep": {"type": "number", "minimum": 0, "maximum": 1},
+                  "chest_max_deg": {"type": "number", "exclusiveMinimum": 0}}
+  },
   "recipe": {
    "description": "the narrow tools run on the merged clip (pipeline/recipes/<name>.py, index: pipeline/recipes/README.md): one entry, or a list run in that order",
    "if": {"type": "array"},

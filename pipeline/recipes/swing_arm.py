@@ -378,7 +378,7 @@ def main():
         print("ARM %3d | twist %4.0f -> %4.0f | forearm roll %4.0f -> %4.0f | wrist twist %4.0f -> %4.0f, bend %4.0f -> %4.0f | elbow %+4.0f -> %+4.0f cm%s" % (
             r["frame"], *(r[w][k] for k in KEYS for w in ("before", "after")), r["before"]["elbow_above_cm"], r["after"]["elbow_above_cm"],
             " | over: " + ", ".join(r["over"]) if r["over"] else ""))
-    rep = dict({"recipe": NAME, "action": R["action"], "hand": side[0], "bones": list(names)}, **summary(rows))
+    rep = dict({"recipe": NAME, "action": R["action"], "hand": side[0], "sets_hand": side[0], "bones": list(names)}, **summary(rows))
     rep["targets"] = C["targets"]
     rep["limits"] = ("whole frames; comfort targets are the solver's aim, not the audit's limits; the weapon or the arm in the "
                      "body is not looked at here; the shoulder bone turns only for a grip out of reach")
