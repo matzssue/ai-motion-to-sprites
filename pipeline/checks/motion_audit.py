@@ -10,6 +10,7 @@ from mathutils import Matrix, Quaternion, Vector
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from collisions import dominant, masks, vertices, bvh, depth, joint_angles, labels, body_tree, depths, rig_of, FINGER_PREFIX
 from collisions import labels_all, skin_tree, prop_in_body, stock_end, pocket_gap, limb_radius, POCKET_REST, POCKET_SPAN
+from prop_path import guard_summary
 import skeleton
 import skin
 import feet
@@ -319,6 +320,11 @@ report = {"result": "OK" if not errors else "FAIL", "score": score, "scores": sc
           "score_area": score_area, "height_m": round(H, 3), "errors": errors,
           "maxima": maxima, "rest": {k: rest_row.get(k, 0) for k in maxima}, "limits": {k: round(v, 4) for k, v in LIM.items()},
           "no_limit": [k for k, v in LIMITS.items() if v is None], "frames": FR, "skeleton": PROF.name, "skipped": SKIP}
+try:   # head turn the solver's face guard took back (prop_in_hands <glb>_arms.json): reported, not scored
+    report["face_guard"] = guard_summary({k: v.get("head_turn_removed", 0) for k, v in json.load(
+        open(A.glb.replace(".glb", "_arms.json"), encoding="utf-8")).items()})
+except (OSError, ValueError, AttributeError):
+    report["face_guard"] = None
 if KEYH:   # per key frame and side (review page table)
     report["key_hands"] = {str(f): {k: r_.get("key_hand_rot_" + k) for k in "LR"} for f in sorted(KEYH)
                            for r_ in samples if abs(r_["t"] - f0 - f) < 1e-6}
@@ -338,6 +344,7 @@ for k, v in sorted(errors.items(), key=lambda kv: -kv[1]["max"] / max(kv[1]["lim
         {"L": ", left", "R": ", right"}.get(v["side"], ": %s" % v["side"] if v.get("side") else "")))   # prop_in_body: the region
 print("  no limit:", ", ".join("%s %s" % (k, fmt(k, maxima[k]).strip()) for k in report["no_limit"] if maxima[k]))
 if SKIP: print("  skipped:", "; ".join("%s (%s)" % kv for kv in SKIP.items()))
+if report["face_guard"]: print("  face guard: took back up to %(max_deg).0f deg of head turn (fr. %(at_frame)d), %(count)d frames" % report["face_guard"])
 
 # close-ups of the worst spots
 if errors and not A.no_closeups:

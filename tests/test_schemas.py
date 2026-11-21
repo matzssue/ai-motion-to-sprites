@@ -47,6 +47,14 @@ def test_required_by_caller():
     assert sorted(p) == ["$: 'grip' is a required property", "$: 'phases' is a required property"]
 
 
+def test_face_guard_switch():
+    M = json.load(open(os.path.join(EXAMPLES, "motion.example.json"), encoding="utf-8"))
+    M["grip"]["face_guard"] = False
+    assert schema_check.problems(M, "motion") == []
+    M["grip"]["face_guard"] = "off"
+    assert any(x.startswith("$.grip.face_guard:") for x in schema_check.problems(M, "motion"))
+
+
 def test_bad_words_and_actions():
     M = json.load(open(os.path.join(EXAMPLES, "motion.example.json"), encoding="utf-8"))
     M["grip"]["left"]["fingers"] = "sideways"; M["key_poses"]["aim"] = "44"

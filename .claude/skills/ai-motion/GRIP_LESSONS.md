@@ -93,3 +93,40 @@ placement was scored with the solver's own cost. What it found:
 
 Lesson: an exemption in the audit needs the same bounds as the thing it exempts (here: the armpit, not the arm), and
 a cost the solver uses must exempt exactly what the audit exempts, no more, no less.
+
+## Round 9: the clip did not show the approved poses (2026-11-21)
+
+The approved aim (frame 44) was clean (audit 0.33); the clip through it failed with 20.80, the stock at the hip on frame
+44 and pinned under the arm only on the recoil. Each step measured on the same merged file (Kusznik `kf_s0`, audit with
+feet, failing checks in brackets):
+
+| step | score |
+|---|---|
+| before | 20.80 (13) |
+| aim frames from the motion file instead of the right hand's height | 25.33 (13) |
+| + the approved pose's prop carried onto every frame as the target | 14.92 (9) |
+| + frames solved outwards from the key frames, smoothing inside one armpit rest only | 13.65 (9) |
+| + kept when it costs like on its own key frame, roll limited, held as the neighbour, loop closed | 10.74 (9) |
+| + the approved arms on the key frames | 10.19 (9) |
+| + face guard before the placement | 12.01 (8) |
+| + face guard without its 40 deg stop | 9.02 (8) |
+
+The guard before the placement costs score and is kept: it took `hands_in_torso` from 9.5 cm (worse than before, 6.3)
+to 4.0 cm and removed `forearms_in_head`. Without the stop `face_skew` passes (5.4 -> 2.5 cm); the guard takes back up
+to 62 deg of Kimodo's head turn on frames 50-71 and says so. Solver 12 min 42 s -> 5 min 50 s (frames kept or held as
+the neighbour are not searched).
+
+- **A target has to be compared with itself.** The approved place costs 140 on its own key frame (right arm 3 points
+  close to the ribs). A fixed "clean enough" limit kept it nowhere; "at most 12 more than on its key frame" keeps it
+  on 21 frames and the key frames end exactly on the approved pose.
+- **Clean answers do not average to a clean one.** 108 pocket starts gave each frame its own pocket; the +-3 frame
+  average of them was 2-9.5 cm in the body. Other pockets are now tried only when nothing near the target is clean, and
+  they pay their distance.
+- **Whatever moves the skin runs before the search.** The face guard turned the head after the hands were placed. The
+  solver's own check and the audit disagreed by 8.5 cm on the same frame; a dump of every bone from the solved scene
+  and from the exported file found one difference, the head.
+- Not taken (measured): no smoothing 57.41; one pass 15.57; the stock turned with the chest 12.24; the aim's fall over
+  the whole next phase 11.20, over its second half 12.51; the motion file's aim frames on a shoulder aim (m1 Kusznik
+  5.16 -> 7.89).
+- Left: the stock 4-5.3 cm in the right upper arm on frames 56-80, hands 2-4 cm in the torso in the hold (the approved
+  hold has 2.2 cm), fingertips 5 cm off the stock on frames 76-100, an elbow jump of 4.3 cm at frame 80.

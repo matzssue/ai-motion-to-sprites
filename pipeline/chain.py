@@ -3,7 +3,8 @@
 python pipeline/chain.py --rig rig_ai.glb --motion <motion>.json --bvh x_s0.bvh [--walk walk.fbx] --out dir
     [--no-prop] [--from retarget|merge|prop|audit] [--skeleton mixamo|profile.json] [--key-poses poses.glb --key-frames 0,14,20]
 A sample generated through key poses gets the poses' hand rotation back after the retarget (key_hands.py: Kimodo does not
-keep it) unless a prop solver sets the hands; either way the audit measures it on the key frames (key_hand_rot_*)."""
+keep it) unless a prop solver sets the hands; either way the audit measures it on the key frames (key_hand_rot_*). With a
+prop the same poses are the prop solver's target: the prop is placed as they hold it."""
 import argparse, json, os, subprocess, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
@@ -11,8 +12,9 @@ from config import BLENDER, script_path
 from schema_check import load as load_config, load_skeleton
 
 IMPORTANT = ("smoothed", "RETARGET", "merge_actions", "pass", "OK", "AUDIT", "  FAIL", "  rest", "  score", "  no limit", "  skipped",
-             "skeleton", "fingers:", "stock",
-             "closeups", "MAX", "RIG OK", "KEY", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ")
+             "skeleton", "fingers:", "stock", "FACE GUARD",
+             "closeups", "MAX", "RIG OK", "KEY", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ",
+             "aim:", "approved key poses", "APPROVED PLACE")
 
 
 def blender(script, marker, *args):
@@ -48,7 +50,8 @@ def audit(glb, action, out, prop=None, rest_is_normal=False, loop=True, skeleton
 
 def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=True, skeleton=None, key_poses=None):
     """Returns (glb, audit report). `walk` = library walk merged next to the action; None = the action alone (a rig without
-    library clips, e.g. the own skeleton). `key_poses` = (approved poses GLB, key frames) for a sample made through them."""
+    library clips, e.g. the own skeleton). `key_poses` = (approved poses GLB, key frames) for a sample made through them:
+    their hand rotation is put back or measured, and a prop is placed as they hold it."""
     R = json.load(open(motion, encoding="utf-8")); action = R["action"]
     os.makedirs(out, exist_ok=True)
     name = os.path.splitext(os.path.basename(bvh))[0]
@@ -67,7 +70,7 @@ def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=Tr
     prop = json.load(open(data, encoding="utf-8"))["prop"]["name"] if with_prop else None
     if with_prop:
         if k <= 2: blender("prop_in_hands.py", "OK ", "--glb", merged, "--rig-data", data, "--motion", motion, "--out", ready,
-                           *skel(skeleton))
+                           *skel(skeleton), *(["--key-poses", key_poses[0], "--key-frames", ",".join(map(str, key_poses[1]))] if key_poses else []))
         result = ready
     return result, audit(result, action, os.path.join(out, "audit_" + name), prop, loop=loop, skeleton=skeleton,
                          under_arm=with_prop and "butt_push" in R.get("aim", {}), key_hands=kh if kh and os.path.exists(kh) else None)

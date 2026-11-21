@@ -273,7 +273,8 @@ def verdict(n, w, D, with_prop):
     python(script_path("review_page.py"), "--glb", w["glb"], "--action", n, "--out", pg, "--title", "%s %s" % (C["name"], n),
            "--hand-frames", ",".join(map(str, w["pose_frames"])), *(["--prop", PROP] if with_prop else []),
            *(["--key-hands", w["key_hands"]] if w.get("key_hands") and os.path.exists(w["key_hands"]) else []),
-           *([] if C["actions"][n].get("loop", True) else ["--no-loop"]), *SK)
+           *([] if C["actions"][n].get("loop", True) else ["--no-loop"]), *SK,
+           *(["--under-arm"] if with_prop and "butt_push" in json.load(open(r(C["actions"][n]["ai"]), encoding="utf-8")).get("aim", {}) else []))
     stop("action '%s': sample %s (%s), score %.2f (score / hands moved: %s). Review page: %s. Another sample: --sample %s=N. "
          "After approval set actions.%s.approved = {\"bvh\": \"%s\", \"score\": %.2f, \"key_hands\": true, \"date\": \"YYYY-MM-DD\"} in character.json "
          "and keep the BVH and %s." % (n, os.path.basename(w["bvh"]), w.get("pick", "auto"), w["score"],

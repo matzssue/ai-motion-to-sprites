@@ -48,6 +48,15 @@ def test_zero_cost_start_is_kept():
     assert descend(cost, None, STEPS) == ([0.0] * 6, 0.0) and len(calls) == 1
 
 
+def test_start_from_a_given_offset():
+    # a cost with two hollows: from zero the descent ends in the near one, from a start by the far one it stays there
+    cost = lambda x, Cb, bound=None: min(abs(x[3] - 5) + 1.0, abs(x[3] - 40)) + sum(abs(v) for v in x[:3] + x[4:])
+    assert descend(cost, None, STEPS)[0][3] == 5 and descend(cost, None, STEPS, x0=[0, 0, 0, 35.0, 0, 0])[0][3] == 40
+    # a start that is already the best is returned as it is, and the start itself is not changed
+    x0 = [0.0, 0.0, 0.0, 40.0, 0.0, 0.0]
+    assert descend(cost, None, STEPS, x0=x0) == ([0.0, 0.0, 0.0, 40.0, 0.0, 0.0], 0.0) and x0[3] == 40.0
+
+
 def test_ties_keep_the_first_pose():
     # a step that only equals the best is not taken (the solver's "ties go to the first")
     assert descend(lambda x, Cb, bound=None: 5.0, None, STEPS)[0] == [0.0] * 6

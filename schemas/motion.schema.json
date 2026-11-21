@@ -43,7 +43,7 @@
     "elbow_deg": {"type": "number"}, "twist_to_forearm": {"type": "number"}, "forearm_clearance": {"type": "number"},
     "hand_clearance": {"type": "number"}, "finger_thickness": {"type": "number"},
     "max_offset": {"type": "number"}, "offset_penalty": {"type": "number"}, "finger_change_penalty": {"type": "number"},
-    "change_penalty": {"type": "number"}, "passes": {"type": "integer"}
+    "change_penalty": {"type": "number"}, "passes": {"type": "integer"}, "face_guard": {"type": "boolean"}
    }
   },
   "hold": {
