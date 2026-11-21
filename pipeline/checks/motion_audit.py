@@ -13,6 +13,7 @@ from collisions import labels_all, skin_tree, prop_in_body, stock_end, pocket_ga
 import skeleton
 import skin
 import feet
+import shake
 from audit_metrics import METRICS, NEEDS, REF_HEIGHT, height, judge, scaled
 
 LOOSE_FINGER = 0.02   # m: a finger whose nearest point is farther from the prop does not hold it
@@ -173,6 +174,7 @@ def ang(a, b): return (lambda x: min(x, 360 - x))(math.degrees(a.rotation_differ
 
 rng = np.random.default_rng(0)
 samples, prev, first = [], None, None
+SHAKE = []; SHAKE_ON = not A.frames and not {"pelvis_shake", "knee_shake"} <= set(SKIP)
 FR = [float(x) for x in A.frames.split(",")] if A.frames else None
 times = [-1.0] + (FR if FR else [f0 + i * A.step for i in range(int(round((f1 - f0) / A.step)) + 1)])
 # sample -1 = rest pose: what is fused in the model itself (e.g. a prop on the back), not in the motion
@@ -301,10 +303,17 @@ for t in times:
         if now["qP"]: row["prop_rot_jump"] = round(ang(now["qP"], prev["qP"]), 1)
     prev = now; first = first or now
     samples.append(row)
+    if SHAKE_ON and abs((t - f0) - round(t - f0)) < 1e-6:   # whole frames: the 5-frame window is in frames
+        SHAKE.append((len(samples) - 1, *(head(PROF.bone(r_, s_)) for r_, s_ in (("upper_leg", "Right"), ("upper_leg", "Left"),
+                                                                              ("lower_leg", "Left"), ("lower_leg", "Right")))))
 # loop seam: last frame vs first (Kimodo does not return to the start pose: a head popped by 26 deg)
 if not FR and not A.no_loop and len(samples) > 1:
     samples[-1]["loop_seam_deg"] = round(max(ang(prev[k], first[k]) for k in ("qL", "qR", "qH")), 1)
     samples[-1]["loop_seam_m"] = round(max((prev[k] - first[k]).length for k in ("L", "R")), 4)
+if len(SHAKE) >= shake.WINDOW:
+    ii_, rh_, lh_, kl_, kr_ = zip(*SHAKE)
+    for i_, py_, pk_ in zip(ii_, *shake.rows(*(np.array([list(v) for v in c_]) for c_ in (rh_, lh_, kl_, kr_)))):
+        samples[i_]["pelvis_shake"] = round(float(py_), 1); samples[i_]["knee_shake"] = round(float(pk_), 4)
 if FEET:   # feet against the clip's own ground, filled in once the whole clip is known
     for r_, f_ in zip(samples, feet.rows({s_: np.array(v) for s_, v in FEET_CO.items()}, SCALE, A.step)):
         r_.update(f_["values"]); r_["_where"].update(f_["where"]); r_["_side"].update(f_["side"])

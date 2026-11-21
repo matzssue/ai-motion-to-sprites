@@ -250,5 +250,17 @@
     "label": "right hand off its key pose",
     "unit": "deg",
     "group": "joints"
+  },
+  {
+    "key": "pelvis_shake",
+    "label": "pelvis shake",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "knee_shake",
+    "label": "knee shake",
+    "unit": "cm",
+    "group": "smoothness"
   }
 ]

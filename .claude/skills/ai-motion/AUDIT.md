@@ -51,6 +51,8 @@ sample had limits up to 26% tighter. Scores of approved motions moved with that 
 | | skin_twist / skin_spread | 120° / 0.5 | arm "candy wrapper" (section "Skin" below): broken swing 210–260° / 0.45–0.80, approved up to 60° / 0.41 |
 | smoothness | elbow_jump | 0.03 | raw Kimodo 1.6 cm; 0.08 let 15 cm per frame through |
 | | hand_jump | 8° | raw 4.8–5.1° |
+| | pelvis_shake | 4° | pelvis yaw (hip line) minus its centred 5-frame mean (`shake.py`): a pelvis snapping to each key pose and back. Knight round 7 (root forced forward between turned key poses; author: "the knees shake") 6.4–8.7°; rounds 3 and 5, idle, Kusznik, m1 up to 1.6° |
+| | knee_shake | — (reported only) | the same on the knee position: round 7 3.4–4.1 cm, the others up to 2.1 cm (m1 Wybuchacz); too close for a limit yet |
 | | finger_jump | 6° | raw 0° |
 | | prop_jump | 0.10 | prop teleport |
 | | head_jump | 4° | raw 1.0°, walk 0.5°, every shot version 1.3° |
