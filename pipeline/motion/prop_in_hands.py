@@ -6,8 +6,9 @@ blender -b --python pipeline/motion/prop_in_hands.py -- --glb merged.glb --rig-d
     [--frames 10,45,56]  quick grip try: only these frames, best grip for each on its own (no path or smoothing in time)
     [--keep-prop]  a key pose set by hand: the prop and the body stay as the GLB has them, only both arms (IK to the
                    grip) and the fingers are fitted to the prop
-    [--poses approved.glb]  the approved key poses: the prop's place against the body on the motion file's key frames is
-                   the target on every frame (hold poses follow the hips, aim poses the chest at the butt-side shoulder)
+    [--key-poses approved.glb [--key-frames 0,44]]  the approved key poses: the prop's place against the body on the key
+                   frames (default: the motion file's `key_poses`) is the target on every frame (hold poses follow the
+                   hips, aim poses the chest at the butt-side shoulder)
 Blender's IK does not work on rigs from GLB (bone lengths are meaningless), hence IK from bone heads."""
 import bpy, sys, os, math, json, argparse, time, hashlib
 import numpy as np
@@ -26,7 +27,8 @@ ap.add_argument("--glb", required=True); ap.add_argument("--rig-data", required=
 ap.add_argument("--motion", required=True); ap.add_argument("--out", required=True); ap.add_argument("--frames", default=None)
 ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
 ap.add_argument("--keep-prop", action="store_true", help="keep the prop and body of the GLB, fit only the arms and fingers")
-ap.add_argument("--poses", default=None, help="GLB of the approved key poses: where it holds the prop on the motion file's key frames is the target")
+ap.add_argument("--key-poses", default=None, help="GLB of the approved key poses: where it holds the prop on the key frames is the target")
+ap.add_argument("--key-frames", default=None, help="their frames, e.g. 0,44 (default: the motion file's key_poses)")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
 MO = json.load(open(A.motion, encoding="utf-8")); GP = MO["grip"]
 RD = json.load(open(A.rig_data, encoding="utf-8"))
@@ -444,18 +446,20 @@ BUTT_SIDE = "Right" if BUTT_PUSH.dot(RIGHT) >= 0 else "Left"   # the arm whose a
 # Kusznik's aim frame the rear end sat 11 cm higher under the arm than on the approved pose, on the hold frame 10 cm
 # further out. The prop of each key pose is read against that pose's body and carried onto every frame's body
 # (prop_path.carry): a hold pose follows the hips, an aim pose the chest at the butt-side shoulder joint. The stock's
-# direction stays the approved one (carried with the chest it swung with every twist of the torso).
+# direction stays the approved one (turned with the chest: Kusznik's audit 10.19 -> 12.24).
 KEYP = {}   # key frame -> dict(C prop pose, S butt-side shoulder joint, Rc chest rotation, hips) on the approved pose
-if A.poses and not A.keep_prop:
+if A.key_poses and not A.keep_prop:
     _had = {c_: set(getattr(bpy.data, c_)) for c_ in ("objects", "meshes", "armatures", "actions", "materials", "images", "textures")}
-    bpy.ops.import_scene.gltf(filepath=A.poses)
+    bpy.ops.import_scene.gltf(filepath=A.key_poses)
     _arm2 = next(o for o in bpy.data.objects if o not in _had["objects"] and o.type == "ARMATURE")
     _act2 = next((a_ for a_ in bpy.data.actions if a_ not in _had["actions"] and a_.name.split(".")[0] == MO["action"].split(".")[0]), None)
-    if _act2 is None: raise SystemExit("--poses %s: no action '%s'" % (A.poses, MO["action"]))
+    if _act2 is None: raise SystemExit("--key-poses %s: no action '%s'" % (A.key_poses, MO["action"]))
     for _pb in _arm2.pose.bones: _pb.matrix_basis = Matrix()
     _arm2.animation_data.action = _act2; _w2 = lambda n: _arm2.matrix_world @ _arm2.pose.bones[pb(n).name].matrix
-    for _n, _fk in MO.get("key_poses", {}).items():
-        if _n.startswith("_") or not _act2.frame_range[0] <= _fk <= _act2.frame_range[1]: continue
+    _kf = ([int(x) for x in A.key_frames.split(",")] if A.key_frames
+           else [v_ for n_, v_ in MO.get("key_poses", {}).items() if not n_.startswith("_")])
+    for _fk in _kf:
+        if not _act2.frame_range[0] <= _fk <= _act2.frame_range[1]: continue
         sc.frame_set(int(_fk))
         KEYP[int(_fk)] = dict(C=_w2(PN) @ CR_IN_BONE, S=_w2(BN[BUTT_SIDE]["upper_arm"]).translation.copy(),
                               Rc=_w2(PROF.spine[-1]).to_3x3().normalized(), hips=_w2(PROF.bone("hips")).translation.copy())
@@ -468,10 +472,10 @@ KEY_AIM = sorted(k_ for k_ in KEYP if W_AIM.get(k_, 0.0) >= 0.5); KEY_HOLD = sor
 # the approved poses' arms too (grip roll and elbow plane, from the <glb>_arms.json written with them): on the key frames
 # the clip took its own (Kusznik's hold: left grip rolled -20 where the approved pose has +20, right elbow plane -15 for -60)
 KEYARMS = {}
-if KEYP and os.path.exists(A.poses.replace(".glb", "_arms.json")):
-    for k_, v_ in json.load(open(A.poses.replace(".glb", "_arms.json"), encoding="utf-8")).items():
+if KEYP and os.path.exists(A.key_poses.replace(".glb", "_arms.json")):
+    for k_, v_ in json.load(open(A.key_poses.replace(".glb", "_arms.json"), encoding="utf-8")).items():
         if int(k_) in KEYP: KEYARMS[int(k_)] = {s_: (v_[s_]["roll"], v_[s_]["elbow"]) for s_ in ("Left", "Right") if "roll" in v_.get(s_, {})}
-if A.poses: print("approved key poses %s: hold on fr. %s, aim on fr. %s" % (os.path.basename(A.poses), KEY_HOLD or "-", KEY_AIM or "-"))
+if A.key_poses: print("approved key poses %s: hold on fr. %s, aim on fr. %s" % (os.path.basename(A.key_poses), KEY_HOLD or "-", KEY_AIM or "-"))
 
 
 def carried(f, aim):
@@ -797,7 +801,7 @@ def search(C4, f, tr, seed=None, like=None):
         c = COST(C2, f, tr, memo=known.setdefault(tuple(v for r in C2 for v in r), {}),
                  over=None if bound is None else lambda c_: c_ + kd + turn >= bound)
         return 1e9 if c is None else c + kd + turn
-    # the approved place first (--poses). One that is clean on this frame's body is kept as it is: every frame then holds
+    # the approved place first (--key-poses). One that is clean on this frame's body is kept as it is: every frame then holds
     # the prop the same way and the average over neighbours is theirs too. The search from the body alone gave each
     # frame its own of 108 pockets, each clean, and their average ended 2-9.5 cm in the body (Kusznik, frames 54-86)
     tgt = (f in TARGETED) if pin else bool(KEY_HOLD)
@@ -897,7 +901,7 @@ def descend(cost, Cb, pin, nx, x0=None):
 
 
 HOLD = MO.get("hold")
-TARGETED = set()   # frames whose aim comes from an approved key pose (--poses)
+TARGETED = set()   # frames whose aim comes from an approved key pose (--key-poses)
 
 
 def out_of_body(p, direction, tree, clearance):

@@ -136,23 +136,16 @@ def hand_range(bvh, R):
     return max(BV.activity(*BV.joints(bvh), R)["range"].values())
 
 
-def best_of(bvhs, motion, with_prop, out, loop=True, poses=None):
+def best_of(bvhs, motion, with_prop, out, loop=True, key_poses=None):
     """Every sample through the chain -> (chosen (score, bvh, glb, range), all of them). `range` = the larger hand's extent
     against the hips over the raw clip (m): a sample that stood still must not win on a clean audit (stages.pick)."""
     R = json.load(open(motion, encoding="utf-8")); scores = []
     for bvh in bvhs:
-        glb, rep = chain(RIG_AI, motion, bvh, out, WALK, with_prop=with_prop, loop=loop, skeleton=SKEL, poses=poses)
+        glb, rep = chain(RIG_AI, motion, bvh, out, WALK, with_prop=with_prop, loop=loop, skeleton=SKEL, key_poses=key_poses)
         m = hand_range(bvh, R)
         scores.append((rep["score"], bvh, glb, m))
         print("   %s: %s, score %.2f, hands moved %.2f m" % (os.path.basename(bvh), rep["result"], rep["score"], m))
     return scores[pick([(o, m) for o, _, _, m in scores])], scores
-
-
-def approved_poses(D):
-    """GLB of the action's approved key poses (poses_approved.json), None before the verdict or when the file is gone."""
-    appr = os.path.join(D, "poses_approved.json")
-    g = json.load(open(appr, encoding="utf-8")).get("glb") if os.path.exists(appr) else None
-    return g if g and os.path.exists(g) else None
 
 
 def listed(all_, R):
@@ -189,7 +182,11 @@ def ai_action(n, a):
     Z = a.get("approved")   # {"bvh", "score", "date"}: motion after the human verdict - no Kimodo, just the chain on this BVH
     if Z:
         if not stage("ai", choice, motion, RIG_AI, r(Z["bvh"])): return json.load(open(choice, encoding="utf-8"))
-        (score, bvh, glb, _), _ = best_of([r(Z["bvh"])], motion, with_prop, os.path.join(D, "p"), lp, approved_poses(D))
+        # "key_hands": approved after key_hands.py put the key poses' hand rotation back (older verdicts ran without it)
+        kp = None
+        if Z.get("key_hands"):
+            kp = (json.load(open(os.path.join(D, "poses_approved.json"), encoding="utf-8"))["glb"], pose_frames(R, motion))
+        (score, bvh, glb, _), _ = best_of([r(Z["bvh"])], motion, with_prop, os.path.join(D, "p"), lp, kp)
         if score > Z["score"] + NOISE:
             stop("action '%s': the approved motion now scores %.2f instead of %.2f - the tool or the motion file changed "
                  "(compare_motion.py against the approved version)" % (n, score, Z["score"]))
@@ -250,6 +247,7 @@ def ai_action(n, a):
             (o, bvh, _), rows = by_hand(n, w["all"], R, "Kimodo-through-poses")
             name = os.path.splitext(os.path.basename(bvh))[0]; pd = os.path.join(D, "p")
             w.update(bvh=bvh, clip=os.path.join(pd, "clip_%s.glb" % name), glb=os.path.join(pd, "merged_%s.glb" % name), score=o,
+                     key_hands=os.path.join(pd, "keyhands_%s.json" % name),
                      audit=os.path.join(pd, "audit_" + name), all=[list(x) for x in rows], pick="by hand")
             json.dump(w, open(choice, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         return verdict(n, w, D, with_prop)
@@ -259,10 +257,11 @@ def ai_action(n, a):
     python(script_path("kimodo_keyposes.py"), "--motion", motion, "--emb", emb, "--base", "%s:%d" % (os.path.join(e1, "body.npz"), BD["idx"]),
            "--poses", pj, "--keys", keys(R, fr, lp), "--out", kf, "--name", "kf", "--samples", count, "--seed", seed, exe=KIMODO_PYTHON)
     (score, bvh, glb, _), scores = best_of(sorted(glob.glob(os.path.join(kf, "kf_s*.bvh"))), motion, with_prop, os.path.join(D, "p"), lp,
-                                           poses_glb if with_prop else None)
+                                           (poses_glb, fr))
     name = os.path.splitext(os.path.basename(bvh))[0]
     out = {"bvh": bvh, "npz": os.path.join(kf, "kf.npz"), "clip": os.path.join(D, "p", "clip_%s.glb" % name), "glb": glb,
            "score": score, "audit": os.path.join(D, "p", "audit_" + name), "pose_frames": fr,
+           "key_hands": os.path.join(D, "p", "keyhands_%s.json" % name),
            "all": [[o, b, m] for o, b, _, m in scores], "pick": "auto"}
     json.dump(out, open(choice, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     return verdict(n, out, D, with_prop)
@@ -273,10 +272,11 @@ def verdict(n, w, D, with_prop):
     pg = os.path.join(D, "review")
     python(script_path("review_page.py"), "--glb", w["glb"], "--action", n, "--out", pg, "--title", "%s %s" % (C["name"], n),
            "--hand-frames", ",".join(map(str, w["pose_frames"])), *(["--prop", PROP] if with_prop else []),
+           *(["--key-hands", w["key_hands"]] if w.get("key_hands") and os.path.exists(w["key_hands"]) else []),
            *([] if C["actions"][n].get("loop", True) else ["--no-loop"]), *SK,
            *(["--under-arm"] if with_prop and "butt_push" in json.load(open(r(C["actions"][n]["ai"]), encoding="utf-8")).get("aim", {}) else []))
     stop("action '%s': sample %s (%s), score %.2f (score / hands moved: %s). Review page: %s. Another sample: --sample %s=N. "
-         "After approval set actions.%s.approved = {\"bvh\": \"%s\", \"score\": %.2f, \"date\": \"YYYY-MM-DD\"} in character.json "
+         "After approval set actions.%s.approved = {\"bvh\": \"%s\", \"score\": %.2f, \"key_hands\": true, \"date\": \"YYYY-MM-DD\"} in character.json "
          "and keep the BVH and %s." % (n, os.path.basename(w["bvh"]), w.get("pick", "auto"), w["score"],
                                        samples_line([(x[0], x[1], x[2] if len(x) > 2 else None) for x in w["all"]]),
                                        os.path.join(pg, "page.html"), n, n, w["bvh"].replace("\\", "/"), w["score"], w["npz"]))

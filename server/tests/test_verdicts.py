@@ -38,6 +38,17 @@ def test_empty_object_and_missing_path():
 
 # motion verdict ---------------------------------------------------------------------------------------------------------
 
+def test_approve_key_pose_motion_keeps_key_hands(ws):
+    """A sample corrected by key_hands.py is approved with "key_hands": true, so the approved rerun corrects it again."""
+    ws.build("choice")
+    c = os.path.join(ws.work, "attack", "choice.json"); ch = json.load(open(c, encoding="utf-8")); t = os.stat(c)
+    ch["key_hands"] = os.path.join(ws.work, "attack", "p", "keyhands_kf_s1.json")
+    with open(c, "w", encoding="utf-8") as f: json.dump(ch, f)
+    os.utime(c, ns=(t.st_atime_ns, t.st_mtime_ns))   # the gate's state compares file times
+    after = verdicts.preview(ws.cfg, "tester", MOTION_OK).changes[0].after
+    assert list(after) == ["bvh", "score", "key_hands", "date"] and after["key_hands"] is True
+
+
 def test_approve_motion_writes_only_the_approved_member(ws):
     ws.build("choice"); before = ws.text()
     plan = verdicts.preview(ws.cfg, "tester", MOTION_OK)

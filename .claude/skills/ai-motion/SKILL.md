@@ -22,7 +22,7 @@ python pipeline/character.py --character <dir>/character.json [--from stage] [--
 | rig | `auto_rig.py` (own skeleton `amts`; `--template <mixamo.fbx>` = `mixamorig:*`) | `auto_rig: symmetry` (STOP past the limit, AUDIT.md "Rig symmetry"); `auto_rig: fist` lines: share of hand edges torn on a fist |
 | rig_ai | `prepare_rig.py` + preview | **STOP**: look at the preview (§2) |
 | calibration | library actions on the AI rig + audit | FAIL = STOP, the rig or the measure is wrong, not the AI |
-| ai | §3: body (4 samples, full chain) → key poses → Kimodo through the poses → 4 samples → best → `review_page.py` | **STOP** on poses (`<work>/<action>/poses_approved.json` `{"glb"}`) and on the motion (`actions.<a>.approved` `{"bvh","score","date"}`) |
+| ai | §3: body (4 samples, full chain) → key poses → Kimodo through the poses → 4 samples → best → `review_page.py` | **STOP** on poses (`<work>/<action>/poses_approved.json` `{"glb"}`) and on the motion (`actions.<a>.approved` `{"bvh","score","key_hands":true,"date"}`) |
 | merge | every action in one GLB, prop in hands, audit of each | FAIL = STOP (approved action: worse than at the verdict) |
 | preview | `preview_8.py`: 8 directions × 8 frames per action into `output` | review (§4) |
 
@@ -95,13 +95,14 @@ blender -b --python pipeline/motion/keyposes_to_kimodo.py -- <poses>.glb <work>/
     --poses <work>/kf/poses.json --keys 0:0,55:44,125:0 --out <work>/kf --name kf
 ```
    Check the poses without Kimodo: add `--dry-run <out>.npz` to `kimodo_keyposes.py` (CPU, no model, no GPU lock; `--emb`,
-   `--out`, `--name` may be left out): it prints hips and the lowest foot joint per key (Kimodo ground = 0).
+   `--out`, `--name` may be left out): it prints hips and the lowest foot joint per key (Kimodo ground = 0) and the
+   constraint rows (knight, 8 keys: 240 positions; with `--hand-rotations` 16 hand rotations).
    `<work>` here = `character.py`'s `<work_dir>/<action>`. `merged_body_s<N>` = retarget of THE sample the poses were set on
    (another sample gives wrong deltas without any error).
    Keys: Kimodo frame (30 fps) : pose frame (24 fps); last key = first pose. A one-shot action (`"loop": false` in
    character.json, `loop_blend_s: 0`) ends on its last pose and the audit skips the seam.
 4. **All 4 samples** through `chain.py` (same motion file as the poses), best by audit among those that moved
-   (`--sample` overrides) → `review_page.py`. `--poses <poses>.glb` (`character.py` passes it): §5, "Approved key poses".
+   (`--sample` overrides) → `review_page.py`. With a prop the same `--key-poses` are the prop solver's target: §5, "Approved key poses".
    Sample spread is large (1.4 / 4.4 / 4.5 / 15.9) – one sample is a lottery.
 
 `chain.py` does retarget → merge with the walk → `prop_in_hands.py` → `motion_audit.py`. `character.py` runs these steps
@@ -176,13 +177,18 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - One long sentence = a static pose for the whole clip. One sentence per phase.
 - **Locomotion pinned in place comes out standing** (a Kimodo sprint: all 4 samples moved < 0.2 deg). Set `root_speed` (m/s)
   in the motion file: the root travels forward during generation and the travel is subtracted before saving (clip in place).
-- **Key poses passed bone rotations only (until 2026-11):** the pose was rebuilt on the base sample's hips, so a crouch set
-  by hand reached Kimodo at standing hip height and floated (Padlinozerca: hips 0.94 m, lowest foot joint 39.5 cm up; the
-  generated clip floated 41 cm). `keyposes_to_kimodo.py` now writes `hips` (the source hips the retarget turns into the
-  pose's, `keypose_root.py`) and `kimodo_keyposes.py` builds the pose on them: crouch 0.52 m, foot joint -3.1 cm; the leap
-  pose 1.15 m with the feet 8 cm up. A `poses.json` from before prints WARNING and keeps the old behaviour: rerun
-  `keyposes_to_kimodo.py`. Kimodo has no foot-contact input in its API; feet follow from the hips + rotations (the
-  rig's leg proportions leave ~3 cm).
+- **Key poses passed bone rotations only (until 2026-11):** a hand-set crouch reached Kimodo at standing hip height and
+  floated 41 cm (Padlinozerca). `keyposes_to_kimodo.py` now writes `hips` (`keypose_root.py`): crouch 0.52 m, foot joint
+  -3.1 cm. A `poses.json` from before prints WARNING: rerun `keyposes_to_kimodo.py`. Kimodo has no foot-contact input.
+- **Kimodo keeps a key pose's joint POSITIONS, not the hands' ROTATION:** a full-body key constrains positions only and the
+  clip comes from the rotation channel; the knight's sword hand hit its keys 2-8 cm close but turned 15-176 deg off (the
+  retarget is faithful: same error before and after it). The working fix: `chain.py --key-poses` runs `key_hands.py` after
+  the retarget: forearm roll + rest of the hand rotation per key (wrist bend capped at 80 deg), smoothstep between keys,
+  joint positions unchanged. `kimodo_keyposes.py --hand-rotations` also sends the hands' rotation to Kimodo (its own
+  end-effector channel): EXPERIMENTAL, off by default, until a generation run shows Kimodo honours it. Gate: `key_hand_rot_L/R` on the key frames
+  (limit 50 deg: knight before 101-176, after 0-1, bend-capped key 6-48). Cost on the knight: hand_jump at the strike
+  +0.4..+7 deg, skin_twist +10, scores +0.03..+1.9; a sample whose wrist already folds 167 deg (r3b s2) reads a 177 deg
+  wrist twist there. With a prop the grip solver sets the hands: measured, not corrected or scored.
 - **Kimodo cannot do a deep forward bend from text** ("curls forward, chest on knees" twice gave a squat with the shoulders
   22 cm BEHIND the hips). Set such a key pose by hand from a reference picture (bone directions + 2-bone IK from bone heads)
   and run the motion through it. Measure the lean (shoulder vs hip along the forward axis), do not judge from a thumbnail.
@@ -266,7 +272,7 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - **The aim's frames** (`W_AIM`, in `<glb>_arms.json` for the audit's pocket checks): stock on the shoulder, from the
   right hand's height; under the armpit, from the motion file (`lib/prop_path.aim_window`: the `aim` key pose, the
   phases, the shot). The hand's height pinned Kusznik's stock on the recoil and left it at the hip on the aim frame.
-- **Approved key poses** (`prop_in_hands.py --poses`, with `<poses>_arms.json`): each key pose's prop is carried onto
+- **Approved key poses** (`chain.py --key-poses/--key-frames` -> `prop_in_hands.py`, with `<poses>_arms.json`): each key pose's prop is carried onto
   every frame's body (hold: hips; aim: chest under the butt-side shoulder joint) and kept while it costs at most 12
   more than on its own key frame; else held as the neighbour holds it, else searched near it, other pockets last.
   Key frames take the approved arms. `APPROVED PLACE` lines report it (Kusznik's key frames: 0.0 cm, 0 deg off).
@@ -354,7 +360,7 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   the same merged file. Traps met: the matrix product of a part of an array may round differently from the same rows
   of the whole array's product; two trees over a split face set break ties (a point nearest to a shared edge) in
   another order than one tree, and the face decides the region and the sign.
-- The solver closes the loop only when the first frame is an approved key pose (`--poses`); without one the last and
+- The solver closes the loop only when the first frame is an approved key pose (`--key-poses`); without one the last and
   first frame can differ (7 versions had 30° on the seam). Audit: `loop_seam_*`.
 - `prop_in_hands` ends with `PROP IN BODY` and `LIMBS IN BODY` on the placed pose; `--frames` prints each cost by part.
 - Read the audit with `share` and `side` (AUDIT.md): "fr. 1–99" is a range, not the whole clip; "forearm in head" does not say which one.
