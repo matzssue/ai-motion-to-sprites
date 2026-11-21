@@ -1,0 +1,22 @@
+{
+ "_about": "A one-handed sword attack: Kimodo phases and key poses as in any motion file, plus the recipe that puts the sword in the right hand (pipeline/recipes/one_hand_weapon.py). `in_hand` and `fingers` are printed by the recipe's --read-scene from the approved pose scene; `grip` is read off the weapon model.",
+ "action": "attack",
+ "phases": [
+  {"duration": 0.6, "text": "A person stands in a fighting stance with the left foot forward, then raises the right arm high above the right shoulder."},
+  {"duration": 0.3, "text": "The person swings the right arm hard down and across the body to the left."},
+  {"duration": 1.0, "text": "The person lowers the right arm and settles back into the fighting stance."}
+ ],
+ "loop_blend_s": 0.4,
+ "key_poses": {"ready": 0, "windup": 14, "strike": 20},
+ "recipe": {
+  "name": "one_hand_weapon",
+  "weapon": "sword.glb",
+  "hand": "right",
+  "in_hand": [[0.0, 0.0, 0.5, 0.004], [0.5, 0.0, 0.0, 0.105], [0.0, 0.5, 0.0, -0.004], [0.0, 0.0, 0.0, 1.0]],
+  "grip": [[0.0, 0.0, -0.8], [0.0, 0.0, -0.5]],
+  "fingers": {
+   "index.1.R": [0.714, 0.7, 0.0, 0.0], "index.2.R": [0.703, 0.711, 0.0, 0.0], "index.3.R": [0.704, 0.709, 0.0, 0.044],
+   "thumb.1.R": [0.94, 0.2, 0.1, 0.25]
+  }
+ }
+}

@@ -130,3 +130,52 @@ the neighbour are not searched).
   5.16 -> 7.89).
 - Left: the stock 4-5.3 cm in the right upper arm on frames 56-80, hands 2-4 cm in the torso in the hold (the approved
   hold has 2.2 cm), fingertips 5 cm off the stock on frames 76-100, an elbow jump of 4.3 cm at frame 80.
+
+## Solver notes (moved from SKILL.md when `prop_in_hands.py` was frozen, 2026-11-21)
+
+The solver gets no further rounds; a new grip is a recipe (`pipeline/recipes/README.md`). These describe it as it is.
+
+- `aim.rest_at`: where the prop's rear end rests while aiming, by roles - `shoulder` (default) or `armpit` (default when
+  `butt_push` is given). In the armpit the PROP is the target: the rear end is pinned in the pocket of that frame's body
+  (depths `POCKET_TRY` x the upper arm below the shoulder joint), the prop only turns about it (aim kept within
+  `AIM_FREE` = 10 deg), may slide back through the pocket by `STOCK_SLIDE` and leave it by `POCKET_SLIP`, and both arms
+  are fitted to it. On the own skeleton every candidate is scored on the REAL skin with the audit's own checks
+  (`prop_in_body`, hands/forearms in head/torso, `pocket_gap`); the old proxies (a body volume open at the shoulders, arm
+  capsules) missed 7.7 cm of stock in the front armpit fold and every try swung the crossbow 50-60 deg sideways. The arm
+  solver moves the real upper arm/forearm skin rigidly with each setup (only skin weighted >= 0.9 to the bone) and keeps a
+  grip `REACH_SLACK` = 4% short of a straight arm (the left hand reached 2.3 cm past it). Kusznik: the solver's best was
+  3.9-5.1 cm in the skin; the author's hand-posed frame 44 (final, rig kus13) has 0.1 cm in the upper arm and 4.2 cm in the chest side
+  (`spine.3`), with the stock through the pocket and the butt behind the back. The author accepted it.
+  Why seven rounds failed and what the tool needs: [GRIP_LESSONS.md](GRIP_LESSONS.md).
+- Working mode (author, round 8): the solver poses; only a failed pose goes to the author, and the author's correction is a
+  bug report: compare it with the solver's output on the same body, find why the solver did not get there, and fix the
+  solver or the audit until it reaches a comparable pose by itself. Kusznik's aim (frame 44), what the comparison found:
+  the solver's own cost scored the author's pose worse (the stock resting in the pocket counted as "in the arm" in the
+  arm solver and as a body hit in `prop_hits`: both now leave the stock's rear span to the pocket allowance); a palm normal
+  tilted along the stock moved the grip along it (`grip()` offsets the palm across the axis only: the left palm was 20 cm
+  off the stock); and the pinned search started only with the rear end at the side of the ribs, turned about that end, so
+  a turn swung the stock's middle into the chest. The starts now cover the pocket depths (deepest first), 0-12 cm in front
+  of the shoulder joint, the stock slid back 0-100% of `STOCK_SLIDE` and turned +-`AIM_FREE` about the pocket point;
+  `prop_hits` and the arm's reach slack (500/m, soft) count in the prop's place. The author then found the stock in the
+  elbow (elbow pressed to the body) on a pose the audit passed: the pocket allowance (audit and solver) now covers only
+  the torso side and the upper arm's top `POCKET_ARM` = 30%, and the pinned search costs a butt-side elbow less than
+  `ELBOW_OUT` = 0.6 of the upper arm out of the shoulder joint (300/m). Swung out after the prop was placed, the arm's
+  fold pressed the stock deeper, so the elbow is chosen together with the prop. Solver alone (s12) vs the author: stock
+  yaw -20 / -18 deg, butt 10.6 / 12.4 cm out, 14.2 / 13.9 cm back, 15.8 / 21.3 cm below the shoulder joint, pitched
+  -4 / +9 deg (the motion's `aim.pitch_deg` is 4 down); right elbow 21 / 20 cm out; grips within 2 cm; audit 0.33
+  (author's pose 3.2 cm fingers in the prop, solver 1.1 cm: `index.1.R`'s base, which a raised radius does not move).
+  Details: [GRIP_LESSONS.md](GRIP_LESSONS.md).
+- **The prop pose search is slow by its count, not by its geometry** (own skeleton / armpit: every candidate pose is
+  scored on the real skin). An aim frame asks for ~490 candidates (108 starts + six descents), a hold frame for ~28.
+  Kusznik (38k vertices, 56k faces): 105 ms per candidate, 54 ms of it Python lists rebuilt for one BVH (labelled faces
+  picked again, 38k Vectors) while the tree itself builds in 7 ms; one sample took 1 h 46 min. Now 13 ms: faces picked
+  once, trees on the vertices they use, one skin deform per candidate, arm setups / body hits / skin depths remembered
+  per prop pose inside a frame's search, a candidate dropped once its cost so far cannot beat the best (every part of
+  the cost is >= 0), a frame whose body did not change since the last pass keeps its answer. Measure before tuning:
+  `time [s]:` and `time, search:` in the output.
+- **A speed change to the solver must give the same file.** A float that differs in its last bit flips one `<` in the
+  descent and a frame comes out elsewhere (as with any small parameter change, above). Check a frame set with
+  `--frames` and the whole clip with `compare_motion.py` (`COMPARE IDENTICAL`) against the output of the old code on
+  the same merged file. Traps met: the matrix product of a part of an array may round differently from the same rows
+  of the whole array's product; two trees over a split face set break ties (a point nearest to a shared edge) in
+  another order than one tree, and the face decides the region and the sign.

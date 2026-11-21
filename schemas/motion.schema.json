@@ -2,7 +2,7 @@
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "$id": "motion.schema.json",
  "title": "Motion file",
- "description": "One action: Kimodo phases and key poses, and/or the prop grip for prop_in_hands.py. Keys starting with _ are comments; unknown keys are allowed. character.py also requires `phases` for an `ai` action and `grip` for a `prop` action.",
+ "description": "One action: Kimodo phases and key poses, and/or the prop grip for prop_in_hands.py, or the recipe that puts a weapon in the hands (pipeline/recipes/README.md). Keys starting with _ are comments; unknown keys are allowed. character.py also requires `phases` for an `ai` action and `grip` for a `prop` action.",
  "type": "object",
  "required": ["action"],
  "properties": {
@@ -56,6 +56,28 @@
    "type": "object",
    "properties": {"butt_from_shoulder": {"$ref": "#/$defs/vec3"}, "butt_push": {"$ref": "#/$defs/vec3"}, "pitch_deg": {"type": "number"},
                   "head_back_deg": {"type": "number"}, "transition_arc": {"type": "number"}, "head_gaze": {"type": "number"}}
+  },
+  "recipe": {
+   "type": "object",
+   "description": "the narrow tool run on the merged clip (pipeline/recipes/<name>.py, index: pipeline/recipes/README.md); the other keys are that recipe's inputs",
+   "required": ["name"],
+   "properties": {"name": {"enum": ["one_hand_weapon"]}},
+   "allOf": [
+    {"if": {"properties": {"name": {"const": "one_hand_weapon"}}, "required": ["name"]},
+     "then": {
+      "required": ["weapon", "in_hand", "grip"],
+      "properties": {
+       "weapon": {"type": "string", "minLength": 1, "description": "GLB with one mesh, path relative to the motion file"},
+       "hand": {"enum": ["right", "left"]},
+       "in_hand": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                   "description": "the weapon mesh object in the hand bone's frame (rows of a 4x4 matrix; may hold a scale)"},
+       "grip": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/vec3"},
+                "description": "both ends of the part the fist closes on, in the weapon mesh's own coordinates"},
+       "fingers": {"type": "object", "description": "finger bone -> pose quaternion [w, x, y, z] of the closed fist",
+                   "additionalProperties": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}}
+      }
+     }}
+   ]
   },
   "recoil": {
    "type": "object",

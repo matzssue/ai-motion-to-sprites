@@ -7,7 +7,7 @@ import shutil
 import sys
 
 PIPELINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-GROUPS = ("", "rig", "motion", "checks", "review", "lib")
+GROUPS = ("", "rig", "motion", "recipes", "checks", "review", "lib")
 BLENDER = os.environ.get("BLENDER") or shutil.which("blender") or "blender"
 KIMODO_DIR = os.environ.get("KIMODO_DIR", os.path.join(os.path.expanduser("~"), "kimodo"))
 KIMODO_MODEL = os.environ.get("KIMODO_MODEL", "Kimodo-SOMA-RP-v1.1")

@@ -34,6 +34,7 @@ ap.add_argument("--frames", default=None, help="only these frames (quick grip tr
 ap.add_argument("--no-loop", action="store_true", help="one-shot action: no loop seam metric")
 ap.add_argument("--under-arm", action="store_true", help="stock under the armpit (motion aim.butt_push): prop in the upper arms is scored")
 ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
+ap.add_argument("--recipe-report", default=None, help="the recipe's report for this action (default: <glb>_recipe.json)")
 ap.add_argument("--key-hands", default=None, help="key_hands.py report: hand rotation against the approved key poses")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
 A.out = os.path.abspath(A.out)  # Blender saves relative render paths against C:\, not the cwd
@@ -334,6 +335,11 @@ try:   # head turn the solver's face guard took back (prop_in_hands <glb>_arms.j
         open(A.glb.replace(".glb", "_arms.json"), encoding="utf-8")).items()})
 except (OSError, ValueError, AttributeError):
     report["face_guard"] = None
+try:   # what the motion file's recipe measured on this action (pipeline/recipes/): reported, not scored
+    _r = json.load(open(A.recipe_report or A.glb.replace(".glb", "_recipe.json"), encoding="utf-8"))
+    report["recipe"] = {k: v for k, v in _r.items() if k != "per_frame"} if _r.get("action") == A.action else None
+except (OSError, ValueError, AttributeError):
+    report["recipe"] = None
 if KEYH:   # per key frame and side (review page table)
     report["key_hands"] = {str(f): {k: r_.get("key_hand_rot_" + k) for k in "LR"} for f in sorted(KEYH)
                            for r_ in samples if abs(r_["t"] - f0 - f) < 1e-6}
@@ -353,6 +359,7 @@ for k, v in sorted(errors.items(), key=lambda kv: -kv[1]["max"] / max(kv[1]["lim
         {"L": ", left", "R": ", right"}.get(v["side"], ": %s" % v["side"] if v.get("side") else "")))   # prop_in_body: the region
 print("  no limit:", ", ".join("%s %s" % (k, fmt(k, maxima[k]).strip()) for k in report["no_limit"] if maxima[k]))
 if SKIP: print("  skipped:", "; ".join("%s (%s)" % kv for kv in SKIP.items()))
+if report["recipe"]: print("  recipe %(recipe)s: %(line)s" % report["recipe"])
 if report["face_guard"]: print("  face guard: took back up to %(max_deg).0f deg of head turn (fr. %(at_frame)d), %(count)d frames" % report["face_guard"])
 
 # close-ups of the worst spots
