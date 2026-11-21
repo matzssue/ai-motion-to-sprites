@@ -41,9 +41,12 @@ def build(A):
     os.makedirs(A.out, exist_ok=True); data_p = os.path.join(A.out, "data.json")
     SKEL = ["--skeleton", A.skeleton] if getattr(A, "skeleton", None) else []
     aud = os.path.join(A.out, "audit")
-    if not fresh(os.path.join(aud, "audit.json"), A.glb):
+    KH = getattr(A, "key_hands", None)
+    old = os.path.join(aud, "audit.json")
+    if not fresh(old, A.glb) or (KH and "key_hands" not in json.load(open(old, encoding="utf-8"))):
         blender("motion_audit.py", "AUDIT", "--glb", A.glb, "--action", A.action, "--out", aud, *(["--prop", A.prop] if A.prop else []),
-                *(["--rest-is-normal"] if A.rest_is_normal else []), *(["--no-loop"] if A.no_loop else []), *SKEL)
+                *(["--rest-is-normal"] if A.rest_is_normal else []), *(["--no-loop"] if A.no_loop else []), *SKEL,
+                *(["--key-hands", KH] if KH else []))
     fr = os.path.join(A.out, "frames")
     if not fresh(os.path.join(fr, "done.json"), A.glb):
         blender("preview_8.py", "PREVIEW OK", "--glb", A.glb, "--actions", A.action, "--out", fr, "--all", "--px", str(A.px))
@@ -63,6 +66,7 @@ def build(A):
             name = "hand_%03d_%s.webp" % (f, side); strip.save(os.path.join(A.out, name), "WEBP", quality=78); hands.append((f, side, name))
     rep = json.load(open(os.path.join(aud, "audit.json"), encoding="utf-8"))
     data = {"title": A.title, "glb": A.glb, "frames": n, "px": A.px, "audit": rep, "hands": hands}
+    if KH: data["key_hands"] = json.load(open(KH, encoding="utf-8"))   # before/after the correction, per key
     json.dump(data, open(data_p, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     return data
 
@@ -172,6 +176,20 @@ def page(data, folder, prev=None, prev_folder=None, diff=None, note=""):
         H.append('<tr><td>%s</td><td class="muted">skipped</td><td colspan="%d" class="muted">%s</td></tr>' % (
             LABELS.get(k, k), 3 if rp else 2, html.escape(why)))
     H.append("</tbody></table></div></section>")
+    if rep.get("key_hands"):   # hand rotation against the approved poses: Kimodo keeps the positions, not the rotation
+        kh = data.get("key_hands") or {}; before = kh.get("before", {}); fixed = kh.get("applied")
+        H.append('<section><h2>Hands on the key poses</h2><p class="muted">How far each hand is turned from the approved pose on '
+                 'its key frame%s.</p><div class="tab"><table><thead><tr><th>key frame</th>%s<th>left</th><th>right</th></tr></thead><tbody>'
+                 % (" (after the model, then after key_hands.py put the rotation back)" if fixed else "",
+                    "<th>left from the model</th><th>right from the model</th>" if fixed else ""))
+        lim = {k: rep["limits"].get("key_hand_rot_" + k) for k in "LR"}
+        for f, v in rep["key_hands"].items():
+            b = before.get(f, {})
+            cells = "".join('<td class="%s">%s</td>' % ("bad" if lim[k] is not None and (v.get(k) or 0) > lim[k] else "",
+                                                        "-" if v.get(k) is None else "%.0f deg" % v[k]) for k in "LR")
+            H.append("<tr><td>%s</td>%s%s</tr>" % (f, "".join("<td>%s</td>" % ("-" if b.get(k) is None else "%.0f deg" % b[k]) for k in "LR")
+                                                  if fixed else "", cells))
+        H.append("</tbody></table></div></section>")
     if diff:
         H.append('<section><h2>Difference from the previous version</h2><div class="tab"><table><thead><tr><th>part</th><th>max position</th>'
                  "<th>mean</th><th>max rotation</th></tr></thead><tbody>")
@@ -195,6 +213,7 @@ if __name__ == "__main__":
     ap.add_argument("--rest-is-normal", action="store_true", help="library action: prop on the back, as in calibration")
     ap.add_argument("--no-loop", action="store_true", help="one-shot action: audit without the loop seam")
     ap.add_argument("--skeleton", default=None, help="skeleton profile of the rig: built-in name or JSON path (default mixamo)")
+    ap.add_argument("--key-hands", default=None, help="key_hands.py report: hand rotation against the approved key poses")
     A = ap.parse_args()
     SKEL = ["--skeleton", A.skeleton] if A.skeleton else []
     data = build(A); prev = diff = None

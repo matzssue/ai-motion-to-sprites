@@ -2,11 +2,11 @@
 forearms into the body; fingers into the prop), joints (wrists, arm skin twist), smoothness (jumps, loop seam), grip (prop above
 the head, hand without contact, loose fingers), feet (off the ground, planted foot sliding: feet.py). Over a limit it renders close-ups (5 sides) at the deepest point.
 blender -b --python pipeline/checks/motion_audit.py -- --glb X.glb --action attack --out dir [--prop crossbow] [--limits l.json]
-    [--frames 10,45,56] [--no-loop] [--rest-is-normal] [--skeleton mixamo|profile.json]
+    [--frames 10,45,56] [--no-loop] [--rest-is-normal] [--skeleton mixamo|profile.json] [--key-hands keyhands.json]
 Limits and where they come from: README, "Quality gates". A metric whose skeleton role is absent is listed in `skipped`."""
 import bpy, sys, os, math, json, argparse, re
 import numpy as np
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Quaternion, Vector
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from collisions import dominant, masks, vertices, bvh, depth, joint_angles, labels, body_tree, depths, rig_of, FINGER_PREFIX
 from collisions import labels_all, skin_tree, prop_in_body, stock_end, pocket_gap, limb_radius, POCKET_REST, POCKET_SPAN
@@ -32,6 +32,7 @@ ap.add_argument("--frames", default=None, help="only these frames (quick grip tr
 ap.add_argument("--no-loop", action="store_true", help="one-shot action: no loop seam metric")
 ap.add_argument("--under-arm", action="store_true", help="stock under the armpit (motion aim.butt_push): prop in the upper arms is scored")
 ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
+ap.add_argument("--key-hands", default=None, help="key_hands.py report: hand rotation against the approved key poses")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
 A.out = os.path.abspath(A.out)  # Blender saves relative render paths against C:\, not the cwd
 UNIT = {k: v[1] for k, v in METRICS.items()}; GROUP = {k: v[2] for k, v in METRICS.items()}
@@ -50,6 +51,8 @@ for o in bpy.data.objects:
     if o.type == "MESH" and o not in skinned: o.hide_render = True
 RIG = rig_of(arm, A.skeleton, exclude=(A.prop,) if A.prop else ()); PROF = RIG.prof
 SKIP = PROF.skipped(NEEDS)   # {metric: reason}: not measured, not scored
+for k_ in ("key_hand_rot_L", "key_hand_rot_R"):
+    if not A.key_hands: SKIP.setdefault(k_, "no --key-hands (not a key-pose clip)")
 LIMITS = {k: v[0] for k, v in METRICS.items() if k not in SKIP}
 if A.limits: LIMITS.update({k: v for k, v in json.load(open(A.limits, encoding="utf-8")).items() if k not in SKIP})
 B = {s: {r: PROF.bone(r, s) for r in ("forearm", "hand")} for s in skeleton.SIDES}
@@ -70,6 +73,11 @@ H = height(CO_REST[:, 2])
 SCALE = H / REF_HEIGHT
 LIM = scaled(LIMITS, H)
 IN_HANDS = prop is not None and not A.rest_is_normal
+KEYH = {}   # clip frame -> {"L"/"R": target hand rotation, armature space}
+if A.key_hands:
+    KEYH = {int(f): {s_: Quaternion(v) for s_, v in d.items()} for f, d in json.load(open(A.key_hands, encoding="utf-8"))["targets"].items()}
+    if IN_HANDS:   # the prop solver sets the hands to its grip: reported, not scored
+        for k_ in ("key_hand_rot_L", "key_hand_rot_R"): LIMITS[k_] = None; LIM.pop(k_, None)
 SIDE = np.array([RIG.bone_side(d) for d in dom])
 FINGERS = {}   # finger (a chain below the hand) -> vertex indices; named by its first bone without the number
 for i in np.where(M["fingers"])[0]: FINGERS.setdefault(re.sub(r"_?\d+$", "", PROF.short(RIG.finger_root[dom[i]])), []).append(i)
@@ -260,6 +268,10 @@ for t in times:
     for s, k in (("Left", "L"), ("Right", "R")):
         bend, tw = joint_angles(rr(B[s]["forearm"]), rr(B[s]["hand"]), pr(B[s]["forearm"]), pr(B[s]["hand"]))
         row["wrist_bend_" + k] = round(bend, 1); row["wrist_twist_" + k] = round(abs(tw), 1)
+        kf_ = t - f0
+        if KEYH and t >= f0 and abs(kf_ - round(kf_)) < 1e-6 and int(round(kf_)) in KEYH:
+            row["key_hand_rot_" + k] = round(ang(pr(B[s]["hand"]).to_quaternion(), KEYH[int(round(kf_))][k]), 1)
+            where["key_hand_rot_" + k] = [float(x) for x in head(B[s]["hand"])]; side["key_hand_rot_" + k] = k
     if SKIN and t >= f0:          # arm skin twist relative to the torso (skin.py)
         Rt = np.array((AW @ arm.pose.bones[TORSO].matrix @ arm.data.bones[TORSO].matrix_local.inverted() @ AW.inverted()).to_3x3())
         for s_, seg in SKIN.items():
@@ -307,6 +319,9 @@ report = {"result": "OK" if not errors else "FAIL", "score": score, "scores": sc
           "score_area": score_area, "height_m": round(H, 3), "errors": errors,
           "maxima": maxima, "rest": {k: rest_row.get(k, 0) for k in maxima}, "limits": {k: round(v, 4) for k, v in LIM.items()},
           "no_limit": [k for k, v in LIMITS.items() if v is None], "frames": FR, "skeleton": PROF.name, "skipped": SKIP}
+if KEYH:   # per key frame and side (review page table)
+    report["key_hands"] = {str(f): {k: r_.get("key_hand_rot_" + k) for k in "LR"} for f in sorted(KEYH)
+                           for r_ in samples if abs(r_["t"] - f0 - f) < 1e-6}
 json.dump(report, open(os.path.join(A.out, "audit.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 json.dump(samples, open(os.path.join(A.out, "audit_samples.json"), "w", encoding="utf-8"), ensure_ascii=False)
 print("AUDIT %s (height %.2f m, %d samples)" % (report["result"], H, len(samples)))

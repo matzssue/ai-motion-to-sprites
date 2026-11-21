@@ -71,6 +71,11 @@ METRICS = {
     # one foot on the ground, the other this high: a step or a kick does it too (a walk's swing foot 16 cm, Padlinozerca's
     # hanging crouch foot 30 cm); no accepted kick or step to calibrate against, so reported only
     "foot_hanging": (None, "m", "feet"),
+    # hand rotation off the approved key pose on its key frame (--key-hands from key_hands.py; only key-pose clips). Knight
+    # round 3, 8 samples: straight from Kimodo the worst key per sample 101-176 deg (positions 2-8 cm close); after
+    # key_hands.py 0-1 deg except the follow-through key where the wrist would bend past 80 deg: 6-48 deg. Reported only
+    # with a prop in the hands: its solver sets the grip
+    "key_hand_rot_L": (50, "deg", "joints"), "key_hand_rot_R": (50, "deg", "joints"),
 }
 # names on the review pages (review_page.py, web/src/audit/catalog.json); every METRICS key needs one (tests/test_audit_metrics.py)
 LABELS = {
@@ -88,6 +93,7 @@ LABELS = {
     "rest_gap": "stock off the armpit", "prop_in_pocket": "stock in armpit skin", "face_skew": "face skew",
     "finger_tip_gap": "fingertip off prop", "finger_tip_fold": "folded fingertip",
     "feet_above_ground": "feet off the ground", "foot_slide": "planted foot sliding", "foot_hanging": "one foot hanging",
+    "key_hand_rot_L": "left hand off its key pose", "key_hand_rot_R": "right hand off its key pose",
 }
 UNIT_SHOWN = {"m": "cm", "deg": "deg", "frac": "percent"}   # METRICS unit -> how a page shows it
 REF_HEIGHT = 1.8   # "m" limits are set for a character this tall
@@ -130,6 +136,7 @@ NEEDS = {
     "loose_fingers": ("fingers",), "stretch": (), "skin_twist": ARM, "skin_spread": ARM,
     "skin_tear": ("shoulder", "upper_arm", "forearm"), "prop_in_upper_arms": ("upper_arm",), "prop_in_body": (), "rest_gap": ("upper_arm", "forearm"), "prop_in_pocket": ("upper_arm", "forearm"), "face_skew": ("head",), "finger_tip_gap": ("fingers",),
     "finger_tip_fold": ("fingers",), "feet_above_ground": ("foot",), "foot_slide": ("foot",), "foot_hanging": ("foot",),
+    "key_hand_rot_L": ("hand.left",), "key_hand_rot_R": ("hand.right",),
 }
 
 

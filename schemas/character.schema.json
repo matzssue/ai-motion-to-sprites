@@ -44,7 +44,8 @@
     "approved": {
      "type": "object",
      "required": ["score"],
-     "properties": {"bvh": {"type": "string"}, "npz": {"type": "string"}, "score": {"type": "number"}, "date": {"type": "string"}}
+     "properties": {"bvh": {"type": "string"}, "npz": {"type": "string"}, "score": {"type": "number"}, "date": {"type": "string"},
+                    "key_hands": {"type": "boolean", "description": "approved after key_hands.py put the key poses' hand rotation back (rerun with it)"}}
     }
    },
    "allOf": [
