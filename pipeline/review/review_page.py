@@ -181,8 +181,12 @@ def page(data, folder, prev=None, prev_folder=None, diff=None, note=""):
     if g: H.append('<p class="muted">Face guard: the solver took back up to %.0f&deg; of head turn (frame %d; at least half of that on '
                    'frames %d&ndash;%d; %d frames in all). An intended head turn: <code>"face_guard": false</code> in the motion file\'s grip.</p>' % (
                        g["max_deg"], g["at_frame"], g["frames"][0], g["frames"][1], g["count"]))
-    if rep.get("recipe"):
-        H.append('<p class="muted">Recipe %s: %s. Limits: %s.</p>' % tuple(html.escape(str(rep["recipe"].get(k, ""))) for k in ("recipe", "line", "limits")))
+    hd = rep.get("head")
+    if hd: H.append('<p class="%s">Head off the facing direction: yaw mean %.0f&deg; / max %.0f&deg;, pitch mean %.0f&deg; / max %.0f&deg;%s.</p>' % (
+        "bad" if hd["warn"] else "muted", hd["yaw_mean"], hd["yaw_max"], hd["pitch_mean"], hd["pitch_max"],
+        " &mdash; the character looks away through the clip (reported, not scored)" if hd["warn"] else ""))
+    for rc in rep.get("recipes") or []:
+        H.append('<p class="muted">Recipe %s: %s. Limits: %s.</p>' % tuple(html.escape(str(rc.get(k, ""))) for k in ("recipe", "line", "limits")))
     H.append("</section>")
     if rep.get("key_hands"):   # hand rotation against the approved poses: Kimodo keeps the positions, not the rotation
         kh = data.get("key_hands") or {}; before = kh.get("before", {}); fixed = kh.get("applied")

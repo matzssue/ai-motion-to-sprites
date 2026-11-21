@@ -81,11 +81,13 @@ the right armpit), `recoil`, `loop_blend_s` (how many last seconds the retarget 
 
 ### A weapon or prop in the hands: pick a recipe
 Read `pipeline/recipes/README.md` first: the generated index, one row per recipe (use when / not for). A recipe is one
-small script for one kind of grip, named by the motion file (`"recipe": {"name": ..., inputs}`) and run in the prop step of
-`chain.py` and of the merge stage; the audit reports what it measured (`recipe` in `audit.json`, not scored).
+small script for one narrow case, named by the motion file (`"recipe": {"name": ..., inputs}`, or a list run in order) and
+run in the prop step of `chain.py` and of the merge stage; the audit reports what each measured (`recipes` in `audit.json`).
 - One-handed weapon rigid in one hand (the knight's sword): `one_hand_weapon`. `in_hand` and `fingers` come from the
   approved pose scene (`--read-scene`), `grip` from the model (`examples/one_hand_weapon.example.json`). The weapon is
   a mesh in the output GLB; body joints and `key_hands.py`'s hand rotation stay as they are.
+- Its path is right but the arm holding it is wrung (audit: `upper_arm_twist`, `elbow_above_shoulder`): `swing_arm`, listed
+  before it, solves that arm again under the same path (`examples/swing_arm.example.json`).
 - Nothing fits: write a new recipe from the smallest one (README there, "Writing one"). One recipe = one narrow case.
 - **Do not add a switch, a mode or a rule to `prop_in_hands.py`**: the two-handed solver (`actions.<a>.prop: true`) is
   EXPERIMENTAL and frozen. What this file says below about its grip, aim, passes and traps describes it as it is.

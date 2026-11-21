@@ -17,7 +17,7 @@ EXAMPLE = os.path.join(ROOT, "examples", "one_hand_weapon.example.json")
 
 def test_every_recipe_has_the_header():
     R = RI.recipes()
-    assert "one_hand_weapon" in R and "prop_in_hands" in R
+    assert "one_hand_weapon" in R and "swing_arm" in R and "prop_in_hands" in R
     for n, (_, h) in R.items():
         assert all(h[f] for f in RI.FIELDS), n
     assert "EXPERIMENTAL" in R["prop_in_hands"][1]["title"]
@@ -44,7 +44,9 @@ def test_header_problems_are_named(tmp_path):
 
 def test_schema_lists_the_recipe_names():
     S = json.load(open(os.path.join(ROOT, "schemas", "motion.schema.json"), encoding="utf-8"))
-    assert S["properties"]["recipe"]["properties"]["name"]["enum"] == RI.names()
+    assert S["$defs"]["recipe"]["properties"]["name"]["enum"] == RI.names()
+    ifs = [c["if"]["properties"]["name"]["const"] for c in S["$defs"]["recipe"]["allOf"]]
+    assert sorted(ifs) == RI.names(), "every recipe lists its inputs in the schema"
     assert all(os.path.exists(os.path.join(RI.RECIPES, n + ".py")) for n in RI.names())
 
 
