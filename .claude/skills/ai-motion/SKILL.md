@@ -183,12 +183,14 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - **Kimodo keeps a key pose's joint POSITIONS, not the hands' ROTATION:** a full-body key constrains positions only and the
   clip comes from the rotation channel; the knight's sword hand hit its keys 2-8 cm close but turned 15-176 deg off (the
   retarget is faithful: same error before and after it). The working fix: `chain.py --key-poses` runs `key_hands.py` after
-  the retarget: forearm roll + rest of the hand rotation per key (wrist bend capped at 80 deg), smoothstep between keys,
-  joint positions unchanged. `kimodo_keyposes.py --hand-rotations` also sends the hands' rotation to Kimodo (its own
+  the retarget: per key the forearm roll that leaves the POSE's wrist twist and the wrist that then hits the posed hand
+  (cut to twist 55 / bend 80 deg), smoothstep between keys, joint positions unchanged. Kimodo's own wrist is dropped: it is
+  unconstrained too (round 7 raw: twist 102-180 deg), and keeping it under a corrected forearm left 149-158 deg. `kimodo_keyposes.py --hand-rotations` also sends the hands' rotation to Kimodo (its own
   end-effector channel): EXPERIMENTAL, off by default, until a generation run shows Kimodo honours it. Gate: `key_hand_rot_L/R` on the key frames
-  (limit 50 deg: knight before 101-176, after 0-1, bend-capped key 6-48). Cost on the knight: hand_jump at the strike
-  +0.4..+7 deg, skin_twist +10, scores +0.03..+1.9; a sample whose wrist already folds 167 deg (r3b s2) reads a 177 deg
-  wrist twist there. With a prop the grip solver sets the hands: measured, not corrected or scored.
+  (limit 50 deg: knight before 101-176, after 0-5, round 7 right hand up to 9). Wrist twist after: 20-23 L / 43-54 R on 16
+  samples. Cost: Kimodo's wrist no longer damps the arm's whip, so hand_jump stays 16-24 deg (raw 10-89) and on 6 of 16
+  samples is 2-9 deg above the uncorrected clip: `key_hands.py` prints a WORSE line for that. With a prop the grip solver
+  sets the hands: measured, not corrected or scored.
 - **Kimodo cannot do a deep forward bend from text** ("curls forward, chest on knees" twice gave a squat with the shoulders
   22 cm BEHIND the hips). Set such a key pose by hand from a reference picture (bone directions + 2-bone IK from bone heads)
   and run the motion through it. Measure the lean (shoulder vs hip along the forward axis), do not judge from a thumbnail.

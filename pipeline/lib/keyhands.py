@@ -1,9 +1,9 @@
 """Hand rotation of the approved key poses put back on a clip after the model (plain numpy; key_hands.py applies it in
 Blender, tests run it). Kimodo hits the key poses' joint POSITIONS but builds the clip from its rotation channel, which a
 full-body key does not constrain: the knight's right hand came out 15-176 deg off the posed rotation with the hand 2-8 cm
-from its target. Per key: the forearm's roll about its own axis that best matches the posed hand, then the rest of the hand
-rotation in the hand's own frame; between keys both deltas are spread with a smoothstep. Joint positions do not move (a
-roll about the forearm's axis leaves the wrist where it is; the hand turns about the wrist). Quaternions are (w, x, y, z)."""
+from its target. Per key: the forearm roll that leaves the pose's own wrist twist, and the wrist that then hits the posed
+hand (wrist_from_pose), within the audit's wrist limits; between keys both are spread with a smoothstep. Joint positions do
+not move (a roll about the forearm's axis leaves the wrist where it is; the hand turns about the wrist). Quaternions are (w, x, y, z)."""
 import math
 
 import numpy as np
@@ -42,16 +42,6 @@ def swing_deg(q, axis):
     q = q if q[0] >= 0 else -q
     sw = qmul(q, qinv(axis_angle(axis, twist(q, axis))))
     return math.degrees(2 * math.acos(min(1.0, abs(float(sw[0])))))
-
-
-def bend_limited(base, d, axis, max_deg, step=0.05):
-    """(q, kept): d with its swing scaled down until base @ q bends at most max_deg from `axis` (the twist about the axis
-    kept whole); kept = the fraction of the swing left. base = the hand's own rotation under the forearm, so the bend is the
-    audit's wrist_bend."""
-    d = d if d[0] >= 0 else -d
-    tw = axis_angle(axis, twist(d, axis)); sw = qmul(d, qinv(tw)); s = 1.0
-    while s > 0 and swing_deg(qmul(base, qmul(slerp(ID, sw, s), tw)), axis) > max_deg: s = round(s - step, 6)
-    s = max(s, 0.0); return qmul(slerp(ID, sw, s), tw), s
 
 
 def slerp(a, b, t):
@@ -103,3 +93,23 @@ def quat_track(quats, n, loop, times=None):
     """{key frame: hand residual quaternion} -> one per time (`schedule`; slerp, eased)."""
     ext = extend(quats, n, loop)
     return [slerp(quats[ext[i][1]], quats[ext[j][1]], t) for i, j, t in schedule(quats, n, loop, times)]
+
+
+def limit_wrist(q, axis, max_twist, max_bend):
+    """q (the hand under the forearm) with its twist about `axis` cut to +-max_twist deg and its swing to max_bend deg:
+    the audit's wrist_twist / wrist_bend measure exactly these two."""
+    q = q if q[0] >= 0 else -q
+    t = twist(q, axis); sw = qmul(q, qinv(axis_angle(axis, t))); b = swing_deg(q, axis)
+    t = max(-math.radians(max_twist), min(math.radians(max_twist), t))
+    if b > max_bend: sw = slerp(ID, sw, max_bend / b)
+    return qmul(sw, axis_angle(axis, t))
+
+
+def wrist_from_pose(forearm, target, rest, pose_wrist, axis):
+    """(roll rad, wrist): the forearm roll about `axis` that leaves the hand with the key pose's own wrist twist, and the
+    wrist that then puts the hand exactly on `target`. hand = forearm @ R(roll) @ rest @ wrist (armature space; rest = the
+    hand's rest rotation under the forearm). Kimodo's own wrist is not used: it was never constrained (round 7 raw: twist
+    up to 179 deg), while the approved pose's wrist is within the audit's limits."""
+    g = qmul(qinv(forearm), target)
+    roll = -twist(qmul(qmul(rest, pose_wrist), qinv(g)), axis)
+    return roll, qmul(qinv(rest), qmul(axis_angle(axis, -roll), g))

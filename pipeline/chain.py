@@ -12,7 +12,7 @@ from schema_check import load as load_config, load_skeleton
 
 IMPORTANT = ("smoothed", "RETARGET", "merge_actions", "pass", "OK", "AUDIT", "  FAIL", "  rest", "  score", "  no limit", "  skipped",
              "skeleton", "fingers:", "stock",
-             "closeups", "MAX", "RIG OK", "KEY", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ")
+             "closeups", "MAX", "RIG OK", "KEY", "WRIST", "WORSE", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ")
 
 
 def blender(script, marker, *args):

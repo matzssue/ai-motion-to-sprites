@@ -73,8 +73,8 @@ METRICS = {
     "foot_hanging": (None, "m", "feet"),
     # hand rotation off the approved key pose on its key frame (--key-hands from key_hands.py; only key-pose clips). Knight
     # round 3, 8 samples: straight from Kimodo the worst key per sample 101-176 deg (positions 2-8 cm close); after
-    # key_hands.py 0-1 deg except the follow-through key where the wrist would bend past 80 deg: 6-48 deg. Reported only
-    # with a prop in the hands: its solver sets the grip
+    # key_hands.py 0-5 deg on rounds 3 and 7 (16 samples), round 7's right hand up to 9. Reported only with a prop in the
+    # hands: its solver sets the grip
     "key_hand_rot_L": (50, "deg", "joints"), "key_hand_rot_R": (50, "deg", "joints"),
 }
 # names on the review pages (review_page.py, web/src/audit/catalog.json); every METRICS key needs one (tests/test_audit_metrics.py)
