@@ -1,4 +1,15 @@
-"""Prop (cut out by prepare_rig) in both hands on an AI motion: a prop pose searched without body collisions,
+"""Two-handed prop solver - EXPERIMENTAL and frozen: it gets no further rounds, a new grip is a recipe in pipeline/recipes/.
+Use when: both hands hold one long prop that the rig carries on its own bone (crossbow, rifle, two-handed staff) and the
+    action is a hold, an aim or a shot; expect to review every frame.
+Not for: a one-handed weapon (one_hand_weapon), a prop that is not part of the rig, anything that must pass the audit
+    unattended: on the crossbowman it leaves the stock 4-5 cm in the upper arm, snaps into and out of the armpit in one
+    frame, lifts the elbow over the stock and leaves fingertips up to 5 cm off it; its fix passes do not converge.
+Inputs: character.json `actions.<a>.prop: true` (no `recipe` key), rig.json `prop`, motion file `grip` (+ `hold`, `aim`,
+    `recoil`), optionally the approved key poses.
+Output: the clip GLB with the prop bone and both arms keyed on every frame, fingers wrapped; `<out>_arms.json`.
+Checks: motion_audit.py prop metrics (prop_in_body, prop_in_pocket, finger_tip_gap, ...); never shown without the audit.
+
+Prop (cut out by prepare_rig) in both hands on an AI motion: a prop pose searched without body collisions,
 both arms by analytic IK to the grip from the motion file (grip roll and elbow chosen for the wrist and for collisions),
 fingers wrapped around the stock, torso recoil. The result is checked by motion_audit.py - never shown without it.
 blender -b --python pipeline/motion/prop_in_hands.py -- --glb merged.glb --rig-data rig_ai_data.json --motion <motion>.json --out out.glb

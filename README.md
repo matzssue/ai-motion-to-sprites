@@ -4,7 +4,7 @@
 
 Text-to-motion for 2D games. One command takes a generated 3D character to an animated, audited GLB ready for
 8-direction sprite rendering. Along the way it plans motion from sentences with [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo),
-retargets it to a rig with Mixamo-compatible bone naming, puts a two-handed prop (a crossbow, a staff) into the hands with finger wrapping,
+retargets it to a rig with Mixamo-compatible bone naming, puts a weapon into the hands with a small recipe per kind of grip (a one-handed sword; an experimental two-handed solver for a crossbow or a staff),
 and checks every quarter frame for problems a human would reject.
 
 It was built for a real game: an isometric action roguelite with a few hundred enemy animations. In production, the AI motion
@@ -25,7 +25,7 @@ model.glb ─► prepare ─► auto-rig ─► AI rig ─► calibration ─►
 | rig_ai | `prepare_rig.py` | cuts the prop out of the mesh (or takes a separate prop mesh whole) onto its own bone (rule-based selection, island closure, thin-part growth for bow strings, debris cleanup), grows finger bones out of fused claws (keeps the rig's own fingers when it has them), finds the thumb and the palm side |
 | calibration | `merge_actions.py` + `motion_audit.py` | library clips must pass the audit on this rig, so a bad rig is not blamed on the AI motion |
 | ai | `kimodo_text.py`, `kimodo_motion.py`, `kimodo_keyposes.py`, `keyposes_to_kimodo.py` | one sentence per phase; body samples without hand constraints; key poses set on the best sample and reviewed; then Kimodo is constrained through those poses (`FullBodyConstraintSet`) |
-| (chain) | `soma_to_mixamo.py`, `prop_in_hands.py` | SOMA77 BVH to the rig, bone by role (skeleton profile), with an A/T rest-pose correction and loop closure; prop pose search without body collisions, analytic two-arm IK, Viterbi path for grip roll and elbow over the whole clip, fingers wrapped on the real prop surface (BVH), recoil |
+| (chain) | `soma_to_mixamo.py`, a recipe or `prop_in_hands.py` | SOMA77 BVH to the rig, bone by role (skeleton profile), with an A/T rest-pose correction and loop closure; then the recipe the motion file names (below), or the **experimental** two-handed solver: prop pose search without body collisions, analytic two-arm IK, Viterbi path for grip roll and elbow over the whole clip, fingers wrapped on the real prop surface (BVH), recoil |
 | merge | `combine_actions.py` | every action processed from the same merged file, then combined and grounded on the walk |
 | preview | `preview_8.py`, `review_page.py` | 8 isometric directions; a self-contained review page with a frame-synced player, hand close-ups and audit numbers next to the previous version |
 
@@ -34,13 +34,21 @@ pipeline/
   character.py, chain.py, variants.py   orchestration: whole character, one sample, parameter grid
   lib/       config (env paths), GPU queue, skeleton profiles, body collisions, skin-twist math, audit metrics, Kimodo setup
   rig/       prepare, auto-rig, AI rig
-  motion/    Kimodo, retarget, prop in hands, merge/combine actions
+  motion/    Kimodo, retarget, prop in hands (experimental), merge/combine actions
+  recipes/   one small script per kind of grip or weapon; README.md is the generated index
   checks/    motion audit, skin check, alpha check, motion compare
   review/    8-direction preview, hand close-ups, review page
 ```
 
 `character.py` runs all of it from one `character.json` (see `examples/`). It skips stages whose outputs are newer than their
 inputs, and stops with an exit code of 2 at each human gate.
+
+**Weapons and props are recipes.** What depends on the weapon or the grip lives in `pipeline/recipes/<name>.py`: one
+narrow script per case, named by the motion file (`"recipe": {"name": ...}`) and run in the prop step. Each file starts
+with the same header (use when, not for, inputs, output, checks) and [`pipeline/recipes/README.md`](pipeline/recipes/README.md)
+is the index generated from those headers. The first one, `one_hand_weapon`, carries a sword rigidly in one hand with a
+closed fist and reports how deep the weapon is in the body per frame. The older general solver `prop_in_hands.py`
+(two-handed, selected by `"prop": true`) is **experimental** and frozen: new cases get a recipe, not another rule in it.
 
 ## Quality gates
 
@@ -141,8 +149,9 @@ Measured on the game's characters (assets are not included):
   supported.
 - **No foot IK.** Retarget copies rotations and scales the root motion by leg length. A character whose proportions are
   far from human can slide or float its feet, and the audit has no foot-contact metric yet.
-- **One prop, held in both hands**, with a stock-like long axis (crossbow, bow, staff). One-handed props (sword, shield,
-  torch) are not supported.
+- **Weapons: one recipe per kind of grip, two so far.** A one-handed weapon rigid in one hand (`one_hand_weapon`), and the
+  experimental two-handed solver for a prop with a stock-like long axis (crossbow, bow, staff), which needs a review of
+  every frame (its known defects: `pipeline/recipes/README.md`). A shield, two weapons, a weapon that changes hands: not yet.
 - **Fingers: the prop grip, or Kimodo's hand pose.** The own skeleton places 5 fingers per hand from the mesh (claws or
   fingers found on it; a mitten or fused claws get 5 chains spread evenly) and takes the finger bends of Kimodo's hands
   (a fixed relaxed curl) outside a grip; on a Mixamo-template rig finger bones are grown out of fused claws with

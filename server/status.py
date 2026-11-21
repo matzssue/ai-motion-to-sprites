@@ -208,7 +208,9 @@ def derive(cfg_path: str, cid: str, entries: Optional[list] = None) -> PipelineS
     acts = C["actions"]
     lib = [n for n, a in acts.items() if "library" in a]
     ai = [n for n, a in acts.items() if "ai" in a]
-    prop_motion = [P.r(a.get("ai") or a["motion"]) for a in acts.values() if a.get("prop") and (a.get("ai") or a.get("motion"))]
+    # motion files the merge stage reads: the prop solver's and those naming a recipe (character.py PROP_MOTION, RECIPE)
+    motions = [(a, P.r(a.get("ai") or a["motion"])) for a in acts.values() if a.get("ai") or a.get("motion")]
+    prop_motion = [m for a, m in motions if a.get("prop") or "recipe" in (read_json(m) or {})]
     states = {n: ai_action_state(cid, P, n, a) if "ai" in a else library_action_state(P, n, a) for n, a in acts.items()}
     rel = lambda p: os.path.relpath(p, P.work).replace("\\", "/") if p.startswith(P.work) else os.path.basename(p)  # noqa: E731
 

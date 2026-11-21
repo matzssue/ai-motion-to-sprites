@@ -8,11 +8,13 @@ latest batch instead (body samples before the poses are approved, Kimodo-through
 Paths in character.json are relative to that file. Schemas: schemas/*.schema.json, example: examples/character.example.json.
 Rig: `auto_rig_template`, else the library walk, is the Mixamo template of auto_rig (`mixamorig:*` skeleton). With neither,
 or with "skeleton": "amts", auto_rig builds the own skeleton (skeletons/amts.json) and every later stage uses that profile.
+An action whose motion file names a `recipe` (pipeline/recipes/README.md: a weapon in the hands) gets it in the chain and again
+on the combined file of the merge stage; `"prop": true` is the experimental two-handed solver instead.
 All actions are put on the ground of `ground` (default: the `walk` action, else the first library action, else the rest pose's feet)."""
 import argparse, glob, json, os, shutil, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from config import KIMODO_PYTHON, script_path
-from chain import blender, merge, audit, chain, skel
+from chain import blender, merge, audit, chain, run_recipe, skel
 from schema_check import load_character
 from stages import NOISE, STAGES, fresh, keys, pick, rig_review
 import bvh as BV
@@ -83,6 +85,11 @@ AI_ACTIONS = {n: a for n, a in C["actions"].items() if "ai" in a}
 if set(SAMPLE) - set(AI_ACTIONS): ap.error("--sample: %s is not an AI action of this character" % ", ".join(sorted(set(SAMPLE) - set(AI_ACTIONS))))
 # prop in hands: an AI action (motion file "ai") or a library action with a grip file "motion" (walk with a crossbow: `no_aim`)
 PROP_MOTION = {n: r(a.get("ai") or a["motion"]) for n, a in C["actions"].items() if a.get("prop") and (a.get("ai") or a.get("motion"))}
+# a recipe named by the action's motion file (pipeline/recipes/README.md): run on the combined file, after the prop solver
+RECIPE = {}
+for _n, _a in C["actions"].items():
+    _m = _a.get("ai") or _a.get("motion")
+    if _m and os.path.exists(r(_m)) and "recipe" in json.load(open(r(_m), encoding="utf-8")): RECIPE[_n] = r(_m)
 # combine_actions grounds every action on this one (a Kimodo clip stood 0.5 m lower than the library walk);
 # @rest = the rest pose's feet, for a character without any library clip
 GROUND = C.get("ground") or ("walk" if "walk" in C["actions"] else (LIB_ACTIONS[0][0] if LIB_ACTIONS else "@rest"))
@@ -246,7 +253,9 @@ def ai_action(n, a):
         if n in SAMPLE:
             (o, bvh, _), rows = by_hand(n, w["all"], R, "Kimodo-through-poses")
             name = os.path.splitext(os.path.basename(bvh))[0]; pd = os.path.join(D, "p")
-            w.update(bvh=bvh, clip=os.path.join(pd, "clip_%s.glb" % name), glb=os.path.join(pd, "merged_%s.glb" % name), score=o,
+            done = os.path.join(pd, "prop_%s.glb" % name)   # the audited file: after the prop solver or a recipe
+            w.update(bvh=bvh, clip=os.path.join(pd, "clip_%s.glb" % name), score=o,
+                     glb=done if os.path.exists(done) else os.path.join(pd, "merged_%s.glb" % name),
                      key_hands=os.path.join(pd, "keyhands_%s.json" % name),
                      audit=os.path.join(pd, "audit_" + name), all=[list(x) for x in rows], pick="by hand")
             json.dump(w, open(choice, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -286,7 +295,7 @@ CHOICE = {n: ai_action(n, a) for n, a in AI_ACTIONS.items()} if end >= STAGES.in
 
 # 6. merge all actions, prop in hands per action, audit of every action
 if (CHOICE or LIB_ACTIONS or PROP_MOTION) and end >= STAGES.index("merge") and stage("merge", READY, RIG_AI, *[w["clip"] for w in CHOICE.values()],
-                                                                     *PROP_MOTION.values()):
+                                                                     *PROP_MOTION.values(), *RECIPE.values()):
     merge(RIG_AI, LIB_ACTIONS + [(n, w["clip"]) for n, w in CHOICE.items()], MERGED, SKEL)
     # every action from the same MERGED, not chained: an export reorders vertices and the grip depends on it (combine_actions.py)
     after = {}
@@ -296,12 +305,18 @@ if (CHOICE or LIB_ACTIONS or PROP_MOTION) and end >= STAGES.index("merge") and s
     cur = os.path.join(WORK, "%s_with_prop.glb" % C["name"])
     # always, also without a prop: combine_actions puts every action on the walk's ground (a Kimodo clip stood 0.5 m lower)
     if GROUND != "walk": print("== merge: no 'walk' action, grounding on '%s'" % (GROUND or "nothing"))
+    steps = [os.path.join(WORK, "%s_before_%s.glb" % (C["name"], n)) for n in RECIPE] + [cur]
     blender("combine_actions.py", "COMBINE OK", "--base", MERGED, *("--action=%s=%s" % kv for kv in after.items()),
-            "--ground=" + GROUND, "--out", cur)
+            "--ground=" + GROUND, "--out", steps[0])
+    # one after another on the same file: a recipe keys its own action and may add its object once (nothing sampled by vertex index)
+    measured = {}   # each recipe's report lies next to the file it wrote
+    for (n, motion), src, dst in zip(RECIPE.items(), steps, steps[1:]):
+        run_recipe(json.load(open(motion, encoding="utf-8"))["recipe"], src, motion, dst, SKEL); measured[n] = dst.replace(".glb", "_recipe.json")
     report = {}
     for n in C["actions"]:
         report[n] = audit(cur, n, os.path.join(WORK, "audit_" + n), PROP, rest_is_normal=n not in PROP_MOTION,
                           loop=C["actions"][n].get("loop", True), skeleton=SKEL,   # "loop": false for a one-shot action (death)
+                          recipe_report=measured.get(n),
                           under_arm=n in PROP_MOTION and "butt_push" in json.load(open(PROP_MOTION[n], encoding="utf-8")).get("aim", {}))
     json.dump({n: {"result": v["result"], "score": v["score"]} for n, v in report.items()},
               open(os.path.join(WORK, "report.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
