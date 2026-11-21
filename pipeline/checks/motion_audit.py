@@ -10,9 +10,11 @@ from mathutils import Matrix, Quaternion, Vector
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 from collisions import dominant, masks, vertices, bvh, depth, joint_angles, labels, body_tree, depths, rig_of, FINGER_PREFIX
 from collisions import labels_all, skin_tree, prop_in_body, stock_end, pocket_gap, limb_radius, POCKET_REST, POCKET_SPAN
+from prop_path import guard_summary
 import skeleton
 import skin
 import feet
+import shake
 from audit_metrics import METRICS, NEEDS, REF_HEIGHT, height, judge, scaled
 
 LOOSE_FINGER = 0.02   # m: a finger whose nearest point is farther from the prop does not hold it
@@ -173,6 +175,7 @@ def ang(a, b): return (lambda x: min(x, 360 - x))(math.degrees(a.rotation_differ
 
 rng = np.random.default_rng(0)
 samples, prev, first = [], None, None
+SHAKE = []; SHAKE_ON = not A.frames and not {"pelvis_shake", "knee_shake"} <= set(SKIP)
 FR = [float(x) for x in A.frames.split(",")] if A.frames else None
 times = [-1.0] + (FR if FR else [f0 + i * A.step for i in range(int(round((f1 - f0) / A.step)) + 1)])
 # sample -1 = rest pose: what is fused in the model itself (e.g. a prop on the back), not in the motion
@@ -301,10 +304,17 @@ for t in times:
         if now["qP"]: row["prop_rot_jump"] = round(ang(now["qP"], prev["qP"]), 1)
     prev = now; first = first or now
     samples.append(row)
+    if SHAKE_ON and abs((t - f0) - round(t - f0)) < 1e-6:   # whole frames: the 5-frame window is in frames
+        SHAKE.append((len(samples) - 1, *(head(PROF.bone(r_, s_)) for r_, s_ in (("upper_leg", "Right"), ("upper_leg", "Left"),
+                                                                              ("lower_leg", "Left"), ("lower_leg", "Right")))))
 # loop seam: last frame vs first (Kimodo does not return to the start pose: a head popped by 26 deg)
 if not FR and not A.no_loop and len(samples) > 1:
     samples[-1]["loop_seam_deg"] = round(max(ang(prev[k], first[k]) for k in ("qL", "qR", "qH")), 1)
     samples[-1]["loop_seam_m"] = round(max((prev[k] - first[k]).length for k in ("L", "R")), 4)
+if len(SHAKE) >= shake.WINDOW:
+    ii_, rh_, lh_, kl_, kr_ = zip(*SHAKE)
+    for i_, py_, pk_ in zip(ii_, *shake.rows(*(np.array([list(v) for v in c_]) for c_ in (rh_, lh_, kl_, kr_)))):
+        samples[i_]["pelvis_shake"] = round(float(py_), 1); samples[i_]["knee_shake"] = round(float(pk_), 4)
 if FEET:   # feet against the clip's own ground, filled in once the whole clip is known
     for r_, f_ in zip(samples, feet.rows({s_: np.array(v) for s_, v in FEET_CO.items()}, SCALE, A.step)):
         r_.update(f_["values"]); r_["_where"].update(f_["where"]); r_["_side"].update(f_["side"])
@@ -319,6 +329,11 @@ report = {"result": "OK" if not errors else "FAIL", "score": score, "scores": sc
           "score_area": score_area, "height_m": round(H, 3), "errors": errors,
           "maxima": maxima, "rest": {k: rest_row.get(k, 0) for k in maxima}, "limits": {k: round(v, 4) for k, v in LIM.items()},
           "no_limit": [k for k, v in LIMITS.items() if v is None], "frames": FR, "skeleton": PROF.name, "skipped": SKIP}
+try:   # head turn the solver's face guard took back (prop_in_hands <glb>_arms.json): reported, not scored
+    report["face_guard"] = guard_summary({k: v.get("head_turn_removed", 0) for k, v in json.load(
+        open(A.glb.replace(".glb", "_arms.json"), encoding="utf-8")).items()})
+except (OSError, ValueError, AttributeError):
+    report["face_guard"] = None
 if KEYH:   # per key frame and side (review page table)
     report["key_hands"] = {str(f): {k: r_.get("key_hand_rot_" + k) for k in "LR"} for f in sorted(KEYH)
                            for r_ in samples if abs(r_["t"] - f0 - f) < 1e-6}
@@ -338,6 +353,7 @@ for k, v in sorted(errors.items(), key=lambda kv: -kv[1]["max"] / max(kv[1]["lim
         {"L": ", left", "R": ", right"}.get(v["side"], ": %s" % v["side"] if v.get("side") else "")))   # prop_in_body: the region
 print("  no limit:", ", ".join("%s %s" % (k, fmt(k, maxima[k]).strip()) for k in report["no_limit"] if maxima[k]))
 if SKIP: print("  skipped:", "; ".join("%s (%s)" % kv for kv in SKIP.items()))
+if report["face_guard"]: print("  face guard: took back up to %(max_deg).0f deg of head turn (fr. %(at_frame)d), %(count)d frames" % report["face_guard"])
 
 # close-ups of the worst spots
 if errors and not A.no_closeups:

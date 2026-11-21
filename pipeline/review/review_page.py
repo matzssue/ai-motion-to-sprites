@@ -3,6 +3,7 @@
 python pipeline/review/review_page.py --glb X.glb --action attack --out dir --title "Crossbowman shot" [--prop crossbow]
     [--previous dir_of_previous_review] [--hand-frames 10,45,56,85] [--px 360] [--note "what changed"]
     [--rest-is-normal] [--no-loop]   (library walk/idle: prop on the back; without it "hand to prop" 50 cm = FAIL)
+    [--under-arm]  (stock under the armpit, motion file `aim.butt_push`: without it the page's audit skips the pocket checks)
     [--skeleton mixamo|profile.json]  (metrics the skeleton cannot measure are listed as skipped)
 Finished steps (audit, frames, close-ups) are skipped when their output is newer than the GLB."""
 import argparse, base64, glob, html, json, os, sys
@@ -45,8 +46,8 @@ def build(A):
     old = os.path.join(aud, "audit.json")
     if not fresh(old, A.glb) or (KH and "key_hands" not in json.load(open(old, encoding="utf-8"))):
         blender("motion_audit.py", "AUDIT", "--glb", A.glb, "--action", A.action, "--out", aud, *(["--prop", A.prop] if A.prop else []),
-                *(["--rest-is-normal"] if A.rest_is_normal else []), *(["--no-loop"] if A.no_loop else []), *SKEL,
-                *(["--key-hands", KH] if KH else []))
+                *(["--rest-is-normal"] if A.rest_is_normal else []), *(["--no-loop"] if A.no_loop else []),
+                *(["--under-arm"] if getattr(A, "under_arm", False) else []), *SKEL, *(["--key-hands", KH] if KH else []))
     fr = os.path.join(A.out, "frames")
     if not fresh(os.path.join(fr, "done.json"), A.glb):
         blender("preview_8.py", "PREVIEW OK", "--glb", A.glb, "--actions", A.action, "--out", fr, "--all", "--px", str(A.px))
@@ -175,7 +176,12 @@ def page(data, folder, prev=None, prev_folder=None, diff=None, note=""):
     for k, why in rep.get("skipped", {}).items():
         H.append('<tr><td>%s</td><td class="muted">skipped</td><td colspan="%d" class="muted">%s</td></tr>' % (
             LABELS.get(k, k), 3 if rp else 2, html.escape(why)))
-    H.append("</tbody></table></div></section>")
+    H.append("</tbody></table></div>")
+    g = rep.get("face_guard")
+    if g: H.append('<p class="muted">Face guard: the solver took back up to %.0f&deg; of head turn (frame %d; at least half of that on '
+                   'frames %d&ndash;%d; %d frames in all). An intended head turn: <code>"face_guard": false</code> in the motion file\'s grip.</p>' % (
+                       g["max_deg"], g["at_frame"], g["frames"][0], g["frames"][1], g["count"]))
+    H.append("</section>")
     if rep.get("key_hands"):   # hand rotation against the approved poses: Kimodo keeps the positions, not the rotation
         kh = data.get("key_hands") or {}; before = kh.get("before", {}); fixed = kh.get("applied")
         H.append('<section><h2>Hands on the key poses</h2><p class="muted">How far each hand is turned from the approved pose on '
@@ -212,6 +218,7 @@ if __name__ == "__main__":
     ap.add_argument("--hand-frames", default=""); ap.add_argument("--px", type=int, default=360); ap.add_argument("--note", default="")
     ap.add_argument("--rest-is-normal", action="store_true", help="library action: prop on the back, as in calibration")
     ap.add_argument("--no-loop", action="store_true", help="one-shot action: audit without the loop seam")
+    ap.add_argument("--under-arm", action="store_true", help="stock under the armpit: audit the pocket, as the chain does")
     ap.add_argument("--skeleton", default=None, help="skeleton profile of the rig: built-in name or JSON path (default mixamo)")
     ap.add_argument("--key-hands", default=None, help="key_hands.py report: hand rotation against the approved key poses")
     A = ap.parse_args()

@@ -3,12 +3,12 @@ and faces renumbered onto the vertices they use. Tests: tests/test_descent.py.""
 import numpy as np
 
 
-def descend(cost, Cb, steps, rounds=3):
-    """Coordinate descent from x = 0, both directions, over steps[axis] (largest first): -> (x, cost).
+def descend(cost, Cb, steps, rounds=3, x0=None):
+    """Coordinate descent from x = 0 (or `x0`), both directions, over steps[axis] (largest first): -> (x, cost).
     cost(x, Cb, bound=None) is the full cost without `bound`; with it, a pose that costs at least `bound` may come back
     as any value >= bound, unfinished. Only a strictly lower cost is ever taken, so the answer is the one a search that
     measures every pose to the end gives."""
-    x = [0.0] * len(steps); best = cost(x, Cb)
+    x = [0.0] * len(steps) if x0 is None else list(x0); best = cost(x, Cb)
     if best == 0: return x, best
     for _ in range(rounds):
         better = False
