@@ -85,3 +85,16 @@ def best_path(U, trans, loop=False):
             if best is None or r[0] < best[0]: best = r
         if best is not None: pth = best[1]
     return pth
+
+
+def guard_summary(removed):
+    """What the face guard took away, from {frame: deg of head turn taken back}: None when nothing, else
+    dict(max_deg, at_frame, frames=[first, last] of the run round that frame with at least half of it, count=frames
+    touched). An action whose head turn is intended (a look over the shoulder) shows up here instead of losing it
+    silently."""
+    r = {int(f): abs(float(v)) for f, v in removed.items() if v and abs(float(v)) > 1e-6}
+    if not r: return None
+    at = max(sorted(r), key=lambda f: r[f]); a = b = at
+    while a - 1 in r and r[a - 1] >= 0.5 * r[at]: a -= 1
+    while b + 1 in r and r[b + 1] >= 0.5 * r[at]: b += 1
+    return dict(max_deg=round(r[at], 1), at_frame=at, frames=[a, b], count=len(r))

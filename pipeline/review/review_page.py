@@ -173,7 +173,12 @@ def page(data, folder, prev=None, prev_folder=None, diff=None, note=""):
     for k, why in rep.get("skipped", {}).items():
         H.append('<tr><td>%s</td><td class="muted">skipped</td><td colspan="%d" class="muted">%s</td></tr>' % (
             LABELS.get(k, k), 3 if rp else 2, html.escape(why)))
-    H.append("</tbody></table></div></section>")
+    H.append("</tbody></table></div>")
+    g = rep.get("face_guard")
+    if g: H.append('<p class="muted">Face guard: the solver took back up to %.0f&deg; of head turn (frame %d; at least half of that on '
+                   'frames %d&ndash;%d; %d frames in all). An intended head turn: <code>"face_guard": false</code> in the motion file\'s grip.</p>' % (
+                       g["max_deg"], g["at_frame"], g["frames"][0], g["frames"][1], g["count"]))
+    H.append("</section>")
     if diff:
         H.append('<section><h2>Difference from the previous version</h2><div class="tab"><table><thead><tr><th>part</th><th>max position</th>'
                  "<th>mean</th><th>max rotation</th></tr></thead><tbody>")

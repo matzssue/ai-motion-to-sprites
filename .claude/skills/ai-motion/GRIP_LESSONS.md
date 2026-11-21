@@ -109,10 +109,12 @@ feet, failing checks in brackets):
 | + kept when it costs like on its own key frame, roll limited, held as the neighbour, loop closed | 10.74 (9) |
 | + the approved arms on the key frames | 10.19 (9) |
 | + face guard before the placement | 12.01 (8) |
+| + face guard without its 40 deg stop | 9.02 (8) |
 
-The last step costs score and is kept: it took `hands_in_torso` from 9.5 cm (worse than before, 6.3) to 4.0 cm and
-removed `forearms_in_head`; the stock went deeper into the right upper arm on the recoil (3.7 -> 6.6 cm; before 9.5).
-Solver 12 min 42 s -> 6 min 40 s (frames kept or held as the neighbour are not searched).
+The guard before the placement costs score and is kept: it took `hands_in_torso` from 9.5 cm (worse than before, 6.3)
+to 4.0 cm and removed `forearms_in_head`. Without the stop `face_skew` passes (5.4 -> 2.5 cm); the guard takes back up
+to 62 deg of Kimodo's head turn on frames 50-71 and says so. Solver 12 min 42 s -> 5 min 50 s (frames kept or held as
+the neighbour are not searched).
 
 - **A target has to be compared with itself.** The approved place costs 140 on its own key frame (right arm 3 points
   close to the ribs). A fixed "clean enough" limit kept it nowhere; "at most 12 more than on its key frame" keeps it
@@ -126,5 +128,5 @@ Solver 12 min 42 s -> 6 min 40 s (frames kept or held as the neighbour are not s
 - Not taken (measured): no smoothing 57.41; one pass 15.57; the stock turned with the chest 12.24; the aim's fall over
   the whole next phase 11.20, over its second half 12.51; the motion file's aim frames on a shoulder aim (m1 Kusznik
   5.16 -> 7.89).
-- Left: `face_skew` 5.4 cm on the recoil (the guard's 40 deg stop), the stock 4-6.6 cm in the right upper arm on frames
-  52-80, hands 2-4 cm in the torso in the hold (the approved hold has 2.2 cm).
+- Left: the stock 4-5.3 cm in the right upper arm on frames 56-80, hands 2-4 cm in the torso in the hold (the approved
+  hold has 2.2 cm), fingertips 5 cm off the stock on frames 76-100, an elbow jump of 4.3 cm at frame 80.

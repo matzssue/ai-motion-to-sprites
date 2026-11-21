@@ -19,7 +19,7 @@ from collisions import labels_all, prop_in_body, depths, stock_end, pocket_gap, 
 from audit_metrics import METRICS, REF_HEIGHT, height
 from grip_words import grip_from_words, grip_in_words
 from descent import descend as descend_steps, faces_on
-from prop_path import aim_window, aim_weight, nearest, carry, smooth_runs, best_path
+from prop_path import aim_window, aim_weight, nearest, carry, smooth_runs, best_path, guard_summary
 
 ap = argparse.ArgumentParser(description="Put the prop in both hands: prop pose, two-arm IK, finger wrap, recoil.")
 ap.add_argument("--glb", required=True); ap.add_argument("--rig-data", required=True)
@@ -1222,15 +1222,23 @@ def stopwatch(what, t0):
 
 # the face guard runs before the prop is placed: the head's turn moves skin the hands are then placed against. Run on
 # the placed pose it turned Kusznik's head 40 deg back on the recoil frames and the audit found the right hand 9.5 cm in
-# the torso where the search had measured 1 cm (the only bone that differed between the solved scene and the file)
-for f in (frames if FACE_I is not None else []):
+# the torso where the search had measured 1 cm (the only bone that differed between the solved scene and the file).
+# No stop at 40 deg any more: it left Kimodo's 53-63 deg on the recoil at 21 (skew 5.4 cm, the head swung 5 -> 20 -> 5
+# deg through the shot). What it takes away is reported (FACE GUARD, <glb>_arms.json, the audit and the review page);
+# an action with an intended head turn switches it off with `grip.face_guard: false`
+GUARD_DEG = {}   # frame -> deg of head turn taken back
+for f in (frames if FACE_I is not None and GP.get("face_guard", True) else []):
     sc.frame_set(f); sk0 = sk = face_skew(); tw0 = tw = head_twist(); n_ = 0
-    while abs(sk) > (0.5 * FACE_LIM if abs(sk0) > FACE_LIM else FACE_LIM) and abs(tw) > 2 and n_ < 20:
+    while abs(sk) > (0.5 * FACE_LIM if abs(sk0) > FACE_LIM else FACE_LIM) and abs(tw) > 2 and n_ < 90:
         setw(HEADB, wrot(HEADB) @ Quaternion(Vector((0, 1, 0)), -math.copysign(math.radians(2), tw)).to_matrix())
         sk, tw, n_ = face_skew(), head_twist(), n_ + 1
     if n_:
-        keyb(HEADB, f)
-        print("fr. %d: face skew %.1f -> %.1f cm, head turned back %+.0f -> %+.0f deg" % (f, 100 * abs(sk0), 100 * abs(sk), tw0, tw))
+        keyb(HEADB, f); GUARD_DEG[f] = round(abs(tw0 - tw), 1)
+        if A.frames: print("fr. %d: face skew %.1f -> %.1f cm, head turned back %+.0f -> %+.0f deg" % (f, 100 * abs(sk0), 100 * abs(sk), tw0, tw))
+_g = guard_summary(GUARD_DEG)
+if _g: print("FACE GUARD: head turn taken back on %d frames, most %.0f deg on fr. %d (at least half of that on fr. %d-%d); "
+             "an intended head turn: \"face_guard\": false in the motion file's grip" % (
+                 _g["count"], _g["max_deg"], _g["at_frame"], _g["frames"][0], _g["frames"][1]))
 t0 = time.perf_counter()
 TR = {f: trees(f) for f in frames}; t0 = stopwatch("trees", t0)
 # --keep-prop: the author's key pose holds the prop (Kusznik's armpit aim, set by hand with the stock 13 cm further back
@@ -1307,6 +1315,7 @@ if TGT:   # how often the clip shows the prop where the approved pose has it
         if k_ in SM: print("APPROVED PLACE fr. %d: the prop ends %.1f cm and %.0f deg from it" % (
             k_, 100 * math.sqrt(sum(v * v for v in SM[k_][:3])), max(abs(v) for v in SM[k_][3:])))
 for f in frames: WR[f]["offset"] = [round(v, 4) for v in SM[f]]
+for f, v in GUARD_DEG.items(): WR[f]["head_turn_removed"] = v
 for f in frames:
     if f not in BODYD: body_check(f, CP[f])
 fb = max(frames, key=lambda f: BODYD[f][0])

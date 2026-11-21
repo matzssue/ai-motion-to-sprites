@@ -7,7 +7,7 @@ import numpy as np
 
 H = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(H, "..", "pipeline", "lib"))
-from prop_path import aim_window, aim_weight, nearest, carry, smooth_runs, best_path
+from prop_path import guard_summary, aim_window, aim_weight, nearest, carry, smooth_runs, best_path
 
 SHOT = [{"duration": d, "text": "x"} for d in (1.0, 1.2, 0.8, 1.2)]   # hold, lift and aim, fire, back down
 
@@ -127,3 +127,10 @@ if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
             fn(); print("OK", name)
+
+
+def test_guard_summary_names_the_peak_and_its_run():
+    removed = {f: 10.0 for f in range(0, 30)}; removed.update({f: 40.0 + (f == 62) * 15 for f in range(52, 70)}); removed[80] = 0.0
+    g = guard_summary({str(f): v for f, v in removed.items()})   # keys as the arms JSON has them
+    assert g == dict(max_deg=55.0, at_frame=62, frames=[52, 69], count=48)
+    assert guard_summary({}) is None and guard_summary({3: 0, 4: 0.0}) is None

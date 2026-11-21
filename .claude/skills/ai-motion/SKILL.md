@@ -290,12 +290,14 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   (author's pose 3.2 cm fingers in the prop, solver 1.1 cm: `index.1.R`'s base, which a raised radius does not move).
   Details: [GRIP_LESSONS.md](GRIP_LESSONS.md).
 - Face skew guard (`prop_in_hands`, any skeleton, measured): before the prop is placed, a head turned about its own axis
-  against the top spine bone is turned back 2 deg at a time (40 deg at most) when the audit's `face_skew` is over its
-  limit, down to half of it (limit 2.5 cm; m1 Mixamo: 2.2 cm, untouched). The own rig's face is bound partly to the
-  chest (the neck bone carries no skin), so a turned head drags the jaw and mouth sideways. Kusznik: aim head 19 -> 5 deg
-  (the author's 7), skew 4.0 -> 1.1 cm. Run after the placement it moved skin under hands already placed: on the recoil
-  (head 61 -> 21 deg) the audit found the right hand 9.5 cm in the torso where the search had measured 1 cm; run first,
-  2 cm. The 40 deg stop leaves 5.4 cm of skew on those frames (Kimodo's head 53-63 deg off the chest).
+  against the top spine bone is turned back 2 deg at a time when the audit's `face_skew` is over its limit, down to half
+  of it (limit 2.5 cm; m1 Mixamo: 2.2 cm, untouched). The own rig's face is bound partly to the chest (the neck bone
+  carries no skin), so a turned head drags the jaw and mouth sideways. Run after the placement it moved skin under hands
+  already placed (Kusznik's recoil: audit 9.5 cm hand in torso, the search had measured 1 cm). A stop at 40 deg left
+  5.4 cm of skew on the recoil (Kimodo's head 53-63 deg off the chest); without it the skew passes and the guard takes
+  back up to 62 deg there. **It removes head turn**: the solver prints `FACE GUARD: ... most N deg on fr. F`, the audit
+  and the review page carry it (`face_guard` in `audit.json`). An action with an intended head turn (a look over the
+  shoulder): `"face_guard": false` in the motion file's `grip`, and expect `face_skew` to fail on this rig.
 - Own finger bones whose skin ends in the prop after the wrap get their skin radius raised by that depth and are wrapped
   again (the median radius missed the thick side of the thumb's metacarpal: Kusznik's left thumb base 2.9 -> 0.9 cm).
   Moving the palm out instead did not help (the hand met the bow mount) and lifted the fingertips 6.5 cm off.
