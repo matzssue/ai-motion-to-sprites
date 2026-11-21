@@ -4,6 +4,9 @@ $KIMODO_PYTHON pipeline/motion/kimodo_keyposes.py --motion <motion>.json --emb e
     --poses poses.json --keys 0:0,55:44,125:0 --out dir --name kf     (Kimodo frame at 30 fps : pose frame at 24 fps)
 Each pose keeps its hips where the pose has them ("hips" from keyposes_to_kimodo.py): a crouch set by hand stays low.
 --dry-run out.npz builds the key poses only (CPU, no model, no GPU lock) and prints hip and foot heights per key.
+A full-body key constrains joint POSITIONS only (Kimodo: "global rotations are not used here"), and the clip is built from
+the rotation channel: the knight's hand hit its key 2-8 cm close but turned 15-176 deg off. So the hands' global rotation is
+constrained on every key too, the channel Kimodo's own hand end-effector uses (--no-hand-rotations: positions only).
 A multi_prompt phase without a key frame crashed Kimodo on reshape: `Poses.crop_move` returns an empty set then."""
 import argparse, json, os, sys
 
@@ -13,6 +16,7 @@ ap.add_argument("--samples", type=int, default=4); ap.add_argument("--seed", typ
 ap.add_argument("--base", required=True); ap.add_argument("--poses", required=True)
 ap.add_argument("--keys", required=True, help="Kimodo frame:pose frame (24 fps), e.g. 0:0,55:44,125:0")
 ap.add_argument("--dry-run", default=None, metavar="OUT.npz", help="only build the key poses (CPU, no model) and save them")
+ap.add_argument("--no-hand-rotations", action="store_true", help="key poses constrain joint positions only (before 2026-11-21)")
 A = ap.parse_args()
 if not A.dry_run and not (A.emb and A.out and A.name): ap.error("--emb, --out and --name are required (except with --dry-run)")
 
@@ -22,7 +26,7 @@ import keypose_root
 if not A.dry_run: kimodo_common.setup(os.path.basename(__file__))
 import numpy as np, torch
 from kimodo.skeleton import global_rots_to_local_rots, SOMASkeleton30
-from kimodo.constraints import Root2DConstraintSet, FullBodyConstraintSet
+from kimodo.constraints import Root2DConstraintSet, FullBodyConstraintSet, create_pairs
 
 R = json.load(open(A.motion, encoding="utf-8"))
 texts = [f["text"] for f in R["phases"]]; durs = [f["duration"] for f in R["phases"]]
@@ -30,11 +34,24 @@ keep_s = sum(durs); durs[-1] += R.get("tail_padding", 0.0)
 
 
 class Poses(FullBodyConstraintSet):
-    """A multi_prompt phase without a key frame gets an empty set and Kimodo crashes on reshape: the empty one adds nothing."""
+    """Full-body key poses plus the global rotation of the joints in `hands` (indices in the skeleton). A multi_prompt phase
+    without a key frame gets an empty set and Kimodo crashes on reshape: the empty one adds nothing."""
+    def __init__(self, skeleton, frame_indices, positions, rots, smooth_root_2d=None, hands=None):
+        super().__init__(skeleton, frame_indices, positions, rots, smooth_root_2d)
+        self.hands = hands
+
+    def update_constraints(self, data_dict, index_dict):
+        super().update_constraints(data_dict, index_dict)
+        if self.hands is None or not len(self.hands): return
+        crop = torch.arange(len(self.frame_indices), device=self.frame_indices.device)
+        data_dict["global_joints_rots"].append(self.global_joints_rots[tuple(create_pairs(crop, self.hands).T)])
+        index_dict["global_joints_rots"].append(create_pairs(self.frame_indices, self.hands))
+
     def crop_move(self, start, end):
         m = (self.frame_indices >= start) & (self.frame_indices < end)
         if not bool(m.any()): return Empty()
-        return Poses(self.skeleton, self.frame_indices[m] - start, self.global_joints_positions[m], self.global_joints_rots[m], self.smooth_root_2d[m])
+        return Poses(self.skeleton, self.frame_indices[m] - start, self.global_joints_positions[m], self.global_joints_rots[m],
+                     self.smooth_root_2d[m], self.hands)
 
 
 class Empty:
@@ -88,6 +105,13 @@ for fk, fb in keys:
     pos.append(pn[0][sl]); rot.append(Gn[sl])
 if A.dry_run:
     np.savez(A.dry_run, keys=np.array(keys), positions=torch.stack(pos).cpu().numpy(), rotations=torch.stack(rot).cpu().numpy())
+HANDS = [] if A.no_hand_rotations else [sk30.bone_index[n] for n in ("LeftHand", "RightHand")]
+print("hand rotations constrained: %s (%d rows)" % (", ".join(sk30.bone_order_names[j] for j in HANDS) or "none", len(HANDS) * len(keys)))
+if A.dry_run:
+    probe = Poses(sk30, torch.tensor([k[0] for k in keys]), torch.stack(pos), torch.stack(rot), hands=torch.tensor(HANDS, dtype=torch.long))
+    dd, ii = {k: [] for k in ("global_joints_positions", "global_joints_rots", "smooth_root_2d", "root_y_pos", "global_root_heading")}, {}
+    ii = {k: [] for k in dd}; probe.update_constraints(dd, ii)
+    print("constraint rows: positions %d, rotations %d" % (sum(len(x) for x in dd["global_joints_positions"]), sum(len(x) for x in dd["global_joints_rots"])))
     print("DRY RUN OK", A.dry_run); raise SystemExit(0)
 track = kimodo_common.root_track(R, T, FPS, dev)
 fr = torch.tensor([k[0] for k in keys])
@@ -95,7 +119,7 @@ for p, fk in zip(pos, fr.tolist()): p[:, [0, 2]] += track[fk]   # the base sampl
 rest = torch.tensor([f for f in range(T) if f not in set(fr.tolist())])
 cons = [Root2DConstraintSet(sk30, rest, track[rest],
                             global_root_heading=torch.tensor([[1.0, 0.0]], device=dev).repeat(len(rest), 1)),
-        Poses(sk30, fr, torch.stack(pos), torch.stack(rot))]
+        Poses(sk30, fr, torch.stack(pos), torch.stack(rot), hands=torch.tensor(HANDS, dtype=torch.long, device=dev))]
 torch.manual_seed(A.seed); np.random.seed(A.seed)
 os.makedirs(A.out, exist_ok=True)
 out = model(texts, nfs, constraint_lst=cons, num_denoising_steps=100, num_samples=A.samples, multi_prompt=True,
@@ -106,6 +130,10 @@ for (fk, fb), target in zip(keys, pos):
     if fk < keep:
         e = np.linalg.norm(pj[:, fk][:, sl] - target.cpu().numpy()[None], axis=-1)
         print("hit on pose fr. %3d: mean %.3f m, max %.3f m (per sample: %s)" % (fk, e.mean(), e.max(), np.round(e.max(1), 3)))
+        for hn in ("RightHand", "LeftHand"):   # hand rotation vs the key (the loss this file once let through: 15-176 deg)
+            j7, j3 = sk77.bone_index[hn], sk30.bone_index[hn]; Rt = rot[keys.index((fk, fb))][j3].cpu().numpy()
+            c = (np.trace(gr[:, fk, j7] @ Rt.T, axis1=-2, axis2=-1) - 1) / 2
+            print("  %s rotation off the key: %s deg" % (hn, np.round(np.degrees(np.arccos(np.clip(c, -1, 1))), 0)))
 pj = kimodo_common.back_in_place(pj, track)
 np.savez(os.path.join(A.out, A.name + ".npz"), posed_joints=pj, global_rot_mats=gr)
 kimodo_common.save_bvhs(A.out, A.name, pj, gr, sk30, A.samples, dev, FPS)
