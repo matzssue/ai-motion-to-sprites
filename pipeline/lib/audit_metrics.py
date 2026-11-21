@@ -73,9 +73,13 @@ METRICS = {
     "foot_hanging": (None, "m", "feet"),
     # hand rotation off the approved key pose on its key frame (--key-hands from key_hands.py; only key-pose clips). Knight
     # round 3, 8 samples: straight from Kimodo the worst key per sample 101-176 deg (positions 2-8 cm close); after
-    # key_hands.py 0-1 deg except the follow-through key where the wrist would bend past 80 deg: 6-48 deg. Reported only
-    # with a prop in the hands: its solver sets the grip
+    # key_hands.py 0-5 deg on rounds 3 and 7 (16 samples), round 7's right hand up to 9. Reported only with a prop in the
+    # hands: its solver sets the grip
     "key_hand_rot_L": (50, "deg", "joints"), "key_hand_rot_R": (50, "deg", "joints"),
+    # pelvis yaw / knee position minus their centred 5-frame mean (shake.py): a pelvis snapping to each key pose and back.
+    # Knight round 7 (root forced forward between turned key poses, author: "the knees shake") 6.4-8.7 deg / 3.4-4.1 cm;
+    # rounds 3 and 5, idle, Kusznik, m1: up to 1.6 deg / 2.1 cm (m1 Wybuchacz). Knee gap too narrow for a limit yet
+    "pelvis_shake": (4, "deg", "smoothness"), "knee_shake": (None, "m", "smoothness"),
 }
 # names on the review pages (review_page.py, web/src/audit/catalog.json); every METRICS key needs one (tests/test_audit_metrics.py)
 LABELS = {
@@ -94,6 +98,7 @@ LABELS = {
     "finger_tip_gap": "fingertip off prop", "finger_tip_fold": "folded fingertip",
     "feet_above_ground": "feet off the ground", "foot_slide": "planted foot sliding", "foot_hanging": "one foot hanging",
     "key_hand_rot_L": "left hand off its key pose", "key_hand_rot_R": "right hand off its key pose",
+    "pelvis_shake": "pelvis shake", "knee_shake": "knee shake",
 }
 UNIT_SHOWN = {"m": "cm", "deg": "deg", "frac": "percent"}   # METRICS unit -> how a page shows it
 REF_HEIGHT = 1.8   # "m" limits are set for a character this tall
@@ -137,6 +142,7 @@ NEEDS = {
     "skin_tear": ("shoulder", "upper_arm", "forearm"), "prop_in_upper_arms": ("upper_arm",), "prop_in_body": (), "rest_gap": ("upper_arm", "forearm"), "prop_in_pocket": ("upper_arm", "forearm"), "face_skew": ("head",), "finger_tip_gap": ("fingers",),
     "finger_tip_fold": ("fingers",), "feet_above_ground": ("foot",), "foot_slide": ("foot",), "foot_hanging": ("foot",),
     "key_hand_rot_L": ("hand.left",), "key_hand_rot_R": ("hand.right",),
+    "pelvis_shake": ("upper_leg",), "knee_shake": ("lower_leg",),
 }
 
 

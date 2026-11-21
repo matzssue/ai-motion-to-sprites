@@ -9,6 +9,8 @@ the rotation channel: the knight's hand hit its key 2-8 cm close but turned 15-1
 both hands' global rotation on every key (the channel Kimodo's own hand end-effector uses): EXPERIMENTAL until a generation
 run shows Kimodo honours it; the working fix is key_hands.py after the retarget. After generation it prints how far each
 hand is turned from its key, in both modes.
+Non-key frames get the root heading and (x, z) interpolated through the keys' own (keypose_root.root_between); they used to
+face forward in place, and a key with a turned pelvis snapped there and back (knight round 7). --dry-run prints that path.
 A multi_prompt phase without a key frame crashed Kimodo on reshape: `Poses.crop_move` returns an empty set then."""
 import argparse, json, os, sys
 
@@ -105,30 +107,48 @@ for fk, fb in keys:
     print("  hips y %.3f m (base %.3f), lowest foot joint y %.3f m (base %.3f; ground = 0)" % (
         float(root[1]), float(P[fb0, sk77.root_idx, 1]), float(pn[0, FEET, 1].min()), float(P[fb0, FEET, 1].min())))
     pos.append(pn[0][sl]); rot.append(Gn[sl])
-if A.dry_run:
-    np.savez(A.dry_run, keys=np.array(keys), positions=torch.stack(pos).cpu().numpy(), rotations=torch.stack(rot).cpu().numpy())
 HANDS = [sk30.bone_index[n] for n in ("LeftHand", "RightHand")] if A.hand_rotations else []
 print("hand rotations constrained: %s (%d rows)" % (", ".join(sk30.bone_order_names[j] for j in HANDS) or "none", len(HANDS) * len(keys)))
-if A.dry_run:
-    probe = Poses(sk30, torch.tensor([k[0] for k in keys]), torch.stack(pos), torch.stack(rot), hands=torch.tensor(HANDS, dtype=torch.long))
-    dd, ii = {k: [] for k in ("global_joints_positions", "global_joints_rots", "smooth_root_2d", "root_y_pos", "global_root_heading")}, {}
-    ii = {k: [] for k in dd}; probe.update_constraints(dd, ii)
-    print("constraint rows: positions %d, rotations %d" % (sum(len(x) for x in dd["global_joints_positions"]), sum(len(x) for x in dd["global_joints_rots"])))
-    print("DRY RUN OK", A.dry_run); raise SystemExit(0)
+# non-key frames: root heading and (x, z) through the keys' own (keypose_root.root_between), on top of the track
 track = kimodo_common.root_track(R, T, FPS, dev)
-fr = torch.tensor([k[0] for k in keys])
-for p, fk in zip(pos, fr.tolist()): p[:, [0, 2]] += track[fk]   # the base sample was saved in place
-rest = torch.tensor([f for f in range(T) if f not in set(fr.tolist())])
-cons = [Root2DConstraintSet(sk30, rest, track[rest],
-                            global_root_heading=torch.tensor([[1.0, 0.0]], device=dev).repeat(len(rest), 1)),
-        Poses(sk30, fr, torch.stack(pos), torch.stack(rot), hands=torch.tensor(HANDS, dtype=torch.long, device=dev))]
+fks = [k[0] for k in keys]; RH, LH = sk30.hip_joint_idx
+YAW, XZ = keypose_root.root_between(fks, [keypose_root.heading(p[RH].tolist(), p[LH].tolist()) for p in pos],
+                                    [p[sk30.root_idx][[0, 2]].tolist() for p in pos], T)
+rest = [f for f in range(T) if f not in set(fks)]
+head_rest = torch.tensor(np.stack([np.cos(YAW[rest]), np.sin(YAW[rest]) + 0.0], 1), dtype=torch.float32, device=dev)  # +0.0: no -0.0
+root_rest = track[rest] + torch.tensor(XZ[rest] + 0.0, dtype=track.dtype, device=dev)
+step = np.degrees(np.abs(np.diff(YAW))); fmax = int(np.argmax(step))
+print("root between keys: yaw up to %.1f deg, (x, z) up to %.1f cm off the track (0 / 0 = facing forward in place, as before)" % (
+    float(np.degrees(np.abs(YAW)).max()), float(np.linalg.norm(XZ, axis=1).max() * 100)))
+if step[fmax] > keypose_root.MAX_TURN:
+    print("WARNING pelvis turns %.1f deg per frame at Kimodo frames %d-%d (over %.0f): keys %s ask for a faster turn than %.0f deg/s" % (
+        step[fmax], fmax, fmax + 1, keypose_root.MAX_TURN, fks, keypose_root.MAX_TURN * FPS))
+if A.dry_run:
+    print("root yaw deg per frame:", " ".join("%.0f" % v for v in np.degrees(YAW)))
+    print("root x cm per frame:   ", " ".join("%.0f" % v for v in (XZ[:, 0] + track[:, 0].cpu().numpy()) * 100))
+    print("root z cm per frame:   ", " ".join("%.0f" % v for v in (XZ[:, 1] + track[:, 1].cpu().numpy()) * 100))
+fr = torch.tensor(fks)
+positions = torch.stack(pos).clone()
+for p, fk in zip(positions, fks): p[:, [0, 2]] += track[fk]   # the base sample was saved in place
+cons = [Root2DConstraintSet(sk30, torch.tensor(rest), root_rest, global_root_heading=head_rest),
+        Poses(sk30, fr, positions, torch.stack(rot), hands=torch.tensor(HANDS, dtype=torch.long, device=dev))]
+if A.dry_run:
+    dd = {k: [] for k in ("global_joints_positions", "global_joints_rots", "smooth_root_2d", "root_y_pos", "global_root_heading")}
+    ii = {k: [] for k in dd}
+    for c in cons: c.update_constraints(dd, ii)
+    print("constraint rows: positions %d, rotations %d" % (sum(len(x) for x in dd["global_joints_positions"]), sum(len(x) for x in dd["global_joints_rots"])))
+    pay = {"payload_" + k: torch.cat([torch.as_tensor(x) for x in v]).cpu().numpy() for k, v in dd.items() if v}
+    pay.update({"index_" + k: torch.cat([torch.as_tensor(x) for x in v]).cpu().numpy() for k, v in ii.items() if v})
+    np.savez(A.dry_run, keys=np.array(keys), positions=torch.stack(pos).cpu().numpy(), rotations=torch.stack(rot).cpu().numpy(),
+             root_yaw=YAW, root_xz=XZ, **pay)
+    print("DRY RUN OK", A.dry_run); raise SystemExit(0)
 torch.manual_seed(A.seed); np.random.seed(A.seed)
 os.makedirs(A.out, exist_ok=True)
 out = model(texts, nfs, constraint_lst=cons, num_denoising_steps=100, num_samples=A.samples, multi_prompt=True,
             num_transition_frames=5, post_processing=False, return_numpy=True)
 keep = int(round(keep_s * FPS))
 pj, gr = out["posed_joints"][:, :keep], out["global_rot_mats"][:, :keep]
-for (fk, fb), target in zip(keys, pos):
+for (fk, fb), target in zip(keys, positions):
     if fk < keep:
         e = np.linalg.norm(pj[:, fk][:, sl] - target.cpu().numpy()[None], axis=-1)
         print("hit on pose fr. %3d: mean %.3f m, max %.3f m (per sample: %s)" % (fk, e.mean(), e.max(), np.round(e.max(1), 3)))

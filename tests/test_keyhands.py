@@ -34,22 +34,6 @@ def test_roll_is_the_closest_turn_about_the_axis():
     assert all(KH.angle(KH.axis_angle(Y, math.radians(a)), D) >= best - 1e-9 for a in range(-180, 181, 3))
 
 
-def test_bend_limited_cuts_the_swing_keeps_the_twist():
-    d = KH.qmul(KH.axis_angle((1, 0, 0), math.radians(120)), KH.axis_angle(Y, math.radians(40)))
-    q, kept = KH.bend_limited(KH.ID, d, Y, 80)
-    assert KH.swing_deg(q, Y) <= 80 + 1e-6 and 0 < kept < 1
-    assert math.degrees(KH.twist(q, Y)) == pytest.approx(math.degrees(KH.twist(d, Y)), abs=1e-6)
-    small = KH.axis_angle((1, 0, 0), math.radians(30))
-    assert KH.bend_limited(KH.ID, small, Y, 80)[1] == 1.0       # within the limit: untouched
-
-
-def test_bend_limited_counts_the_hand_own_bend():
-    """The limit is on base @ q (the wrist as the audit measures it), not on the correction alone."""
-    base = KH.axis_angle((1, 0, 0), math.radians(70)); d = KH.axis_angle((1, 0, 0), math.radians(30))
-    q, kept = KH.bend_limited(base, d, Y, 80)
-    assert KH.swing_deg(KH.qmul(base, q), Y) <= 80 + 1e-6 and kept < 0.5
-
-
 def test_schedule_hits_keys_and_loops_back():
     keys = {0: 0, 12: 0, 20: 0}
     s = KH.schedule(keys, 30, True, [0, 6, 12, 25, 30])
@@ -79,3 +63,44 @@ def test_quat_track_fractional_times():
     assert KH.angle(tr[0], a) < 1e-9 and KH.angle(tr[3], b) < 1e-9 and KH.angle(tr[5], a) < 1e-9
     assert KH.angle(tr[2], a) == pytest.approx(45, abs=1e-6)       # smoothstep midpoint
     assert 0 < KH.angle(tr[1], a) < 45 * 0.8 / 4                    # eased start
+
+
+def test_limit_wrist_cuts_twist_and_bend_only_past_the_limits():
+    q = KH.qmul(KH.axis_angle((1, 0, 0), math.radians(100)), KH.axis_angle(Y, math.radians(150)))
+    c = KH.limit_wrist(q, Y, 55, 80)
+    assert abs(math.degrees(KH.twist(c, Y))) == pytest.approx(55, abs=1e-6) and KH.swing_deg(c, Y) == pytest.approx(80, abs=1e-6)
+    ok = KH.qmul(KH.axis_angle((0, 0, 1), math.radians(30)), KH.axis_angle(Y, math.radians(-20)))
+    assert KH.angle(KH.limit_wrist(ok, Y, 55, 80), ok) < 1e-9
+
+
+def test_wrist_from_pose_hits_the_target_with_the_pose_wrist():
+    rng = np.random.default_rng(3)
+    for _ in range(5):
+        Fw, rest = rand_q(rng), rand_q(rng)
+        pose = KH.qmul(KH.axis_angle((1, 0, 0), math.radians(30)), KH.axis_angle(Y, math.radians(-25)))
+        T = KH.qmul(KH.qmul(KH.qmul(Fw, KH.axis_angle(Y, 1.3)), rest), pose)   # Kimodo's forearm 1.3 rad off in roll
+        roll, w = KH.wrist_from_pose(Fw, T, rest, pose, Y)
+        assert roll == pytest.approx(1.3) and KH.angle(w, pose) < 1e-6
+        assert KH.angle(KH.qmul(KH.qmul(KH.qmul(Fw, KH.axis_angle(Y, roll)), rest), w), T) < 1e-6
+
+
+def test_key_roll_far_from_its_neighbours_keeps_the_wrist_within_limits():
+    """Knight round 7, left hand: the forearm roll on key 30 came out +44 deg against -59 and -6 on its neighbours, and the
+    old correction kept Kimodo's own wrist (twisted ~150 deg there). The wrist now comes from the poses: within the limits
+    on the keys and on every frame between them, whatever the rolls do; the hand still hits each key."""
+    rng = np.random.default_rng(4); rest = rand_q(rng); keys = [22, 25, 30, 38]; n = 56
+    rolls = {22: -59, 25: -30, 30: 44, 38: -6}
+    poses = {f: KH.qmul(KH.axis_angle((1, 0, 0), math.radians(20 + f)), KH.axis_angle(Y, math.radians(-15 - f % 7))) for f in keys}
+    Fw = {f: rand_q(rng) for f in keys}
+    T = {f: KH.qmul(KH.qmul(KH.qmul(Fw[f], KH.axis_angle(Y, math.radians(rolls[f]))), rest), poses[f]) for f in keys}
+    R, W = {}, {}
+    for f in keys:
+        R[f], w = KH.wrist_from_pose(Fw[f], T[f], rest, poses[f], Y); W[f] = KH.limit_wrist(w, Y, 55, 80)
+        assert math.degrees(R[f]) == pytest.approx(rolls[f], abs=1e-6)
+        assert KH.angle(KH.qmul(KH.qmul(KH.qmul(Fw[f], KH.axis_angle(Y, R[f])), rest), W[f]), T[f]) < 1e-6
+    times = [i * 0.25 for i in range(n * 4)]
+    for q in KH.quat_track(W, n, True, times):
+        q = KH.limit_wrist(q, Y, 55, 80)
+        assert abs(math.degrees(KH.twist(q, Y))) <= 55 + 1e-6 and KH.swing_deg(q, Y) <= 80 + 1e-6
+    tr = KH.roll_track(R, n, True, times)
+    assert max(abs(b - a) for a, b in zip(tr, tr[1:])) < math.radians(30)   # no full turn between neighbouring keys

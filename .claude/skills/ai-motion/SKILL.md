@@ -81,16 +81,14 @@ the right armpit), `recoil`, `loop_blend_s` (how many last seconds the retarget 
 
 ### A weapon or prop in the hands: pick a recipe
 Read `pipeline/recipes/README.md` first: the generated index, one row per recipe (use when / not for). A recipe is one
-small script for one kind of grip. The motion file names it and holds its inputs (`"recipe": {"name": ...}`), `chain.py`
-and the merge stage run it in the prop step, and the audit reports what it measured (`recipe` in `audit.json`, not scored).
-- One-handed weapon rigid in one hand (the knight's sword): `one_hand_weapon`. Weapon GLB, `in_hand` and `fingers` from
-  the approved pose scene (its `--read-scene` prints them), `grip` read off the model (`examples/one_hand_weapon.example.json`).
-  The weapon is a mesh in the output GLB; body joints and `key_hands.py`'s hand rotation stay as they are.
-- Nothing fits: copy the smallest recipe into a new file with the fixed header (README there, "Writing one"), add its
-  name to `schemas/motion.schema.json`, run `python tools/recipes_index.py`. One recipe = one narrow case.
-- **Do not add a switch, a mode or a rule to `prop_in_hands.py`.** The two-handed solver is EXPERIMENTAL and frozen
-  (selected by `actions.<a>.prop: true`; its known defects are in its header and in GRIP_LESSONS.md). What this file
-  says below about its grip, aim, passes and traps describes it as it is.
+small script for one kind of grip, named by the motion file (`"recipe": {"name": ..., inputs}`) and run in the prop step of
+`chain.py` and of the merge stage; the audit reports what it measured (`recipe` in `audit.json`, not scored).
+- One-handed weapon rigid in one hand (the knight's sword): `one_hand_weapon`. `in_hand` and `fingers` come from the
+  approved pose scene (`--read-scene`), `grip` from the model (`examples/one_hand_weapon.example.json`). The weapon is
+  a mesh in the output GLB; body joints and `key_hands.py`'s hand rotation stay as they are.
+- Nothing fits: write a new recipe from the smallest one (README there, "Writing one"). One recipe = one narrow case.
+- **Do not add a switch, a mode or a rule to `prop_in_hands.py`**: the two-handed solver (`actions.<a>.prop: true`) is
+  EXPERIMENTAL and frozen. What this file says below about its grip, aim, passes and traps describes it as it is.
 
 ### Order (the approved crossbow shot, one review round)
 1. **Body without hand constraints:** `kimodo_motion.py` (4 samples), each through `chain.py`; take the best by audit
@@ -194,15 +192,23 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - **Key poses passed bone rotations only (until 2026-11):** a hand-set crouch reached Kimodo at standing hip height and
   floated 41 cm (Padlinozerca). `keyposes_to_kimodo.py` now writes `hips` (`keypose_root.py`): crouch 0.52 m, foot joint
   -3.1 cm. A `poses.json` from before prints WARNING: rerun `keyposes_to_kimodo.py`. Kimodo has no foot-contact input.
+- **Between key poses the root used to face forward in place** (`Root2DConstraintSet` on every non-key frame: heading
+  [1, 0], (x, z) = the track), while a key carries its own pelvis. Poses with the pelvis turned (knight round 7: -23 / +30
+  deg) snapped there only on the key frame and fell back: yaw steps up to 16.5 deg per Kimodo frame, shins shaking 2.6-3.1
+  cm (round 5, unturned poses: 0..3 deg, 0.9 cm). `kimodo_keyposes.py` now sends heading and (x, z) interpolated through
+  the keys' own (monotone cubic, `keypose_root.root_between`) and `--dry-run` prints that path; keys facing forward on the
+  track give the old payload bit for bit. Gate: `pelvis_shake` / `knee_shake` (5-frame residual, `shake.py`).
 - **Kimodo keeps a key pose's joint POSITIONS, not the hands' ROTATION:** a full-body key constrains positions only and the
   clip comes from the rotation channel; the knight's sword hand hit its keys 2-8 cm close but turned 15-176 deg off (the
   retarget is faithful: same error before and after it). The working fix: `chain.py --key-poses` runs `key_hands.py` after
-  the retarget: forearm roll + rest of the hand rotation per key (wrist bend capped at 80 deg), smoothstep between keys,
-  joint positions unchanged. `kimodo_keyposes.py --hand-rotations` also sends the hands' rotation to Kimodo (its own
+  the retarget: per key the forearm roll that leaves the POSE's wrist twist and the wrist that then hits the posed hand
+  (cut to twist 55 / bend 80 deg), smoothstep between keys, joint positions unchanged. Kimodo's own wrist is dropped: it is
+  unconstrained too (round 7 raw: twist 102-180 deg), and keeping it under a corrected forearm left 149-158 deg. `kimodo_keyposes.py --hand-rotations` also sends the hands' rotation to Kimodo (its own
   end-effector channel): EXPERIMENTAL, off by default, until a generation run shows Kimodo honours it. Gate: `key_hand_rot_L/R` on the key frames
-  (limit 50 deg: knight before 101-176, after 0-1, bend-capped key 6-48). Cost on the knight: hand_jump at the strike
-  +0.4..+7 deg, skin_twist +10, scores +0.03..+1.9; a sample whose wrist already folds 167 deg (r3b s2) reads a 177 deg
-  wrist twist there. With a prop the grip solver sets the hands: measured, not corrected or scored.
+  (limit 50 deg: knight before 101-176, after 0-5, round 7 right hand up to 9). Wrist twist after: 20-23 L / 43-54 R on 16
+  samples. Cost: Kimodo's wrist no longer damps the arm's whip, so hand_jump stays 16-24 deg (raw 10-89) and on 6 of 16
+  samples is 2-9 deg above the uncorrected clip: `key_hands.py` prints a WORSE line for that. With a prop the grip solver
+  sets the hands: measured, not corrected or scored.
 - **Kimodo cannot do a deep forward bend from text** ("curls forward, chest on knees" twice gave a squat with the shoulders
   22 cm BEHIND the hips). Set such a key pose by hand from a reference picture (bone directions + 2-bone IK from bone heads)
   and run the motion through it. Measure the lean (shoulder vs hip along the forward axis), do not judge from a thumbnail.
