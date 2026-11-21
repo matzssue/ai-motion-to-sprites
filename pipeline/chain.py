@@ -1,7 +1,7 @@
 """Blender chain of AI motion for one sample: retarget -> merge with the walk -> prop in hands -> audit.
 character.py drives a whole character (model -> all actions); this is its building block, used alone to fix one sample.
 python pipeline/chain.py --rig rig_ai.glb --motion <motion>.json --bvh x_s0.bvh [--walk walk.fbx] --out dir
-    [--no-prop] [--from retarget|merge|prop|audit] [--skeleton mixamo|profile.json]"""
+    [--no-prop] [--from retarget|merge|prop|audit] [--skeleton mixamo|profile.json] [--poses approved_poses.glb]"""
 import argparse, json, os, subprocess, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
@@ -10,7 +10,8 @@ from schema_check import load as load_config, load_skeleton
 
 IMPORTANT = ("smoothed", "RETARGET", "merge_actions", "pass", "OK", "AUDIT", "  FAIL", "  rest", "  score", "  no limit", "  skipped",
              "skeleton", "fingers:", "stock",
-             "closeups", "MAX", "RIG OK", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ")
+             "closeups", "MAX", "RIG OK", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ",
+             "aim:", "approved key poses", "APPROVED PLACE")
 
 
 def blender(script, marker, *args):
@@ -43,9 +44,9 @@ def audit(glb, action, out, prop=None, rest_is_normal=False, loop=True, skeleton
     return json.load(open(os.path.join(out, "audit.json"), encoding="utf-8"))
 
 
-def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=True, skeleton=None):
+def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=True, skeleton=None, poses=None):
     """Returns (glb, audit report). `walk` = library walk merged next to the action; None = the action alone (a rig without
-    library clips, e.g. the own skeleton)."""
+    library clips, e.g. the own skeleton). `poses` = GLB of the approved key poses: the prop is placed as they hold it."""
     R = json.load(open(motion, encoding="utf-8")); action = R["action"]
     os.makedirs(out, exist_ok=True)
     name = os.path.splitext(os.path.basename(bvh))[0]
@@ -59,7 +60,7 @@ def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=Tr
     prop = json.load(open(data, encoding="utf-8"))["prop"]["name"] if with_prop else None
     if with_prop:
         if k <= 2: blender("prop_in_hands.py", "OK ", "--glb", merged, "--rig-data", data, "--motion", motion, "--out", ready,
-                           *skel(skeleton))
+                           *skel(skeleton), *(["--poses", poses] if poses else []))
         result = ready
     return result, audit(result, action, os.path.join(out, "audit_" + name), prop, loop=loop, skeleton=skeleton,
                          under_arm=with_prop and "butt_push" in R.get("aim", {}))
@@ -72,9 +73,11 @@ if __name__ == "__main__":
     ap.add_argument("--out", required=True); ap.add_argument("--walk", default=None, help="library walk clip merged next to the sample (optional)")
     ap.add_argument("--no-prop", action="store_true"); ap.add_argument("--from", dest="start", default="retarget", choices=["retarget", "merge", "prop", "audit"])
     ap.add_argument("--skeleton", default=None, help="skeleton profile of the rig: built-in name or JSON path (default mixamo)")
+    ap.add_argument("--poses", default=None, help="GLB of the approved key poses: the prop is placed as they hold it on the key frames")
     A = ap.parse_args()
     load_config(A.motion, "motion", () if A.no_prop else ("grip",))
     if A.skeleton: load_skeleton(A.skeleton)   # a bad profile is named before any Blender step
     glb, rep = chain(*(os.path.abspath(p) if p else None for p in (A.rig, A.motion, A.bvh, A.out, A.walk)), not A.no_prop, A.start,
-                     skeleton=A.skeleton and (A.skeleton if not A.skeleton.endswith(".json") else os.path.abspath(A.skeleton)))
+                     skeleton=A.skeleton and (A.skeleton if not A.skeleton.endswith(".json") else os.path.abspath(A.skeleton)),
+                     poses=A.poses and os.path.abspath(A.poses))
     print("RESULT", glb, rep["result"], "score", rep["score"])

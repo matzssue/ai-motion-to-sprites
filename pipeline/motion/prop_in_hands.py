@@ -6,6 +6,8 @@ blender -b --python pipeline/motion/prop_in_hands.py -- --glb merged.glb --rig-d
     [--frames 10,45,56]  quick grip try: only these frames, best grip for each on its own (no path or smoothing in time)
     [--keep-prop]  a key pose set by hand: the prop and the body stay as the GLB has them, only both arms (IK to the
                    grip) and the fingers are fitted to the prop
+    [--poses approved.glb]  the approved key poses: the prop's place against the body on the motion file's key frames is
+                   the target on every frame (hold poses follow the hips, aim poses the chest at the butt-side shoulder)
 Blender's IK does not work on rigs from GLB (bone lengths are meaningless), hence IK from bone heads."""
 import bpy, sys, os, math, json, argparse, time, hashlib
 import numpy as np
@@ -17,12 +19,14 @@ from collisions import labels_all, prop_in_body, depths, stock_end, pocket_gap, 
 from audit_metrics import METRICS, REF_HEIGHT, height
 from grip_words import grip_from_words, grip_in_words
 from descent import descend as descend_steps, faces_on
+from prop_path import aim_window, aim_weight, nearest, carry, smooth_runs, best_path
 
 ap = argparse.ArgumentParser(description="Put the prop in both hands: prop pose, two-arm IK, finger wrap, recoil.")
 ap.add_argument("--glb", required=True); ap.add_argument("--rig-data", required=True)
 ap.add_argument("--motion", required=True); ap.add_argument("--out", required=True); ap.add_argument("--frames", default=None)
 ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
 ap.add_argument("--keep-prop", action="store_true", help="keep the prop and body of the GLB, fit only the arms and fingers")
+ap.add_argument("--poses", default=None, help="GLB of the approved key poses: where it holds the prop on the motion file's key frames is the target")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
 MO = json.load(open(A.motion, encoding="utf-8")); GP = MO["grip"]
 RD = json.load(open(A.rig_data, encoding="utf-8"))
@@ -402,21 +406,84 @@ for f in all_frames:
         d[s + "palm"] = head(BN[s]["hand"]) + wrot(BN[s]["hand"]) @ Vector((0, PALM, 0))
         d[s + "E"] = head(BN[s]["forearm"]); d[s + "S"] = head(BN[s]["upper_arm"]); d[s + "W"] = head(BN[s]["hand"])
         d[s + "Rua"] = wrot(BN[s]["upper_arm"]); d[s + "Rfa"] = wrot(BN[s]["forearm"])
-    d["chest"] = head(PROF.spine[-1])
+    d["chest"] = head(PROF.spine[-1]); d["Rchest"] = wrot(PROF.spine[-1]); d["hips"] = head(PROF.bone("hips"))
     d["prop"] = AW @ pb(PN).matrix @ CR_IN_BONE   # the prop as the GLB holds it (--keep-prop)
     K[f] = d
 zR = np.array([K[f]["Rightpalm"].z for f in all_frames])
 z_lo, z_hi = np.median(zR[:8]), np.percentile(zR, 92)
 W_AIM = {}
+AIM = MO.get("aim", {})
+# where the prop's rear end rests while aiming, by skeleton roles: "shoulder" (default: butt_from_shoulder, pushed out of
+# the body forward) or "armpit" (between the ribs and the inner upper arm below the shoulder joint; also implied by
+# `butt_push`). In the armpit the prop is the target: its rear end is pinned in the pocket found on this frame's body, the
+# search only turns the prop about it, and both arms are fitted to it. Kusznik round 6 (fixed body, prop pushed out and
+# moved by the search) ended with the butt on the right forearm in front of the elbow
+REST = AIM.get("rest_at", "armpit" if "butt_push" in AIM else "shoulder")
+UNDER = REST == "armpit"
+# The aim's frames: from the right hand's height over the clip, as long as the stock goes to the shoulder (the hand
+# rises with it). Under the armpit the hand stays low (Kusznik: 21 cm in the hold, 23 cm on the aim pose, 47 cm in the
+# recoil): there they come from the motion file (the `aim` key pose, the phases, the shot: lib/prop_path.py). The
+# motion file's window on a shoulder aim too took the approved Mixamo Kusznik from 5.16 to 7.89 (the stock at the
+# shoulder on frame 44 instead of 85% of the way)
+AIM_WIN = aim_window(MO.get("phases"), MO.get("key_poses"), FPS, (MO.get("recoil") or {}).get("fire_s")) if UNDER else None
 for f in all_frames:
     x = float(np.clip((K[f]["Rightpalm"].z - z_lo) / max(z_hi - z_lo, 1e-6), 0, 1)); W_AIM[f] = x * x * (3 - 2 * x)
+    if AIM_WIN: W_AIM[f] = aim_weight(f, AIM_WIN)
     # walk/idle with the prop in both hands: hand height from arm swing would "aim" - the whole clip is a hold
     if MO.get("no_aim"): W_AIM[f] = 0.0
-AIM = MO.get("aim", {})
+print("aim: %s; frames past half of it: %s" % (
+    "rise %.0f -> %.0f (key pose `aim`), full to %.0f, down to %.0f" % AIM_WIN if AIM_WIN else "from the right hand's height",
+    (lambda on: "%d-%d" % (on[0], on[-1]) if on else "-")([f for f in all_frames if W_AIM[f] >= 0.5])))
 # head slightly back while aiming: makes room for the stock and the right elbow
 HEAD_BACK = AIM.get("head_back_deg", 0)
 BUTT_PUSH = Vector(AIM.get("butt_push", tuple(FWD))).normalized()
 BUTT_SIDE = "Right" if BUTT_PUSH.dot(RIGHT) >= 0 else "Left"   # the arm whose armpit holds the butt
+
+# ---------- approved key poses: where they hold the prop is the target ----------
+# The search placed the prop from the body alone, frame by frame, and the clip did not show what was approved: on
+# Kusznik's aim frame the rear end sat 11 cm higher under the arm than on the approved pose, on the hold frame 10 cm
+# further out. The prop of each key pose is read against that pose's body and carried onto every frame's body
+# (prop_path.carry): a hold pose follows the hips, an aim pose the chest at the butt-side shoulder joint. The stock's
+# direction stays the approved one (carried with the chest it swung with every twist of the torso).
+KEYP = {}   # key frame -> dict(C prop pose, S butt-side shoulder joint, Rc chest rotation, hips) on the approved pose
+if A.poses and not A.keep_prop:
+    _had = {c_: set(getattr(bpy.data, c_)) for c_ in ("objects", "meshes", "armatures", "actions", "materials", "images", "textures")}
+    bpy.ops.import_scene.gltf(filepath=A.poses)
+    _arm2 = next(o for o in bpy.data.objects if o not in _had["objects"] and o.type == "ARMATURE")
+    _act2 = next((a_ for a_ in bpy.data.actions if a_ not in _had["actions"] and a_.name.split(".")[0] == MO["action"].split(".")[0]), None)
+    if _act2 is None: raise SystemExit("--poses %s: no action '%s'" % (A.poses, MO["action"]))
+    for _pb in _arm2.pose.bones: _pb.matrix_basis = Matrix()
+    _arm2.animation_data.action = _act2; _w2 = lambda n: _arm2.matrix_world @ _arm2.pose.bones[pb(n).name].matrix
+    for _n, _fk in MO.get("key_poses", {}).items():
+        if _n.startswith("_") or not _act2.frame_range[0] <= _fk <= _act2.frame_range[1]: continue
+        sc.frame_set(int(_fk))
+        KEYP[int(_fk)] = dict(C=_w2(PN) @ CR_IN_BONE, S=_w2(BN[BUTT_SIDE]["upper_arm"]).translation.copy(),
+                              Rc=_w2(PROF.spine[-1]).to_3x3().normalized(), hips=_w2(PROF.bone("hips")).translation.copy())
+    for o in [o for o in bpy.data.objects if o not in _had["objects"]]: bpy.data.objects.remove(o, do_unlink=True)
+    for c_, was in _had.items():   # nothing of the poses file stays: the export writes every action and mesh it finds
+        if c_ != "objects":
+            for d_ in [d_ for d_ in getattr(bpy.data, c_) if d_ not in was]: getattr(bpy.data, c_).remove(d_)
+    arm.animation_data.action = act
+KEY_AIM = sorted(k_ for k_ in KEYP if W_AIM.get(k_, 0.0) >= 0.5); KEY_HOLD = sorted(k_ for k_ in KEYP if k_ not in KEY_AIM)
+# the approved poses' arms too (grip roll and elbow plane, from the <glb>_arms.json written with them): on the key frames
+# the clip took its own (Kusznik's hold: left grip rolled -20 where the approved pose has +20, right elbow plane -15 for -60)
+KEYARMS = {}
+if KEYP and os.path.exists(A.poses.replace(".glb", "_arms.json")):
+    for k_, v_ in json.load(open(A.poses.replace(".glb", "_arms.json"), encoding="utf-8")).items():
+        if int(k_) in KEYP: KEYARMS[int(k_)] = {s_: (v_[s_]["roll"], v_[s_]["elbow"]) for s_ in ("Left", "Right") if "roll" in v_.get(s_, {})}
+if A.poses: print("approved key poses %s: hold on fr. %s, aim on fr. %s" % (os.path.basename(A.poses), KEY_HOLD or "-", KEY_AIM or "-"))
+
+
+def carried(f, aim):
+    """The prop on frame f as the nearest approved key pose of its kind holds it (None without one)."""
+    k_ = nearest(f, KEY_AIM if aim else KEY_HOLD)
+    if k_ is None: return None
+    kp = KEYP[k_]; C = kp["C"].copy(); k = K[f]
+    if aim:   # the rear end keeps its place on the chest under the shoulder joint
+        b_ = carry(C @ Vector((BUTT, 0, 0)), kp["S"], np.array(kp["Rc"]), k[BUTT_SIDE + "S"], np.array(k["Rchest"]))
+        C.translation += Vector(b_) - C @ Vector((BUTT, 0, 0))
+    else: C.translation = Vector(carry(C.translation, kp["hips"], None, k["hips"]))
+    return C
 for f in all_frames:
     if not HEAD_BACK or W_AIM[f] < 1e-3 or A.keep_prop: continue
     sc.frame_set(f)
@@ -533,13 +600,6 @@ def solve_arm(side, f, C4, tr, rolls=(0,), poles=(0,), all_=False, memo=None):
     return best
 
 
-# where the prop's rear end rests while aiming, by skeleton roles: "shoulder" (default: butt_from_shoulder, pushed out of
-# the body forward) or "armpit" (between the ribs and the inner upper arm below the shoulder joint; also implied by
-# `butt_push`). In the armpit the prop is the target: its rear end is pinned in the pocket found on this frame's body, the
-# search only turns the prop about it, and both arms are fitted to it. Kusznik round 6 (fixed body, prop pushed out and
-# moved by the search) ended with the butt on the right forearm in front of the elbow
-REST = AIM.get("rest_at", "armpit" if "butt_push" in AIM else "shoulder")
-UNDER = REST == "armpit"
 POCKET_DEPTH = (0.15, 0.25, 0.35, 0.45)   # the armpit's hollow is searched this far below the shoulder joint (x upper arm)
 POCKET_INFO = {}
 STOCK_R = r_at(BUTT + 0.03)
@@ -547,7 +607,7 @@ SKIN_W = 3000   # own skeleton: cost per metre of prop (or limb past its limit, 
 # Kusznik, author's accepted aim (round 8, the solver's r7 missed it): the stock 0.67-0.72 of the upper arm below the
 # shoulder, 18 deg off straight ahead, crossing the pocket 12-20 cm before its rear end (14 cm behind the shoulder joint)
 POCKET_TRY = (0.3, 0.42, 0.54, 0.66)   # pocket depths below the shoulder joint tried while aiming [x upper arm]
-AIM_FREE = 20   # deg the stock may yaw or pitch off the aim about a pinned rear end before it costs 10x
+AIM_FREE = 20   # deg the stock may yaw, pitch or roll off the aim about a pinned rear end before it costs 10x
 STOCK_SLIDE = POCKET_SPAN * float(Lc[:, 0].max() - BUTT)   # how far the stock may slide back through the pocket [m]
 REAR_M = SAMP[:, 0] <= BUTT + STOCK_SLIDE   # prop samples in the stock's rear span (the part that may rest in the pocket)
 POCKET_FW = (0.0, 0.06, 0.12)   # pinned search starts: the pocket this far in front of the shoulder joint [m]
@@ -588,6 +648,37 @@ def pose_cost(C4, f, tr, arms=None, memo=None, over=None):
 
 ELBOW_OUT, ELBOW_W = 0.6, 300   # pinned: the butt-side elbow this far out of the shoulder joint [x upper arm], cost per m short
 FORCE_POLE = []   # pinned search: the butt-side elbow plane(s) tried on the real skin
+# An approved place is kept as it is on every frame where it costs at most CLEAN more than on its own key frame (the cost
+# of 4 mm of prop in the skin): what was approved there is good enough here. A fixed limit kept it nowhere on Kusznik's
+# aim: on the key frame itself it costs 140 (the right arm 3 points close to the ribs, the left arm nearly straight),
+# the search moved it 3 cm and 5 deg off and the clip did not show the approved pose on the approved frame.
+CLEAN = 12.0
+REF = {}          # (pass, key frame) -> what the approved place costs on the key frame itself
+PASS = [0]
+TGT = {}          # frames with an approved place: (its cost there, after the search near it, in another pocket)
+COSTF = {}        # frame -> cost of its answer in the last search
+
+
+def ref_cost(f, pin):
+    """What the approved place costs on the key frame that frame f's place comes from (this pass's body)."""
+    k_ = nearest(f, KEY_AIM if pin else KEY_HOLD)
+    if k_ not in BASE or pinned(k_) != pin: return 0.0   # a quick try without the key frame
+    if (PASS[0], k_) not in REF: REF[(PASS[0], k_)] = best_plane(BASE[k_][0], k_, TR[k_]); ON_FRAME[0] = None
+    return REF[(PASS[0], k_)]
+
+
+def best_plane(C4, f, tr, memo=None):
+    """Cost of a prop pose with the butt-side elbow plane chosen on the real skin (free, or one of the outward planes),
+    as the search chooses it; LAST_ARMS is left at the chosen one. Left to the arm's own cost, Kusznik's approved aim got
+    the right elbow plane +45 deg where the approved pose and the search have -45."""
+    COST = skin_cost if ARM_COLL else pose_cost; memo = {} if memo is None else memo; best = None
+    planes = (([],) + tuple([p_] for p_ in range(-ranges(BUTT_SIDE)[1], 1, 15))) if pinned(f) and ARM_COLL else ([],)
+    if pinned(f) and ARM_COLL and BUTT_SIDE in KEYARMS.get(f, {}): planes = ([KEYARMS[f][BUTT_SIDE][1]],)   # a key frame: the approved plane
+    for pl_ in planes:
+        FORCE_POLE[:] = pl_; c = COST(C4, f, tr, memo)
+        if best is None or c < best[0]: best = (c, list(pl_))
+    FORCE_POLE[:] = best[1]; COST(C4, f, tr, memo); FORCE_POLE[:] = []
+    return best[0]
 LAST_ARMS = {}   # arm setups of the last skin_cost
 ARMS_FIX = {}    # pinned frames: {f: {side: (roll, elbow)}} measured on the real skin, kept by path()
 
@@ -633,6 +724,25 @@ def skin_cost(C4, f, tr, memo=None, over=None):
 def pinned(f): return UNDER and W_AIM[f] >= 0.5   # aiming with the rear end in the armpit
 
 
+def cost_parts(C4, f, tr):
+    """What a prop pose costs, part by part (the quick try says it for the approved place)."""
+    memo = {}; arms = {}; pose_cost(C4, f, tr, arms, memo); t = "prop points in the body %d" % memo["hits"]
+    if memo["hits"]:   # where: the region of the skin nearest to each
+        reg_ = {}
+        for q in ((SAMP[~REAR_M] if pinned(f) else SAMP) @ np.array(C4.to_3x3()).T + np.array(C4.translation)).tolist():
+            loc, nor, i_, d = tr[0].find_nearest(q, 0.15)
+            if loc is not None and d > 0.008 and (Vector(q) - loc).dot(nor) < 0 and inside(tr[0], Vector(q)):
+                reg_[str(_REG_BODY[i_])] = reg_.get(str(_REG_BODY[i_]), 0) + 1
+        t += " (%s)" % ", ".join("%s %d" % kv for kv in sorted(reg_.items()))
+    for side, b in arms.items():
+        t += "; %s arm: %d points in the body, prop %.1f cm in it, %.1f cm past its slack" % (
+            SIDE_NAME[side], b["coll"], 100 * b["parm"], 100 * b["slack"])
+    if ARM_COLL:
+        skin_cost(C4, f, tr, memo); d_, e_, g_ = memo[("skin",) + tuple(LAST_ARMS[s_] for s_ in ("Right", "Left"))]
+        t += "; on the skin: prop %.1f cm in it, limbs %.1f cm past their limits, rear end %.1f cm off the pocket" % (100 * d_, 100 * e_, 100 * g_)
+    return t
+
+
 def shift(C4, x, f=None):
     """x = (right, up, forward, yaw in deg); yaw around the right-hand grip. While the rear end rests in its pocket
     (pinned) the prop turns about it: x = (right, up, forward, yaw, pitch, roll about the stock in deg)."""
@@ -648,8 +758,11 @@ def shift(C4, x, f=None):
     return C2
 
 
-def search(C4, f, tr):
-    """Coordinate descent in both directions (an old grid only in +: the left elbow stayed in the torso)."""
+def search(C4, f, tr, seed=None, like=None):
+    """Coordinate descent in both directions (an old grid only in +: the left elbow stayed in the torso).
+    `seed` = the offset of the frame next to this one (or this frame's own from the pass before): the search starts there
+    when that costs less than no offset. `like` = (elbow plane, cost) of that neighbour's answer: when the same offset
+    and plane cost here at most CLEAN more than there, this frame holds the prop the same way and nothing is searched."""
     # offset with a limit and a stronger penalty: at 30/m without a limit the crossbow escaped collisions 37 cm above the head at the shot
     MX, KP = GP.get("max_offset", 0.08), GP.get("offset_penalty", 100)
     pin = pinned(f)
@@ -664,8 +777,9 @@ def search(C4, f, tr):
 
     known = {}   # prop pose -> what was measured for it (arm setups, body hits, skin depths): this frame, these trees
 
-    def cost(x, Cb=C4, a0=(0.0, 0.0), bound=None):
-        """`bound`: the cost to beat. A pose that cannot is not measured to the end and comes back as 1e9."""
+    def cost(x, Cb=C4, a0=(0.0, 0.0), bound=None, far=0.0):
+        """`bound`: the cost to beat. A pose that cannot is not measured to the end and comes back as 1e9.
+        `far`: what the start Cb already costs for its distance from the approved place."""
         d = math.sqrt(x[0] ** 2 + x[1] ** 2 + x[2] ** 2)
         if pin:   # the stock may also slide back through the pocket by up to STOCK_SLIDE (the front hand reaches less far)
             sb = Cb.to_3x3().col[0].normalized(); t = RIGHT * x[0] + UP * x[1] + FWD * x[2]; al = t.dot(sb)
@@ -674,48 +788,89 @@ def search(C4, f, tr):
         if pin:   # the aim stays ahead: yaw or pitch (with the start's turn a0) past AIM_FREE costs 10x (free, the stock
             # swung 50-60 deg out or 40 up)
             ang = [x[3] + a0[0], x[4] + a0[1]] + list(x[5:])
-            turn = 0.3 * sum(abs(v) for v in ang) + 3 * sum(max(0.0, abs(v) - AIM_FREE) for v in ang[:2])
+            # the roll about the stock too: free, it grew frame by frame to 60 deg where each frame starts from its
+            # neighbour's answer (Kusznik, frames 58-64: the bow stood on its side)
+            turn = 0.3 * sum(abs(v) for v in ang) + 3 * sum(max(0.0, abs(v) - AIM_FREE) for v in ang[:3])
         else:
             turn = 0.3 * sum(abs(v) for v in x[3:])
-        kd = KP * d; C2 = shift(Cb, x, f); COUNT["asked"] += 1
+        kd = KP * d + far; C2 = shift(Cb, x, f); COUNT["asked"] += 1
         c = COST(C2, f, tr, memo=known.setdefault(tuple(v for r in C2 for v in r), {}),
                  over=None if bound is None else lambda c_: c_ + kd + turn >= bound)
         return 1e9 if c is None else c + kd + turn
+    # the approved place first (--poses). One that is clean on this frame's body is kept as it is: every frame then holds
+    # the prop the same way and the average over neighbours is theirs too. The search from the body alone gave each
+    # frame its own of 108 pockets, each clean, and their average ended 2-9.5 cm in the body (Kusznik, frames 54-86)
+    tgt = (f in TARGETED) if pin else bool(KEY_HOLD)
+    x0 = None
+    if tgt:
+        at0 = known.setdefault(tuple(v for r in C4 for v in r), {})
+        c0 = best_plane(C4, f, tr, at0); COUNT["asked"] += 1; TGT[f] = (round(c0, 1),)
+        if A.frames: print("fr. %d: the approved place costs %.1f: %s" % (f, c0, cost_parts(C4, f, tr)))
+        fine = ref_cost(f, pin) + CLEAN
+        if like is not None:
+            # as the neighbour holds it. Frames solved alone took unrelated elbow planes of nearly the same cost (Kusznik's
+            # right elbow: -30, -15, -45, -30, -15, -45 deg on frames 40-47) and the average over them was nobody's
+            s_ = list(seed) if seed is not None else [0.0] * NX
+            if pin and like[0] is not None: FORCE_POLE[:] = [like[0]]
+            c1 = cost(s_, bound=like[1] + CLEAN + 1e-6); FORCE_POLE[:] = []
+            if c1 <= like[1] + CLEAN:
+                if pin and COST is skin_cost: ARMS_FIX[f] = dict(LAST_ARMS)
+                TGT[f] += (round(c1, 1), "as the frame next to it"); COSTF[f] = c1
+                return (shift(C4, s_, f) if any(s_) else C4), s_
+        c0 = best_plane(C4, f, tr, at0)   # again: LAST_ARMS is this pose's
+        if c0 <= fine:
+            if pin and COST is skin_cost: ARMS_FIX[f] = dict(LAST_ARMS)
+            COSTF[f] = c0; return C4, [0.0] * NX
+        if seed is not None and any(seed) and cost(list(seed), bound=c0) < c0: x0 = list(seed)
+
+    def tries_from(Cb, yw0, far=0.0, x0=None):
+        """Descents from the start Cb (offset x0) with each elbow plane next to the pocket -> (cost, x, plane)."""
+        cst = lambda x, Cb_=Cb, bound=None: cost(x, Cb_, (yw0, 0.0), bound, far)
+        # the elbow plane next to the pocket is chosen on the real skin too: by the arm cost alone the arm stayed in
+        # front of the chest and the butt ended outside it, or the arm closed through the butt
+        tries = []
+        for pl_ in ([],) + tuple([p_] for p_ in range(-ranges(BUTT_SIDE)[1], 1, 15)) if COST is skin_cost else ([],):
+            FORCE_POLE[:] = pl_; x_, b_ = descend(cst, Cb, pin, NX, x0); tries.append((b_, x_, list(pl_)))
+            if b_ == 0: break   # nothing costs less, and ties go to the first
+        FORCE_POLE[:] = []
+        return min(tries, key=lambda t: t[0])
     if pin:   # start from the pocket at every depth to try: just under the shoulder the stock ran into the front armpit fold
-        b0 = C4 @ Vector((BUTT, 0, 0)); starts = []; low = None
+        b0 = C4 @ Vector((BUTT, 0, 0)); starts = []; low = None; kept = None
+        if tgt:   # from the approved place; other pockets only when no way near it is clean, and they pay their distance
+            kept = tries_from(C4, 0, x0=x0) + (C4,); TGT[f] += (round(kept[0], 1),); low = kept[0]
         across = 1 if BUTT_SIDE == "Right" else -1   # + yaw turns the stock towards the character's left
         # ties (many starts cost 0) go to the first: deepest, at the side, half slid back, straight. Kusznik, author's
         # accepted aim (round 8): the stock lies along the front of the ribs 0.66 of the upper arm below the shoulder joint
         # (2-4 cm off the torso 20-44 cm before its rear end), 18 deg across the chest, its rear end out under the upper
         # arm. The solver started only with the rear end at the side of the ribs, turned about that end: the turn swung
         # the stock's middle into the chest and the descent (3 cm round its start) stayed straight ahead (cost 37 vs 0)
-        for dep in reversed(POCKET_TRY):
+        for dep in reversed(POCKET_TRY) if kept is None or kept[0] > CLEAN else ():
             for fw in POCKET_FW:
                 p_ = pocket(f, BUTT_SIDE, (dep,), (fw,), strict=True)
                 if p_ is None: continue
                 for sl in (0.5, 1.0, 0.0):   # a section of the stock's rear part in the pocket instead of its end
                     for yw in (0, across * AIM_FREE, -across * AIM_FREE):   # turned about the pocket, not the rear end
                         Cs = C4.copy(); Cs.translation += p_ - b0 - st_ * (sl * STOCK_SLIDE)
+                        far = KP * (Cs.translation - C4.translation).length if tgt else 0.0
                         if yw: Cs = Matrix.Translation(p_) @ Quaternion(UP, math.radians(yw)).to_matrix().to_4x4() @ Matrix.Translation(-p_) @ Cs
-                        starts.append((cost([0.0] * NX, Cs, (yw, 0.0), low), Cs, yw, dep, fw))
+                        starts.append((cost([0.0] * NX, Cs, (yw, 0.0), low, far), Cs, yw, dep, fw, far))
                         low = starts[-1][0] if low is None else min(low, starts[-1][0])
-        if not starts:
-            Cs = C4.copy(); Cs.translation += pocket(f, BUTT_SIDE) - b0; starts = [(0.0, Cs, 0, None, None)]
-        _, Cb, yw0, dep, fw = min(starts, key=lambda t: t[0])
-        if dep is not None: pocket(f, BUTT_SIDE, (dep,), (fw,), strict=True)   # POCKET_INFO of the chosen start
-        cst = lambda x, Cb_=Cb, bound=None: cost(x, Cb_, (yw0, 0.0), bound)
-        # the elbow plane next to the pocket is chosen on the real skin too: by the arm cost alone the arm stayed in
-        # front of the chest and the butt ended outside it, or the arm closed through the butt
-        tries = []
-        for pl_ in ([],) + tuple([p_] for p_ in range(-ranges(BUTT_SIDE)[1], 1, 15)) if COST is skin_cost else ([],):
-            FORCE_POLE[:] = pl_; x_, b_ = descend(cst, Cb, pin, NX); tries.append((b_, x_, list(pl_)))
-            if b_ == 0: break   # nothing costs less, and ties go to the first
-        best, x, pl_ = min(tries, key=lambda t: t[0]); FORCE_POLE[:] = pl_
+        if not starts and kept is None:
+            Cs = C4.copy(); Cs.translation += pocket(f, BUTT_SIDE) - b0; starts = [(0.0, Cs, 0, None, None, 0.0)]
+        if starts and (kept is None or min(starts, key=lambda t: t[0])[0] < kept[0]):
+            _, Cb, yw0, dep, fw, far = min(starts, key=lambda t: t[0])
+            if dep is not None: pocket(f, BUTT_SIDE, (dep,), (fw,), strict=True)   # POCKET_INFO of the chosen start
+            other = tries_from(Cb, yw0, far) + (Cb,)
+            if kept is None or other[0] < kept[0]:
+                kept = other
+                if tgt: TGT[f] += (round(other[0], 1), "other pocket")
+        best, x, pl_, Cb = kept; FORCE_POLE[:] = pl_; COSTF[f] = best
         C2 = shift(Cb, x, f); x = unshift(C4, C2)
         if COST is skin_cost: skin_cost(C2, f, tr, known.get(tuple(v for r in C2 for v in r))); ARMS_FIX[f] = dict(LAST_ARMS)
         FORCE_POLE[:] = []
         return C2, x
-    x, best = descend(cost, C4, pin, NX)
+    x, best = descend(cost, C4, pin, NX, x0); COSTF[f] = best
+    if tgt: TGT[f] += (round(best, 1),)
     return (C4 if best == 0 and not any(x) else shift(C4, x, f)), x
 
 
@@ -735,13 +890,14 @@ def unshift(C4, C2):
     return x
 
 
-def descend(cost, Cb, pin, nx):
+def descend(cost, Cb, pin, nx, x0=None):
     T = (0.08, 0.04, 0.02)
     STEPS = (((0.02, 0.01),) * 2 + ((0.04, 0.02, 0.01),) + ((20, 10, 5), (10, 5), (10, 5))) if pin else (T, T, T, (20, 10, 5)) + ((),) * (nx - 4)
-    return descend_steps(cost, Cb, STEPS)
+    return descend_steps(cost, Cb, STEPS, x0=x0)
 
 
 HOLD = MO.get("hold")
+TARGETED = set()   # frames whose aim comes from an approved key pose (--poses)
 
 
 def out_of_body(p, direction, tree, clearance):
@@ -793,12 +949,19 @@ def hold_pose(f):
 
 
 def base_pose(f):
-    k = K[f]
-    if HOLD:
+    k = K[f]; Ck = carried(f, False); Ca = carried(f, True)
+    if Ck is not None: pass
+    elif HOLD:
         sc.frame_set(f); Ck = hold_pose(f)
     else:
         Ck = frame3((k["Leftpalm"] - k["Rightpalm"]).normalized(), UP).to_4x4(); Ck.translation = k["Rightpalm"]
     kick = math.radians(RC["kick_deg"] * env(f)) if RC else 0.0; tilt = math.radians(AIM.get("pitch_deg", 0))
+    w = W_AIM[f]
+    if UNDER: w = min(1.0, 2 * w)   # in the pocket from half-aim on (pinned frames): there the butt is exactly at it
+    if Ca is not None:   # the approved aim: the recoil turns it up about its rear end
+        pv = Ca @ Vector((BUTT, 0, 0)); lat = Ca.to_3x3().col[0].normalized().cross(UP).normalized()
+        Ca = Matrix.Translation(pv) @ Quaternion(lat, kick).to_matrix().to_4x4() @ Matrix.Translation(-pv) @ Ca
+        TARGETED.add(f); return blend_pose(Ck, Ca, w), w
     fd = (FWD * math.cos(tilt - kick) + UP * math.sin(-tilt + kick)).normalized()
     butt = k["RightS"] + Vector(AIM.get("butt_from_shoulder", (0, -0.07, -0.03)))
     # the shoulder joint lies inside the body: the butt leaves it forward (stock on the shoulder) or along `butt_push`.
@@ -808,24 +971,20 @@ def base_pose(f):
     butt = out_of_body(butt, BUTT_PUSH, TR[f][1] if "butt_push" in AIM else TR[f][0], 0.01)
     if UNDER: butt = pocket(f, BUTT_SIDE)
     Ca = frame3(fd, UP).to_4x4(); Ca.translation = butt - fd * BUTT
-    w = W_AIM[f]
-    if UNDER: w = min(1.0, 2 * w)   # in the pocket from half-aim on (pinned frames): there the butt is exactly at it
+    return blend_pose(Ck, Ca, w), w
+
+
+def blend_pose(Ck, Ca, w):
     C = Ck.to_quaternion().slerp(Ca.to_quaternion(), w).to_matrix().to_4x4()
     C.translation = Ck.translation.lerp(Ca.translation, w)
     # forward arc between hold and aim: a straight line went through the chest
     C.translation += FWD * AIM.get("transition_arc", 0.0) * 4 * w * (1 - w)
-    return C, w
+    return C
 
 
 def smooth(OFF):
     if A.frames: return {f: list(OFF[f]) for f in frames}
-    SM = {}
-    for f in frames:
-        acc, ws = np.zeros(NX), 0
-        for g in range(f - 3, f + 4):
-            if g in OFF: ww = 1 - abs(g - f) / 4; acc += np.array(OFF[g]) * ww; ws += ww
-        SM[f] = list(acc / ws)
-    return SM
+    return smooth_runs(OFF, frames, pinned, loop=bool(TWIN))   # not across the start or end of the armpit rest
 
 
 PREV_F = {}   # bend angle of every finger bone from the previous frame
@@ -952,21 +1111,22 @@ def path(side, CP, TR):
     # quick try: frames are not neighbours, so a change between them costs nothing
     trans = (0 if A.frames else GP.get("change_penalty", 0.02)) * (
         (states[:, None, 0] - states[None, :, 0]) ** 2 + (states[:, None, 1] - states[None, :, 1]) ** 2)
-    acc = None; back = []
+    U = []
     for f in frames:
         u = np.full(len(st), 1e9)
         for c, r, p in solve_arm(side, f, CP[f], TR[f], rolls, poles, all_=True): u[ix[(r, p)]] = c
-        if f in ARMS_FIX and ARMS_FIX[f][side] in ix:   # the setup the prop pose was measured with on the real skin
-            k_ = ix[ARMS_FIX[f][side]]; u_ = u[k_]; u[:] = 1e9; u[k_] = u_
-        if acc is None: acc = u; continue
-        m = acc[:, None] + trans; b = m.argmin(0); back.append(b); acc = m[b, np.arange(len(st))] + u
-    k = int(acc.argmin()); pth = [k]
-    for b in reversed(back): k = int(b[k]); pth.append(k)
-    pth = [st[i] for i in reversed(pth)]
+        # the setup of the approved pose on a key frame, else the one the prop pose was measured with on the real skin
+        fx = KEYARMS.get(TWIN.get(f, f), {}).get(side) or (ARMS_FIX[f][side] if f in ARMS_FIX else None)
+        if fx in ix:
+            k_ = ix[fx]; u_ = u[k_]; u[:] = 1e9; u[k_] = u_
+        U.append(u)
+    lp = bool(TWIN) and not A.frames; n_ = len(frames)   # the clip ends in its first frame: one setup on both, neighbours over the seam
+    pth = [st[i] for i in best_path(U, trans, lp)]
     if A.frames: return dict(zip(frames, pth))
+    at = lambda j: j if 0 <= j < n_ else ((j + n_ - 1 if j < 0 else j - n_ + 1) if lp else None)
     sm = {}
     for i, f in enumerate(frames):
-        w = [(1 - abs(j - i) / 4, pth[j]) for j in range(max(0, i - 3), min(len(frames), i + 4))]
+        w = [(1 - abs(j - i) / 4, pth[at(j)]) for j in range(i - 3, i + 4) if at(j) is not None]
         sm[f] = tuple(sum(ww * v[q] for ww, v in w) / sum(ww for ww, _ in w) for q in (0, 1))
     return sm
 
@@ -1060,12 +1220,23 @@ def stopwatch(what, t0):
     TIME[what] = TIME.get(what, 0.0) + time.perf_counter() - t0; return time.perf_counter()
 
 
+# the face guard runs before the prop is placed: the head's turn moves skin the hands are then placed against. Run on
+# the placed pose it turned Kusznik's head 40 deg back on the recoil frames and the audit found the right hand 9.5 cm in
+# the torso where the search had measured 1 cm (the only bone that differed between the solved scene and the file)
+for f in (frames if FACE_I is not None else []):
+    sc.frame_set(f); sk0 = sk = face_skew(); tw0 = tw = head_twist(); n_ = 0
+    while abs(sk) > (0.5 * FACE_LIM if abs(sk0) > FACE_LIM else FACE_LIM) and abs(tw) > 2 and n_ < 20:
+        setw(HEADB, wrot(HEADB) @ Quaternion(Vector((0, 1, 0)), -math.copysign(math.radians(2), tw)).to_matrix())
+        sk, tw, n_ = face_skew(), head_twist(), n_ + 1
+    if n_:
+        keyb(HEADB, f)
+        print("fr. %d: face skew %.1f -> %.1f cm, head turned back %+.0f -> %+.0f deg" % (f, 100 * abs(sk0), 100 * abs(sk), tw0, tw))
 t0 = time.perf_counter()
 TR = {f: trees(f) for f in frames}; t0 = stopwatch("trees", t0)
 # --keep-prop: the author's key pose holds the prop (Kusznik's armpit aim, set by hand with the stock 13 cm further back
 # than the search put it): no prop search, one placement of the arms and fingers
 BASE = {f: (K[f]["prop"], W_AIM[f]) if A.keep_prop else base_pose(f) for f in frames}; t0 = stopwatch("base pose", t0)
-OFF = {f: [0.0] * NX for f in frames}; SEARCHED = {}
+OFF = {f: [0.0] * NX for f in frames}; SEARCHED = {}; SM = {}; LIMBD = {}
 # --keep-prop: a hand whose palm lies on the stock (within the stock's radius + clearance + the audit's hand_to_prop of its
 # axis) keeps its arm and hand as the key pose has them, only its fingers are wrapped; a hand off the prop takes the
 # motion's grip. Kusznik, author's aim: refitted to the motion's grip (even from the key pose's own place and direction
@@ -1076,32 +1247,42 @@ for f in (frames if A.keep_prop else []):
                if p_.yz.length <= r_at(p_.x) + GP["clearance"] + METRICS["hand_to_prop_" + s_[0]][0] * HT / REF_HEIGHT}
     print("keep prop fr. %d: palm off the stock axis %s cm, arms kept: %s" % (
         f, {s_: round(100 * p_.yz.length, 1) for s_, p_ in _off.items()}, sorted(HELD[f]) or "-"))
-todo = frames
+todo = frames; KEYS = sorted(KEYP)
+# the first key pose also ends the clip: the last frame starts from the first frame's answer (solved from its own
+# neighbour, the hands turned 10 deg over the loop seam where they turned 3.5 before)
+TWIN = {all_frames[-1]: all_frames[0]} if all_frames[0] in KEYP and len(all_frames) > 1 else {}
 for it in range(GP.get("passes", 4)):
-    for f in ([] if A.keep_prop else todo):
+    PASS[0] = it
+    # with approved key poses the clip is solved outwards from them, each frame starting from its neighbour's answer; in
+    # later passes from its own smoothed one. Solved alone, neighbours took unrelated answers of nearly the same cost
+    # (Kusznik: stock pitch +30, +11, -1, -13 deg on frames 56, 58, 60, 64) and their average was nobody's
+    near = lambda f: nearest(f, KEYS + list(TWIN))
+    seq = sorted(todo, key=lambda f: (abs(f - near(f)), f)) if KEYS and not it else todo; solved = set()
+    for f in ([] if A.keep_prop else seq):
         # the same skin and bones as when this frame was last searched: the search would repeat itself step for step
-        if SEARCHED.get(f) == SIG[f]: COUNT["kept"] += 1; continue
-        ON_FRAME[0] = None; OFF[f] = search(BASE[f][0], f, TR[f])[1]; ON_FRAME[0] = None; SEARCHED[f] = SIG[f]
+        if SEARCHED.get(f) == SIG[f]: COUNT["kept"] += 1; solved.add(f); continue
+        seed = SM[f] if KEYS and it else None; like = None
+        if KEYS and not it:
+            g = TWIN.get(f, f + (near(f) > f) - (near(f) < f))
+            if g in solved and pinned(g) == pinned(f):
+                seed = OFF[g]; like = (ARMS_FIX[g][BUTT_SIDE][1] if pinned(g) and g in ARMS_FIX else None, COSTF[g]) if g in COSTF else None
+        ON_FRAME[0] = None; C2_, OFF[f] = search(BASE[f][0], f, TR[f], seed, like); ON_FRAME[0] = None; SEARCHED[f] = SIG[f]; solved.add(f)
+        if A.frames and any(OFF[f]):
+            print("fr. %d: the answer (%s) costs %.1f: %s" % (f, " ".join("%.3g" % v for v in OFF[f]), COSTF.get(f, 0.0), cost_parts(C2_, f, TR[f])))
+            ON_FRAME[0] = None
     t0 = stopwatch("search", t0)
     SM = smooth(OFF)
     CP = {f: shift(BASE[f][0], SM[f], f) for f in frames}
     prevs = {s: path(s, CP, TR) for s in ("Left", "Right")}; PREV_F.clear(); t0 = stopwatch("path", t0)
     WR = {f: place_out(f, CP[f], prevs, TR[f]) for f in frames}; t0 = stopwatch("place (IK + fingers)", t0)
     TR = {f: trees(f) for f in frames}; t0 = stopwatch("trees", t0)
+    if ARM_COLL:   # the placed pose's hands and forearms in the head and torso, as the audit measures them
+        for f in frames: sc.frame_set(f); LIMBD[f] = limbs_excess(vertices(body, bpy.context.evaluated_depsgraph_get()))[0]
+        if A.frames: print("placed, limbs past their limits [cm]:", {f: round(100 * LIMBD[f], 1) for f in frames})
     todo = [f for f in frames if prop_hits(CP[f], TR[f], pinned(f)) or any(WR[f][s]["collisions"] for s in WR[f])
             or (ARM_COLL and body_check(f, CP[f])[0] > BODY_LIM)]; t0 = stopwatch("check", t0)
     print("pass", it + 1, "frames with collision:", len(todo), todo[:25])
     if not todo or A.keep_prop: break
-# the face guard runs on the placed pose (as the author fixed theirs: head and neck last). Turned back before the search,
-# the jaw met the right hand at the cheek, the next pass moved the crossbow and the hand went 2.2 cm into the torso
-for f in (frames if FACE_I is not None else []):
-    sc.frame_set(f); sk0 = sk = face_skew(); tw0 = tw = head_twist(); n_ = 0
-    while abs(sk) > (0.5 * FACE_LIM if abs(sk0) > FACE_LIM else FACE_LIM) and abs(tw) > 2 and n_ < 20:
-        setw(HEADB, wrot(HEADB) @ Quaternion(Vector((0, 1, 0)), -math.copysign(math.radians(2), tw)).to_matrix())
-        sk, tw, n_ = face_skew(), head_twist(), n_ + 1
-    if n_:
-        keyb(HEADB, f)
-        print("fr. %d: face skew %.1f -> %.1f cm, head turned back %+.0f -> %+.0f deg" % (f, 100 * abs(sk0), 100 * abs(sk), tw0, tw))
 print("time [s]:", ", ".join("%s %.1f" % kv for kv in TIME.items()))
 print("time, search: %d prop poses asked for, %d measured on the skin, %d known from the same search, %d frames kept from the pass before" % (
     COUNT["asked"], COUNT["skin"], COUNT["known"], COUNT["kept"]))
@@ -1117,6 +1298,14 @@ offs = {f: math.sqrt(sum(v * v for v in SM[f][:3])) for f in frames}; f_ = max(o
 print("PROP POSE: offset from requested max %.0f cm (fr. %d), mean %.0f cm" % (100 * offs[f_], f_, 100 * sum(offs.values()) / len(offs)))
 u = sum(v >= MX_ - 0.005 for v in offs.values()) / len(frames)
 if u >= 0.1: print("LIMIT prop: offset from the requested pose at the %.0f cm limit in %.0f%% of frames" % (100 * MX_, 100 * u))
+if TGT:   # how often the clip shows the prop where the approved pose has it
+    _o = sorted(f for f in TGT if TGT[f][-1] == "other pocket"); _l = sum(TGT[f][-1] == "as the frame next to it" for f in TGT)
+    _k = sum(len(TGT[f]) == 1 for f in TGT)
+    print("APPROVED PLACE: kept as it is on %d frames, held as the frame next to it on %d, searched near it on %d, another pocket on %d %s" % (
+        _k, _l, len(TGT) - _k - _l - len(_o), len(_o), _o[:25] or ""))
+    for k_ in sorted(KEYP):
+        if k_ in SM: print("APPROVED PLACE fr. %d: the prop ends %.1f cm and %.0f deg from it" % (
+            k_, 100 * math.sqrt(sum(v * v for v in SM[k_][:3])), max(abs(v) for v in SM[k_][3:])))
 for f in frames: WR[f]["offset"] = [round(v, 4) for v in SM[f]]
 for f in frames:
     if f not in BODYD: body_check(f, CP[f])
@@ -1124,6 +1313,10 @@ fb = max(frames, key=lambda f: BODYD[f][0])
 if UNDER: print("POCKET:", {f: POCKET_INFO.get(f, "-") for f in frames if pinned(f)})
 print("PROP IN BODY: max %.1f cm (fr. %d, %s), limit %.1f cm, frames over it %d" % (
     100 * BODYD[fb][0], fb, BODYD[fb][1] or "-", 100 * BODY_LIM, sum(BODYD[f][0] > BODY_LIM for f in frames)))
+if LIMBD:
+    fl = max(frames, key=lambda f: LIMBD[f]); _ov = [f for f in frames if LIMBD[f] > 0]
+    print("LIMBS IN BODY: hands and forearms past their limits in the head and torso, max %.1f cm (fr. %d), frames over %d %s" % (
+        100 * LIMBD[fl], fl, len(_ov), _ov[:25] or ""))
 
 # finger smoothing in time: frame-by-frame wrapping jumped (95 deg between frames); collisions are checked by the audit.
 # Arms are NOT smoothed: +-2 frames broke the grip (hand in head 3.1 -> 7.2 cm, wrist twist 77 deg, score 10.4 -> 21.7)

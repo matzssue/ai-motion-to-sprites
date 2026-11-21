@@ -101,7 +101,7 @@ blender -b --python pipeline/motion/keyposes_to_kimodo.py -- <poses>.glb <work>/
    Keys: Kimodo frame (30 fps) : pose frame (24 fps); last key = first pose. A one-shot action (`"loop": false` in
    character.json, `loop_blend_s: 0`) ends on its last pose and the audit skips the seam.
 4. **All 4 samples** through `chain.py` (same motion file as the poses), best by audit among those that moved
-   (`--sample` overrides) → `review_page.py`.
+   (`--sample` overrides) → `review_page.py`. `--poses <poses>.glb` (`character.py` passes it): §5, "Approved key poses".
    Sample spread is large (1.4 / 4.4 / 4.5 / 15.9) – one sample is a lottery.
 
 `chain.py` does retarget → merge with the walk → `prop_in_hands.py` → `motion_audit.py`. `character.py` runs these steps
@@ -262,8 +262,15 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - A key pose posed by hand (the author's): `prop_in_hands.py --frames 44 --keep-prop` keeps the prop and the body as the
   GLB has them and fits only the fingers of a hand whose palm lies on the stock (its arm and hand stay exactly as posed); a
   hand off the prop takes the motion's grip by IK. Refitted to the motion's grip, the author's hands moved 2-6 cm and
-  turned 28-39 deg (left wrist twist 75 -> 101 deg). `W_AIM` comes from the right hand's height, so an aim from the hip
-  reads ~0.3: set "aim" in `<glb>_arms.json` for the audit's pocket checks.
+  turned 28-39 deg (left wrist twist 75 -> 101 deg).
+- **The aim's frames** (`W_AIM`, in `<glb>_arms.json` for the audit's pocket checks): stock on the shoulder, from the
+  right hand's height; under the armpit, from the motion file (`lib/prop_path.aim_window`: the `aim` key pose, the
+  phases, the shot). The hand's height pinned Kusznik's stock on the recoil and left it at the hip on the aim frame.
+- **Approved key poses** (`prop_in_hands.py --poses`, with `<poses>_arms.json`): each key pose's prop is carried onto
+  every frame's body (hold: hips; aim: chest under the butt-side shoulder joint) and kept while it costs at most 12
+  more than on its own key frame; else held as the neighbour holds it, else searched near it, other pockets last.
+  Key frames take the approved arms. `APPROVED PLACE` lines report it (Kusznik's key frames: 0.0 cm, 0 deg off).
+  Why and what each rule gave: GRIP_LESSONS.md, round 9.
 - Working mode (author, round 8): the solver poses; only a failed pose goes to the author, and the author's correction is a
   bug report: compare it with the solver's output on the same body, find why the solver did not get there, and fix the
   solver or the audit until it reaches a comparable pose by itself. Kusznik's aim (frame 44), what the comparison found:
@@ -282,12 +289,13 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   -4 / +9 deg (the motion's `aim.pitch_deg` is 4 down); right elbow 21 / 20 cm out; grips within 2 cm; audit 0.33
   (author's pose 3.2 cm fingers in the prop, solver 1.1 cm: `index.1.R`'s base, which a raised radius does not move).
   Details: [GRIP_LESSONS.md](GRIP_LESSONS.md).
-- Face skew guard (`prop_in_hands`, any skeleton, measured): after the prop and the arms are placed, a head turned about
-  its own axis against the top spine bone is turned back 2 deg at a time when the audit's `face_skew` is over its limit,
-  down to half of it (limit 2.5 cm; m1 Mixamo: 2.2 cm, untouched). The own rig's face is bound partly to the chest (the neck bone carries no skin), so a turned head drags the
-  jaw and mouth sideways; on a face bound to the head alone the skew stays near 0 and nothing changes. Kusznik: aim head
-  19 -> 5 deg (the author's 7), skew 4.0 -> 1.1 cm; hold 15 -> 5 deg, 3.2 -> 1.0 cm. Run before the search, the jaw met the right hand at the cheek and the
-  next pass moved the crossbow (hand 2.2 cm in the torso), so it runs last, as the author fixed theirs.
+- Face skew guard (`prop_in_hands`, any skeleton, measured): before the prop is placed, a head turned about its own axis
+  against the top spine bone is turned back 2 deg at a time (40 deg at most) when the audit's `face_skew` is over its
+  limit, down to half of it (limit 2.5 cm; m1 Mixamo: 2.2 cm, untouched). The own rig's face is bound partly to the
+  chest (the neck bone carries no skin), so a turned head drags the jaw and mouth sideways. Kusznik: aim head 19 -> 5 deg
+  (the author's 7), skew 4.0 -> 1.1 cm. Run after the placement it moved skin under hands already placed: on the recoil
+  (head 61 -> 21 deg) the audit found the right hand 9.5 cm in the torso where the search had measured 1 cm; run first,
+  2 cm. The 40 deg stop leaves 5.4 cm of skew on those frames (Kimodo's head 53-63 deg off the chest).
 - Own finger bones whose skin ends in the prop after the wrap get their skin radius raised by that depth and are wrapped
   again (the median radius missed the thick side of the thumb's metacarpal: Kusznik's left thumb base 2.9 -> 0.9 cm).
   Moving the palm out instead did not help (the hand met the bow mount) and lifted the fingertips 6.5 cm off.
@@ -344,8 +352,9 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   the same merged file. Traps met: the matrix product of a part of an array may round differently from the same rows
   of the whole array's product; two trees over a split face set break ties (a point nearest to a shared edge) in
   another order than one tree, and the face decides the region and the sign.
-- The grip path does not know about the loop: the last and first frame can differ (7 versions had 30° on the seam).
-  Audit: `loop_seam_*`.
+- The solver closes the loop only when the first frame is an approved key pose (`--poses`); without one the last and
+  first frame can differ (7 versions had 30° on the seam). Audit: `loop_seam_*`.
+- `prop_in_hands` ends with `PROP IN BODY` and `LIMBS IN BODY` on the placed pose; `--frames` prints each cost by part.
 - Read the audit with `share` and `side` (AUDIT.md): "fr. 1–99" is a range, not the whole clip; "forearm in head" does not say which one.
 - Blender add-ons may print a Traceback on exit: success of a step is its marker line (`RETARGET OK`, `OK`, `AUDIT`),
   not the absence of a Traceback.

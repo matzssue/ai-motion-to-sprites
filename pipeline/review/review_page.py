@@ -3,6 +3,7 @@
 python pipeline/review/review_page.py --glb X.glb --action attack --out dir --title "Crossbowman shot" [--prop crossbow]
     [--previous dir_of_previous_review] [--hand-frames 10,45,56,85] [--px 360] [--note "what changed"]
     [--rest-is-normal] [--no-loop]   (library walk/idle: prop on the back; without it "hand to prop" 50 cm = FAIL)
+    [--under-arm]  (stock under the armpit, motion file `aim.butt_push`: without it the page's audit skips the pocket checks)
     [--skeleton mixamo|profile.json]  (metrics the skeleton cannot measure are listed as skipped)
 Finished steps (audit, frames, close-ups) are skipped when their output is newer than the GLB."""
 import argparse, base64, glob, html, json, os, sys
@@ -43,7 +44,8 @@ def build(A):
     aud = os.path.join(A.out, "audit")
     if not fresh(os.path.join(aud, "audit.json"), A.glb):
         blender("motion_audit.py", "AUDIT", "--glb", A.glb, "--action", A.action, "--out", aud, *(["--prop", A.prop] if A.prop else []),
-                *(["--rest-is-normal"] if A.rest_is_normal else []), *(["--no-loop"] if A.no_loop else []), *SKEL)
+                *(["--rest-is-normal"] if A.rest_is_normal else []), *(["--no-loop"] if A.no_loop else []),
+                *(["--under-arm"] if getattr(A, "under_arm", False) else []), *SKEL)
     fr = os.path.join(A.out, "frames")
     if not fresh(os.path.join(fr, "done.json"), A.glb):
         blender("preview_8.py", "PREVIEW OK", "--glb", A.glb, "--actions", A.action, "--out", fr, "--all", "--px", str(A.px))
@@ -194,6 +196,7 @@ if __name__ == "__main__":
     ap.add_argument("--hand-frames", default=""); ap.add_argument("--px", type=int, default=360); ap.add_argument("--note", default="")
     ap.add_argument("--rest-is-normal", action="store_true", help="library action: prop on the back, as in calibration")
     ap.add_argument("--no-loop", action="store_true", help="one-shot action: audit without the loop seam")
+    ap.add_argument("--under-arm", action="store_true", help="stock under the armpit: audit the pocket, as the chain does")
     ap.add_argument("--skeleton", default=None, help="skeleton profile of the rig: built-in name or JSON path (default mixamo)")
     A = ap.parse_args()
     SKEL = ["--skeleton", A.skeleton] if A.skeleton else []
