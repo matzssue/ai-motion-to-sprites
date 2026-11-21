@@ -180,6 +180,12 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - **Key poses passed bone rotations only (until 2026-11):** a hand-set crouch reached Kimodo at standing hip height and
   floated 41 cm (Padlinozerca). `keyposes_to_kimodo.py` now writes `hips` (`keypose_root.py`): crouch 0.52 m, foot joint
   -3.1 cm. A `poses.json` from before prints WARNING: rerun `keyposes_to_kimodo.py`. Kimodo has no foot-contact input.
+- **Between key poses the root used to face forward in place** (`Root2DConstraintSet` on every non-key frame: heading
+  [1, 0], (x, z) = the track), while a key carries its own pelvis. Poses with the pelvis turned (knight round 7: -23 / +30
+  deg) snapped there only on the key frame and fell back: yaw steps up to 16.5 deg per Kimodo frame, shins shaking 2.6-3.1
+  cm (round 5, unturned poses: 0..3 deg, 0.9 cm). `kimodo_keyposes.py` now sends heading and (x, z) interpolated through
+  the keys' own (monotone cubic, `keypose_root.root_between`) and `--dry-run` prints that path; keys facing forward on the
+  track give the old payload bit for bit. Gate: `pelvis_shake` / `knee_shake` (5-frame residual, `shake.py`).
 - **Kimodo keeps a key pose's joint POSITIONS, not the hands' ROTATION:** a full-body key constrains positions only and the
   clip comes from the rotation channel; the knight's sword hand hit its keys 2-8 cm close but turned 15-176 deg off (the
   retarget is faithful: same error before and after it). The working fix: `chain.py --key-poses` runs `key_hands.py` after
