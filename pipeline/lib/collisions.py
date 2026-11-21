@@ -163,18 +163,25 @@ def stock_end(pc):
 def pocket_gap(b, S, E, up, out, r_stock, ua_r, tree, ua_pts, front=None):
     """How far a rear end `b` is from the armpit pocket of the arm with shoulder joint S and elbow E (m, 0 = in it).
     up = the spine's direction, out = away from the body on that side, tree = the body without arms. With the prop's
-    other end `front`, the nearest section of the stock's rear POCKET_SPAN (1 cm steps) counts instead of the end."""
+    other end `front`, the nearest section of the stock's rear POCKET_SPAN (1 cm steps) counts instead of the end.
+    A section's gap is the largest of six distances and the answer is the smallest gap: a section whose first distances
+    already reach the smallest gap so far skips the two surface queries (the dear ones), and 0 ends the walk."""
+    fw = np.cross(up, out); la = np.linalg.norm(E - S); sections = [b]; best = None
     if front is not None:
         ln = float(np.linalg.norm(front - b)); st = (front - b) / ln
-        return min(pocket_gap(b + st * t, S, E, up, out, r_stock, ua_r, tree, ua_pts)
-                   for t in np.arange(0.0, POCKET_SPAN * ln + 1e-9, 0.01))
-    fw = np.cross(up, out); la = np.linalg.norm(E - S)
-    h = (S - b) @ up; u = np.clip((b - S) @ (E - S) / la ** 2, 0, 1); a = S + u * (E - S)
-    loc, _, _, dt = tree.find_nearest(Vector(b), 1.0)
-    da = float(np.linalg.norm(ua_pts - b, axis=1).min()) if len(ua_pts) else 1.0
-    gap = max(POCKET_U[0] * la - h, h - POCKET_U[1] * la, (b - a) @ out, abs((b - a) @ fw) - ua_r - r_stock,
-              (dt if loc is not None else 1.0) - POCKET_TOUCH, da - POCKET_TOUCH)
-    return max(0.0, float(gap))
+        sections = [b + st * t for t in np.arange(0.0, POCKET_SPAN * ln + 1e-9, 0.01)]
+    for p in sections:
+        h = (S - p) @ up; u = np.clip((p - S) @ (E - S) / la ** 2, 0, 1); a = S + u * (E - S)
+        gap = max(POCKET_U[0] * la - h, h - POCKET_U[1] * la, (p - a) @ out, abs((p - a) @ fw) - ua_r - r_stock)
+        if best is not None and max(0.0, float(gap)) >= best: continue
+        loc, _, _, dt = tree.find_nearest(Vector(p), 1.0)
+        gap = max(gap, (dt if loc is not None else 1.0) - POCKET_TOUCH)
+        if best is not None and max(0.0, float(gap)) >= best: continue
+        da = float(np.linalg.norm(ua_pts - p, axis=1).min()) if len(ua_pts) else 1.0
+        g = max(0.0, float(max(gap, da - POCKET_TOUCH)))
+        if best is None or g < best: best = g
+        if best == 0.0: break
+    return best
 
 
 def limb_radius(co, sel, a, b):
