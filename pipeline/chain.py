@@ -1,7 +1,9 @@
-"""Blender chain of AI motion for one sample: retarget -> merge with the walk -> prop in hands -> audit.
-character.py drives a whole character (model -> all actions); this is its building block, used alone to fix one sample.
+"""Blender chain of AI motion for one sample: retarget -> (key poses' hand rotation) -> merge with the walk -> prop in hands
+-> audit. character.py drives a whole character (model -> all actions); this is its building block, used alone to fix one sample.
 python pipeline/chain.py --rig rig_ai.glb --motion <motion>.json --bvh x_s0.bvh [--walk walk.fbx] --out dir
-    [--no-prop] [--from retarget|merge|prop|audit] [--skeleton mixamo|profile.json]"""
+    [--no-prop] [--from retarget|merge|prop|audit] [--skeleton mixamo|profile.json] [--key-poses poses.glb --key-frames 0,14,20]
+A sample generated through key poses gets the poses' hand rotation back after the retarget (key_hands.py: Kimodo does not
+keep it) unless a prop solver sets the hands; either way the audit measures it on the key frames (key_hand_rot_*)."""
 import argparse, json, os, subprocess, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
@@ -10,7 +12,7 @@ from schema_check import load as load_config, load_skeleton
 
 IMPORTANT = ("smoothed", "RETARGET", "merge_actions", "pass", "OK", "AUDIT", "  FAIL", "  rest", "  score", "  no limit", "  skipped",
              "skeleton", "fingers:", "stock",
-             "closeups", "MAX", "RIG OK", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ")
+             "closeups", "MAX", "RIG OK", "KEY", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ")
 
 
 def blender(script, marker, *args):
@@ -36,16 +38,17 @@ def skel(skeleton):
     return ["--skeleton", skeleton] if skeleton else []
 
 
-def audit(glb, action, out, prop=None, rest_is_normal=False, loop=True, skeleton=None, under_arm=False):
+def audit(glb, action, out, prop=None, rest_is_normal=False, loop=True, skeleton=None, under_arm=False, key_hands=None):
     args = ["--glb", glb, "--action", action, "--out", out] + (["--prop", prop] if prop else []) + skel(skeleton)
+    args += ["--key-hands", key_hands] if key_hands else []
     args += ["--under-arm"] if under_arm else []   # stock under the armpit: the prop in the upper arm is scored
     blender("motion_audit.py", "AUDIT", *args, *(["--rest-is-normal"] if rest_is_normal else []), *([] if loop else ["--no-loop"]))
     return json.load(open(os.path.join(out, "audit.json"), encoding="utf-8"))
 
 
-def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=True, skeleton=None):
+def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=True, skeleton=None, key_poses=None):
     """Returns (glb, audit report). `walk` = library walk merged next to the action; None = the action alone (a rig without
-    library clips, e.g. the own skeleton)."""
+    library clips, e.g. the own skeleton). `key_poses` = (approved poses GLB, key frames) for a sample made through them."""
     R = json.load(open(motion, encoding="utf-8")); action = R["action"]
     os.makedirs(out, exist_ok=True)
     name = os.path.splitext(os.path.basename(bvh))[0]
@@ -53,6 +56,11 @@ def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=Tr
     data = rig.replace(".glb", "_data.json")
     steps = ["retarget", "merge", "prop", "audit"]; k = steps.index(start)
     if k <= 0: blender("soma_to_mixamo.py", "RETARGET OK", bvh, rig, clip, "ai_source", str(R.get("loop_blend_s", 0)), *skel(skeleton))
+    kh = os.path.join(out, "keyhands_%s.json" % name) if key_poses else None
+    if kh and k <= 0:   # with a prop the solver sets the hands later: only the targets for the audit
+        blender("key_hands.py", "KEY HANDS OK", "--clip", clip, "--poses", key_poses[0], "--poses-action", action,
+                "--frames", ",".join(map(str, key_poses[1])), "--report", kh, *(["--measure-only"] if with_prop else ["--out", clip]),
+                *([] if loop else ["--no-loop"]), *skel(skeleton))
     # an AI walk is named like the library walk - merge rejects name clashes
     if k <= 1: merge(rig, ([("walk" if action != "walk" else "walk_library", walk)] if walk else []) + [(action, clip)], merged, skeleton)
     result = merged
@@ -62,7 +70,7 @@ def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=Tr
                            *skel(skeleton))
         result = ready
     return result, audit(result, action, os.path.join(out, "audit_" + name), prop, loop=loop, skeleton=skeleton,
-                         under_arm=with_prop and "butt_push" in R.get("aim", {}))
+                         under_arm=with_prop and "butt_push" in R.get("aim", {}), key_hands=kh if kh and os.path.exists(kh) else None)
 
 
 if __name__ == "__main__":
@@ -72,9 +80,13 @@ if __name__ == "__main__":
     ap.add_argument("--out", required=True); ap.add_argument("--walk", default=None, help="library walk clip merged next to the sample (optional)")
     ap.add_argument("--no-prop", action="store_true"); ap.add_argument("--from", dest="start", default="retarget", choices=["retarget", "merge", "prop", "audit"])
     ap.add_argument("--skeleton", default=None, help="skeleton profile of the rig: built-in name or JSON path (default mixamo)")
+    ap.add_argument("--key-poses", default=None, help="approved key poses GLB the sample was generated through")
+    ap.add_argument("--key-frames", default=None, help="their frames (24 fps), e.g. 0,14,20")
     A = ap.parse_args()
+    if bool(A.key_poses) != bool(A.key_frames): ap.error("--key-poses and --key-frames go together")
     load_config(A.motion, "motion", () if A.no_prop else ("grip",))
     if A.skeleton: load_skeleton(A.skeleton)   # a bad profile is named before any Blender step
     glb, rep = chain(*(os.path.abspath(p) if p else None for p in (A.rig, A.motion, A.bvh, A.out, A.walk)), not A.no_prop, A.start,
-                     skeleton=A.skeleton and (A.skeleton if not A.skeleton.endswith(".json") else os.path.abspath(A.skeleton)))
+                     skeleton=A.skeleton and (A.skeleton if not A.skeleton.endswith(".json") else os.path.abspath(A.skeleton)),
+                     key_poses=(os.path.abspath(A.key_poses), [int(x) for x in A.key_frames.split(",")]) if A.key_poses else None)
     print("RESULT", glb, rep["result"], "score", rep["score"])

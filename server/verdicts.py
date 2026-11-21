@@ -1,6 +1,6 @@
 """Verdicts at the three human gates of character.py. An approval writes what the STOP message asks for:
 rig -> nothing (a new run continues), poses -> <work>/<action>/poses_approved.json {"glb": ...},
-motion -> actions.<action>.approved = {"bvh", "score", "date"} in character.json. A rejection writes nothing.
+motion -> actions.<action>.approved = {"bvh", "score", ["key_hands",] "date"} in character.json. A rejection writes nothing.
 Every verdict is appended to the trail. Writes are planned first (the preview shows them), then applied atomically."""
 import difflib
 import hashlib
@@ -88,7 +88,9 @@ def _plan(cfg_path: str, cid: str, req: VerdictRequest) -> tuple[VerdictPlan, li
         return (VerdictPlan(request=req, changes=[change], config_sha=sha, summary="approve the key poses of '%s' with %s" % (n, pick)),
                 [_Write(target, text.encode("utf-8"), must_not_exist=True)])
     ch = read_json(os.path.join(D, "choice.json")) or {}
-    value = {"bvh": norm(ch["bvh"]).replace("\\", "/"), "score": ch["score"], "date": date.today().isoformat()}
+    value = {"bvh": norm(ch["bvh"]).replace("\\", "/"), "score": ch["score"]}
+    if ch.get("key_hands"): value["key_hands"] = True   # made with key_hands.py: an approved rerun applies it again
+    value["date"] = date.today().isoformat()
     before_text = raw.decode("utf-8")
     after_text = set_member(before_text, ["actions", n], "approved", value)
     bad = schema_problems(json.loads(after_text), "character")
