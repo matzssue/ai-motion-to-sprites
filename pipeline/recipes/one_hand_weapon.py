@@ -64,6 +64,7 @@ def main():
     from mathutils import Matrix, Quaternion, Vector
     sys.path.insert(0, os.path.join(HERE, "..", "lib"))
     from collisions import dominant, labels_all, prop_in_body, rig_of, skin_tree, vertices
+    from recipe_list import entry
 
     ap = argparse.ArgumentParser(description="One-handed weapon rigid in one hand, a fist on every frame, weapon-in-body report.")
     ap.add_argument("--glb"); ap.add_argument("--motion"); ap.add_argument("--out"); ap.add_argument("--skeleton", default=None)
@@ -85,7 +86,7 @@ def main():
             b: [round(x, 6) for x in arm.pose.bones[b].matrix_basis.to_quaternion()] for b in sorted(fing)}}))
         return
     if not (A.glb and A.motion and A.out): ap.error("--glb, --motion and --out are required")
-    R = json.load(open(A.motion, encoding="utf-8")); P = R["recipe"]; side = P.get("hand", "right").capitalize()
+    R = json.load(open(A.motion, encoding="utf-8")); P = entry(R, NAME); side = P.get("hand", "right").capitalize()
     weapon = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(A.motion)), P["weapon"]))
     if not os.path.exists(weapon): raise SystemExit("%s: recipe.weapon: no file %s" % (A.motion, weapon))
     wname = os.path.splitext(os.path.basename(weapon))[0]

@@ -44,10 +44,11 @@ pipeline/
 inputs, and stops with an exit code of 2 at each human gate.
 
 **Weapons and props are recipes.** What depends on the weapon or the grip lives in `pipeline/recipes/<name>.py`: one
-narrow script per case, named by the motion file (`"recipe": {"name": ...}`) and run in the prop step. Each file starts
+narrow script per case, named by the motion file (`"recipe": {"name": ...}`, or a list run in order) and run in the prop step. Each file starts
 with the same header (use when, not for, inputs, output, checks) and [`pipeline/recipes/README.md`](pipeline/recipes/README.md)
-is the index generated from those headers. The first one, `one_hand_weapon`, carries a sword rigidly in one hand with a
-closed fist and reports how deep the weapon is in the body per frame. The older general solver `prop_in_hands.py`
+is the index generated from those headers. `one_hand_weapon` carries a sword rigidly in one hand with a closed fist and
+reports how deep the weapon is in the body per frame; `swing_arm`, listed before it, keeps the weapon's path and solves
+the arm that holds it again when that arm came out wrung. The older general solver `prop_in_hands.py`
 (two-handed, selected by `"prop": true`) is **experimental** and frozen: new cases get a recipe, not another rule in it.
 
 ## Quality gates
@@ -57,7 +58,7 @@ closed fist and reports how deep the weapon is in the body per frame. The older 
 | Group | Metrics | Limit (for a 1.8 m character, scaled by the rig's rest-pose height) |
 |---|---|---|
 | penetration | prop / hands / forearms in head, torso, legs, clavicles; fingers in prop; fingers in head (reported only) | 0.5 cm (head) to 4.5 cm (forearm in torso) |
-| joints | wrist bend and twist, mesh stretch (a bad weight makes a "stick"), **arm skin twist**; hand rotation off the approved key pose (key-pose clips only) | 85°, 60°, 30 cm, 120° / 0.5; 50° |
+| joints | wrist bend and twist, mesh stretch (a bad weight makes a "stick"), **arm skin twist**; hand rotation off the approved key pose (key-pose clips only); upper arm turned about its own axis, elbow above the shoulder with the hand below the head; forearm roll and head direction (reported only, a warning when the head looks away through the clip) | 85°, 60°, 30 cm, 120° / 0.5; 50°; 100°, 10 cm |
 | smoothness | elbow, hand, finger, head, prop jumps; loop seam; pelvis shake | 3 cm, 8°, 6°, 4°, 10 cm; 15° / 12 cm; 4° |
 | grip | gap between each palm and the prop | 3 cm |
 | feet | lowest foot point above the clip's own ground; planted foot sliding (net, over 2 frames); one foot hanging (reported only) | 15 cm; 8 cm |
@@ -149,7 +150,8 @@ Measured on the game's characters (assets are not included):
   supported.
 - **No foot IK.** Retarget copies rotations and scales the root motion by leg length. A character whose proportions are
   far from human can slide or float its feet, and the audit has no foot-contact metric yet.
-- **Weapons: one recipe per kind of grip, two so far.** A one-handed weapon rigid in one hand (`one_hand_weapon`), and the
+- **Weapons: one recipe per kind of grip, few so far.** A one-handed weapon rigid in one hand (`one_hand_weapon`, with
+  `swing_arm` for the arm under its path), and the
   experimental two-handed solver for a prop with a stock-like long axis (crossbow, bow, staff), which needs a review of
   every frame (its known defects: `pipeline/recipes/README.md`). A shield, two weapons, a weapon that changes hands: not yet.
 - **Fingers: the prop grip, or Kimodo's hand pose.** The own skeleton places 5 fingers per hand from the mesh (claws or

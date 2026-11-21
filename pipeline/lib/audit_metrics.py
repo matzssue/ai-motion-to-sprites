@@ -1,5 +1,7 @@
 """Audit metrics of motion_audit.py: limits, units, groups, the skeleton roles each one needs, and the verdict over
 samples. No Blender here (tests run the verdict on plain rows). Limits and where they come from: README, "Quality gates"."""
+import numpy as np
+
 import skin
 
 # (limit, unit, group); "m" = metres for a ~1.8 m character (scaled by height), "deg" = degrees, "frac" = 0..1;
@@ -80,6 +82,19 @@ METRICS = {
     # Knight round 7 (root forced forward between turned key poses, author: "the knees shake") 6.4-8.7 deg / 3.4-4.1 cm;
     # rounds 3 and 5, idle, Kusznik, m1: up to 1.6 deg / 2.1 cm (m1 Wybuchacz). Knee gap too narrow for a limit yet
     "pelvis_shake": (4, "deg", "smoothness"), "knee_shake": (None, "m", "smoothness"),
+    # the arm wrung under a weapon (per side). Twist = the bone turned about its own axis since rest, against its parent
+    # (as the wrist twist); elbow = its height over the shoulder joint while the wrist is below the top of the head bone.
+    # Two verdicts, the knight's one-handed cut (round 9, right arm, 1.90 m): REJECTED "the arm twists and contorts":
+    # upper arm 132 deg (fr. 21-27: 74-132), elbow +11..+19 cm on fr. 10-11, 15, 26-29, forearm 180. ACCEPTED after the arm was
+    # solved again under the same sword path (recipe swing_arm): upper arm 56, elbow +6.3 cm, forearm 105; the left arm
+    # of that accepted clip turns 80. Other clips: upper arm 16-55 (Kusznik, Wybuchacz, knight idle), elbow 0.
+    # Limits sit between the verdicts. The forearm is reported only: accepted clips roll it 85-105 (the knight's
+    # wind-up) and 99-145 (Kusznik holding a crossbow), the rejected arm up to 180
+    "upper_arm_twist_L": (100, "deg", "joints"), "upper_arm_twist_R": (100, "deg", "joints"),
+    "forearm_roll_L": (None, "deg", "joints"), "forearm_roll_R": (None, "deg", "joints"),
+    "elbow_above_shoulder_L": (0.10, "m", "joints"), "elbow_above_shoulder_R": (0.10, "m", "joints"),
+    # the head's forward axis against the way the rest pose faces (HEAD_YAW_WARN below): reported, a warning, no score
+    "head_yaw": (None, "deg", "joints"), "head_pitch": (None, "deg", "joints"),
 }
 # names on the review pages (review_page.py, web/src/audit/catalog.json); every METRICS key needs one (tests/test_audit_metrics.py)
 LABELS = {
@@ -99,6 +114,10 @@ LABELS = {
     "feet_above_ground": "feet off the ground", "foot_slide": "planted foot sliding", "foot_hanging": "one foot hanging",
     "key_hand_rot_L": "left hand off its key pose", "key_hand_rot_R": "right hand off its key pose",
     "pelvis_shake": "pelvis shake", "knee_shake": "knee shake",
+    "upper_arm_twist_L": "left upper arm twist", "upper_arm_twist_R": "right upper arm twist",
+    "forearm_roll_L": "left forearm roll", "forearm_roll_R": "right forearm roll",
+    "elbow_above_shoulder_L": "left elbow above shoulder", "elbow_above_shoulder_R": "right elbow above shoulder",
+    "head_yaw": "head turned off the facing", "head_pitch": "head tilted up or down",
 }
 UNIT_SHOWN = {"m": "cm", "deg": "deg", "frac": "percent"}   # METRICS unit -> how a page shows it
 REF_HEIGHT = 1.8   # "m" limits are set for a character this tall
@@ -115,6 +134,30 @@ def scaled(limits, h):
     return {k: (v * (h / REF_HEIGHT) if METRICS[k][1] == "m" else v) for k, v in limits.items() if v is not None}
 
 
+# deg: mean head yaw off the facing direction over a clip from which the audit prints a warning. Knight round 9: Kimodo's
+# attack looked up to 43 deg to the side (mean 26) and no check said so; the accepted clip (head locked forward) yaw 0-1,
+# pitch 3. Other clips: mean 6 (Wybuchacz), 9 (Kusznik). Not scored: a glance is a choice, a whole clip looking away is not
+HEAD_YAW_WARN = 20
+
+
+def facing(left_shoulder, right_shoulder):
+    """Unit direction the rest pose faces (Blender world, Z up), from its shoulder joints: -Y with the left one at +X."""
+    f = np.cross([0.0, 0.0, 1.0], np.asarray(right_shoulder, float) - np.asarray(left_shoulder, float)); return f / np.linalg.norm(f)
+
+
+def head_angles(forward, facing):
+    """(yaw, pitch) deg of the head's forward axis against `facing`: yaw + toward the character's left, pitch + down."""
+    f = np.asarray(forward, float); f = f / np.linalg.norm(f); fa = np.asarray(facing, float); left = np.cross([0.0, 0.0, 1.0], fa)
+    return float(np.degrees(np.arctan2(f @ left, f @ fa))), float(np.degrees(np.arcsin(np.clip(-f[2], -1, 1))))
+
+
+def head_summary(yaw, pitch):
+    """Per-sample yaw and pitch (deg, either sign) -> the clip's mean and max of their sizes and whether to warn."""
+    y, p = np.abs(np.asarray(yaw, float)), np.abs(np.asarray(pitch, float))
+    return {"yaw_mean": round(float(y.mean()), 1), "yaw_max": round(float(y.max()), 1), "pitch_mean": round(float(p.mean()), 1),
+            "pitch_max": round(float(p.max()), 1), "warn": bool(y.mean() > HEAD_YAW_WARN)}
+
+
 def catalog():
     """Every metric in METRICS order with its label, displayed unit and group: the web viewer's copy
     (web/src/audit/catalog.json, written by `python pipeline/lib/audit_metrics.py --catalog <file>`)."""
@@ -127,6 +170,7 @@ def catalog_json():
 
 
 ARM = ("upper_arm", "forearm", "hand", "spine")
+ARM_L, ARM_R = (tuple(r + s for r in ("upper_arm", "forearm", "hand")) + ("head",) for s in (".left", ".right"))
 # skeleton roles a metric measures (skeleton.Profile.missing): absent -> the metric is skipped with the reason, not scored
 NEEDS = {
     "prop_in_head": ("region:head",), "prop_in_torso": ("region:torso",), "prop_in_legs": ("region:legs",),
@@ -143,6 +187,9 @@ NEEDS = {
     "finger_tip_fold": ("fingers",), "feet_above_ground": ("foot",), "foot_slide": ("foot",), "foot_hanging": ("foot",),
     "key_hand_rot_L": ("hand.left",), "key_hand_rot_R": ("hand.right",),
     "pelvis_shake": ("upper_leg",), "knee_shake": ("lower_leg",),
+    "upper_arm_twist_L": ARM_L, "forearm_roll_L": ARM_L, "elbow_above_shoulder_L": ARM_L,
+    "upper_arm_twist_R": ARM_R, "forearm_roll_R": ARM_R, "elbow_above_shoulder_R": ARM_R,
+    "head_yaw": ("head", "upper_arm"), "head_pitch": ("head", "upper_arm"),
 }
 
 

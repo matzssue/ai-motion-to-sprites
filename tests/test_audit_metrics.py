@@ -45,3 +45,29 @@ def test_scaled_moves_only_metre_limits():
     assert abs(out["hands_in_head"] - 0.005 * 1.90 / 1.8) < 1e-12
     assert out["wrist_bend_L"] == 80.0 and out["skin_tear"] == 0.1
     assert "fingers_in_head" not in out          # reported only: no limit to scale
+
+
+def test_head_direction_against_the_rest_facing():
+    f = M.facing([0.2, 0.0, 1.4], [-0.2, 0.01, 1.45])            # left shoulder at +X: the rest pose faces -Y
+    assert abs(f[1] + 1) < 0.01 and abs(f[2]) < 1e-12
+    f = [0.0, -1.0, 0.0]
+    yaw, pitch = M.head_angles([0.5, -0.5, 0.0], f)
+    assert abs(yaw - 45) < 1e-9 and abs(pitch) < 1e-9             # + = toward the character's left
+    yaw, pitch = M.head_angles([0.0, -2.0, -2.0], f)
+    assert abs(yaw) < 1e-9 and abs(pitch - 45) < 1e-9             # + = looking down
+    assert abs(M.head_angles([-1.0, 0.0, 0.0], f)[0] + 90) < 1e-9
+
+
+def test_head_summary_warns_on_a_clip_that_looks_away():
+    away = M.head_summary([35, 14, 3, 43, 40, -30], [3, 3, -10, 3, 3, 3])   # the knight's attack straight from Kimodo
+    assert away == {"yaw_mean": 27.5, "yaw_max": 43.0, "pitch_mean": 4.2, "pitch_max": 10.0, "warn": True}
+    assert M.head_summary([0, 1, 0, -1], [3, 3, 3, 3])["warn"] is False     # head locked forward
+    assert M.head_summary([0] * 9 + [60], [0] * 10)["warn"] is False        # one glance is not a clip looking away
+
+
+def test_arm_limits_sit_between_the_two_verdicts():
+    for s in "LR":
+        assert 80.2 < M.METRICS["upper_arm_twist_" + s][0] < 132          # accepted clip's left arm; the rejected right arm
+        assert 0.063 * 1.8 / 1.9 < M.METRICS["elbow_above_shoulder_" + s][0] < 0.11 * 1.8 / 1.9   # accepted, rejected at the knight's 1.90 m
+        assert M.METRICS["forearm_roll_" + s][0] is None                  # accepted clips roll it 85-145 deg
+    assert M.METRICS["head_yaw"][0] is None and M.METRICS["head_pitch"][0] is None

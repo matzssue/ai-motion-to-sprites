@@ -15,6 +15,7 @@ import argparse, glob, json, os, shutil, subprocess, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from config import KIMODO_PYTHON, script_path
 from chain import blender, merge, audit, chain, run_recipe, skel
+from recipe_list import entries as recipes_of
 from schema_check import load_character
 from stages import NOISE, STAGES, fresh, keys, pick, rig_review
 import bvh as BV
@@ -305,13 +306,14 @@ if (CHOICE or LIB_ACTIONS or PROP_MOTION) and end >= STAGES.index("merge") and s
     cur = os.path.join(WORK, "%s_with_prop.glb" % C["name"])
     # always, also without a prop: combine_actions puts every action on the walk's ground (a Kimodo clip stood 0.5 m lower)
     if GROUND != "walk": print("== merge: no 'walk' action, grounding on '%s'" % (GROUND or "nothing"))
-    steps = [os.path.join(WORK, "%s_before_%s.glb" % (C["name"], n)) for n in RECIPE] + [cur]
+    jobs = [(n, motion, rc) for n, motion in RECIPE.items() for rc in recipes_of(json.load(open(motion, encoding="utf-8")))]
+    steps = [os.path.join(WORK, "%s_before_%s_%s.glb" % (C["name"], n, rc["name"])) for n, _, rc in jobs] + [cur]
     blender("combine_actions.py", "COMBINE OK", "--base", MERGED, *("--action=%s=%s" % kv for kv in after.items()),
             "--ground=" + GROUND, "--out", steps[0])
     # one after another on the same file: a recipe keys its own action and may add its object once (nothing sampled by vertex index)
-    measured = {}   # each recipe's report lies next to the file it wrote
-    for (n, motion), src, dst in zip(RECIPE.items(), steps, steps[1:]):
-        run_recipe(json.load(open(motion, encoding="utf-8"))["recipe"], src, motion, dst, SKEL); measured[n] = dst.replace(".glb", "_recipe.json")
+    measured = {}   # action -> its recipes' reports, each next to the file that recipe wrote
+    for (n, motion, rc), src, dst in zip(jobs, steps, steps[1:]):
+        run_recipe(rc, src, motion, dst, SKEL); measured.setdefault(n, []).append(dst.replace(".glb", "_recipe.json"))
     report = {}
     for n in C["actions"]:
         report[n] = audit(cur, n, os.path.join(WORK, "audit_" + n), PROP, rest_is_normal=n not in PROP_MOTION,

@@ -1,0 +1,33 @@
+{
+ "_about": "A one-handed sword cut whose sword path was accepted but whose arm was wrung: two recipes in order. swing_arm solves the weapon arm again under the path (pipeline/recipes/swing_arm.py), then one_hand_weapon puts the sword and the fist on it and measures the result. swing_arm reads `hand`, `in_hand` and `grip` from the one_hand_weapon entry; `tip` and `edge` are read off the weapon model. The path edit is the one that passed on the first clip made this way: the arm was straight at the wind-up, so the grip moves 20 cm toward the head on the wind-up frames and the elbow bends.",
+ "action": "attack",
+ "phases": [
+  {"duration": 0.6, "text": "A person stands in a fighting stance with the left foot forward, then raises the right arm high above the right shoulder."},
+  {"duration": 0.3, "text": "The person swings the right arm hard down and across the body to the left."},
+  {"duration": 1.0, "text": "The person lowers the right arm and settles back into the fighting stance."}
+ ],
+ "loop_blend_s": 0.4,
+ "key_poses": {"ready": 0, "windup": 14, "strike": 20},
+ "recipe": [
+  {
+   "name": "swing_arm",
+   "tip": [0.0, 0.0, 0.99],
+   "edge": [1.0, 0.0, 0.0],
+   "loop": true,
+   "path_edits": [
+    {"frames": {"10": 0.33, "11": 0.66, "12": 1, "13": 1, "14": 1, "15": 0.66, "16": 0.33}, "move_cm": 20}
+   ]
+  },
+  {
+   "name": "one_hand_weapon",
+   "weapon": "sword.glb",
+   "hand": "right",
+   "in_hand": [[0.0, 0.0, 0.5, 0.004], [0.5, 0.0, 0.0, 0.105], [0.0, 0.5, 0.0, -0.004], [0.0, 0.0, 0.0, 1.0]],
+   "grip": [[0.0, 0.0, -0.8], [0.0, 0.0, -0.5]],
+   "fingers": {
+    "index.1.R": [0.714, 0.7, 0.0, 0.0], "index.2.R": [0.703, 0.711, 0.0, 0.0], "index.3.R": [0.704, 0.709, 0.0, 0.044],
+    "thumb.1.R": [0.94, 0.2, 0.1, 0.25]
+   }
+  }
+ ]
+}

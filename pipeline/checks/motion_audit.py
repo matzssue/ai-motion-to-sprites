@@ -1,5 +1,6 @@
 """Motion audit (with or without a prop) on the deformed mesh, every 1/4 frame: penetration (prop, hands,
-forearms into the body; fingers into the prop), joints (wrists, arm skin twist), smoothness (jumps, loop seam), grip (prop above
+forearms into the body; fingers into the prop), joints (wrists, upper arm and forearm twist, elbow over the shoulder, arm skin
+twist), head direction (reported), smoothness (jumps, loop seam), grip (prop above
 the head, hand without contact, loose fingers), feet (off the ground, planted foot sliding: feet.py). Over a limit it renders close-ups (5 sides) at the deepest point.
 blender -b --python pipeline/checks/motion_audit.py -- --glb X.glb --action attack --out dir [--prop crossbow] [--limits l.json]
     [--frames 10,45,56] [--no-loop] [--rest-is-normal] [--skeleton mixamo|profile.json] [--key-hands keyhands.json]
@@ -15,7 +16,7 @@ import skeleton
 import skin
 import feet
 import shake
-from audit_metrics import METRICS, NEEDS, REF_HEIGHT, height, judge, scaled
+from audit_metrics import METRICS, NEEDS, REF_HEIGHT, height, judge, scaled, facing, head_angles, head_summary, HEAD_YAW_WARN
 
 LOOSE_FINGER = 0.02   # m: a finger whose nearest point is farther from the prop does not hold it
 # m: prop inside the upper arms with the stock under the armpit (the butt sits between the arm and the ribs, touching both).
@@ -34,7 +35,7 @@ ap.add_argument("--frames", default=None, help="only these frames (quick grip tr
 ap.add_argument("--no-loop", action="store_true", help="one-shot action: no loop seam metric")
 ap.add_argument("--under-arm", action="store_true", help="stock under the armpit (motion aim.butt_push): prop in the upper arms is scored")
 ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
-ap.add_argument("--recipe-report", default=None, help="the recipe's report for this action (default: <glb>_recipe.json)")
+ap.add_argument("--recipe-report", default=None, nargs="+", help="the recipes' reports for this action (default: <glb>_recipe.json)")
 ap.add_argument("--key-hands", default=None, help="key_hands.py report: hand rotation against the approved key poses")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
 A.out = os.path.abspath(A.out)  # Blender saves relative render paths against C:\, not the cwd
@@ -174,6 +175,13 @@ def head(n): return AW @ arm.pose.bones[n].matrix.translation
 def ang(a, b): return (lambda x: min(x, 360 - x))(math.degrees(a.rotation_difference(b).angle))
 
 
+# head direction: the head bone's axis that points the way the rest pose faces (across its shoulder joints)
+HEAD_F = None
+if "head_yaw" not in SKIP:
+    FACING = facing(HEADS0[PROF.bone("upper_arm", "Left")], HEADS0[PROF.bone("upper_arm", "Right")])
+    HEAD_F = (AW.to_3x3() @ rr(HEAD)).inverted() @ Vector(FACING)
+
+
 rng = np.random.default_rng(0)
 samples, prev, first = [], None, None
 SHAKE = []; SHAKE_ON = not A.frames and not {"pelvis_shake", "knee_shake"} <= set(SKIP)
@@ -276,6 +284,15 @@ for t in times:
         if KEYH and t >= f0 and abs(kf_ - round(kf_)) < 1e-6 and int(round(kf_)) in KEYH:
             row["key_hand_rot_" + k] = round(ang(pr(B[s]["hand"]).to_quaternion(), KEYH[int(round(kf_))][k]), 1)
             where["key_hand_rot_" + k] = [float(x) for x in head(B[s]["hand"])]; side["key_hand_rot_" + k] = k
+        if "upper_arm_twist_" + k not in SKIP:   # the arm wrung under a weapon: bones turned about their own axis, elbow up
+            ua_, fa_ = PROF.bone("upper_arm", s), B[s]["forearm"]; par_ = arm.data.bones[ua_].parent
+            if par_: row["upper_arm_twist_" + k] = round(abs(joint_angles(rr(par_.name), rr(ua_), pr(par_.name), pr(ua_))[1]), 1)
+            row["forearm_roll_" + k] = round(abs(joint_angles(rr(ua_), rr(fa_), pr(ua_), pr(fa_))[1]), 1)
+            sh_, el_, wr_ = head(ua_), head(fa_), head(B[s]["hand"])
+            row["elbow_above_shoulder_" + k] = round(max(0.0, el_.z - sh_.z), 4) if wr_.z <= (AW @ arm.pose.bones[HEAD].tail).z else 0.0
+            for kk_ in ("upper_arm_twist_", "forearm_roll_", "elbow_above_shoulder_"): where[kk_ + k] = [float(x) for x in el_]; side[kk_ + k] = k
+    if HEAD_F is not None and t >= f0:
+        row["head_yaw"], row["head_pitch"] = (round(abs(v_), 1) for v_ in head_angles((AW.to_3x3() @ pr(HEAD) @ HEAD_F)[:], FACING))
     if SKIN and t >= f0:          # arm skin twist relative to the torso (skin.py)
         Rt = np.array((AW @ arm.pose.bones[TORSO].matrix @ arm.data.bones[TORSO].matrix_local.inverted() @ AW.inverted()).to_3x3())
         for s_, seg in SKIN.items():
@@ -335,11 +352,15 @@ try:   # head turn the solver's face guard took back (prop_in_hands <glb>_arms.j
         open(A.glb.replace(".glb", "_arms.json"), encoding="utf-8")).items()})
 except (OSError, ValueError, AttributeError):
     report["face_guard"] = None
-try:   # what the motion file's recipe measured on this action (pipeline/recipes/): reported, not scored
-    _r = json.load(open(A.recipe_report or A.glb.replace(".glb", "_recipe.json"), encoding="utf-8"))
-    report["recipe"] = {k: v for k, v in _r.items() if k != "per_frame"} if _r.get("action") == A.action else None
-except (OSError, ValueError, AttributeError):
-    report["recipe"] = None
+report["recipes"] = []   # what the motion file's recipes measured on this action (pipeline/recipes/): reported, not scored
+for _p in A.recipe_report or [A.glb.replace(".glb", "_recipe.json")]:
+    try:
+        _r = json.load(open(_p, encoding="utf-8"))
+        if _r.get("action") == A.action: report["recipes"].append({k: v for k, v in _r.items() if k != "per_frame"})
+    except (OSError, ValueError, AttributeError):
+        pass
+_hy = [r for r in samples if "head_yaw" in r]   # the head against the facing direction: reported with a warning, not scored
+report["head"] = head_summary([r["head_yaw"] for r in _hy], [r["head_pitch"] for r in _hy]) if _hy else None
 if KEYH:   # per key frame and side (review page table)
     report["key_hands"] = {str(f): {k: r_.get("key_hand_rot_" + k) for k in "LR"} for f in sorted(KEYH)
                            for r_ in samples if abs(r_["t"] - f0 - f) < 1e-6}
@@ -359,7 +380,12 @@ for k, v in sorted(errors.items(), key=lambda kv: -kv[1]["max"] / max(kv[1]["lim
         {"L": ", left", "R": ", right"}.get(v["side"], ": %s" % v["side"] if v.get("side") else "")))   # prop_in_body: the region
 print("  no limit:", ", ".join("%s %s" % (k, fmt(k, maxima[k]).strip()) for k in report["no_limit"] if maxima[k]))
 if SKIP: print("  skipped:", "; ".join("%s (%s)" % kv for kv in SKIP.items()))
-if report["recipe"]: print("  recipe %(recipe)s: %(line)s" % report["recipe"])
+for _r in report["recipes"]: print("  recipe %(recipe)s: %(line)s" % _r)
+if report["head"]:
+    print("  head off the facing direction: yaw mean %(yaw_mean).0f / max %(yaw_max).0f deg, pitch mean %(pitch_mean).0f / max %(pitch_max).0f deg" % report["head"])
+    if report["head"]["warn"]:
+        print("  WARN head: turned %.0f deg off the facing direction on average (over %d): the character looks away through the "
+              "clip; reported, not scored" % (report["head"]["yaw_mean"], HEAD_YAW_WARN))
 if report["face_guard"]: print("  face guard: took back up to %(max_deg).0f deg of head turn (fr. %(at_frame)d), %(count)d frames" % report["face_guard"])
 
 # close-ups of the worst spots

@@ -262,5 +262,53 @@
     "label": "knee shake",
     "unit": "cm",
     "group": "smoothness"
+  },
+  {
+    "key": "upper_arm_twist_L",
+    "label": "left upper arm twist",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "upper_arm_twist_R",
+    "label": "right upper arm twist",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "forearm_roll_L",
+    "label": "left forearm roll",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "forearm_roll_R",
+    "label": "right forearm roll",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "elbow_above_shoulder_L",
+    "label": "left elbow above shoulder",
+    "unit": "cm",
+    "group": "joints"
+  },
+  {
+    "key": "elbow_above_shoulder_R",
+    "label": "right elbow above shoulder",
+    "unit": "cm",
+    "group": "joints"
+  },
+  {
+    "key": "head_yaw",
+    "label": "head turned off the facing",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "head_pitch",
+    "label": "head tilted up or down",
+    "unit": "deg",
+    "group": "joints"
   }
 ]
