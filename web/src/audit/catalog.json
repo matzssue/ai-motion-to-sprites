@@ -238,5 +238,17 @@
     "label": "one foot hanging",
     "unit": "cm",
     "group": "feet"
+  },
+  {
+    "key": "key_hand_rot_L",
+    "label": "left hand off its key pose",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "key_hand_rot_R",
+    "label": "right hand off its key pose",
+    "unit": "deg",
+    "group": "joints"
   }
 ]
