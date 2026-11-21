@@ -17,7 +17,7 @@ import skin
 import feet
 import shake
 from audit_metrics import (METRICS, NEEDS, REF_HEIGHT, height, judge, scaled, facing, head_angles, head_summary, HEAD_YAW_WARN,
-                           hands_set_by_recipes)
+                           hands_set_by_recipes, hands_with_weapon, finger_curl)
 
 LOOSE_FINGER = 0.02   # m: a finger whose nearest point is farther from the prop does not hold it
 # m: prop inside the upper arms with the stock under the armpit (the butt sits between the arm and the ribs, touching both).
@@ -56,6 +56,17 @@ for o in bpy.data.objects:
     if o.type == "MESH" and o not in skinned: o.hide_render = True
 RIG = rig_of(arm, A.skeleton, exclude=(A.prop,) if A.prop else ()); PROF = RIG.prof
 SKIP = PROF.skipped(NEEDS)   # {metric: reason}: not measured, not scored
+RECIPES = []   # reports of the motion file's recipes (pipeline/recipes/)
+for _p in A.recipe_report or [A.glb.replace(".glb", "_recipe.json")]:
+    try: RECIPES.append(json.load(open(_p, encoding="utf-8")))
+    except (OSError, ValueError): pass
+FCHAIN = {}   # side with a recipe weapon in its hand -> {finger's first bone: its bones, base first}
+for k_ in "LR":
+    if k_ not in hands_with_weapon(RECIPES, A.action): SKIP.setdefault("finger_curl_" + k_, "no recipe weapon in that hand"); continue
+    if "finger_curl_" + k_ in SKIP: continue
+    FCHAIN[k_] = {}
+    for b_ in arm.data.bones:
+        if b_.name in RIG.fingers and RIG.bone_side(b_.name) == k_: FCHAIN[k_].setdefault(RIG.finger_root[b_.name], []).append(b_.name)
 for k_ in ("key_hand_rot_L", "key_hand_rot_R"):
     if not A.key_hands: SKIP.setdefault(k_, "no --key-hands (not a key-pose clip)")
 LIMITS = {k: v[0] for k, v in METRICS.items() if k not in SKIP}
@@ -78,10 +89,6 @@ H = height(CO_REST[:, 2])
 SCALE = H / REF_HEIGHT
 LIM = scaled(LIMITS, H)
 IN_HANDS = prop is not None and not A.rest_is_normal
-RECIPES = []   # reports of the motion file's recipes (pipeline/recipes/)
-for _p in A.recipe_report or [A.glb.replace(".glb", "_recipe.json")]:
-    try: RECIPES.append(json.load(open(_p, encoding="utf-8")))
-    except (OSError, ValueError): pass
 KEYH = {}   # clip frame -> {"L"/"R": target hand rotation, armature space}
 if A.key_hands:
     KEYH = {int(f): {s_: Quaternion(v) for s_, v in d.items()} for f, d in json.load(open(A.key_hands, encoding="utf-8"))["targets"].items()}
@@ -289,6 +296,11 @@ for t in times:
         if KEYH and t >= f0 and abs(kf_ - round(kf_)) < 1e-6 and int(round(kf_)) in KEYH:
             row["key_hand_rot_" + k] = round(ang(pr(B[s]["hand"]).to_quaternion(), KEYH[int(round(kf_))][k]), 1)
             where["key_hand_rot_" + k] = [float(x) for x in head(B[s]["hand"])]; side["key_hand_rot_" + k] = k
+        if FCHAIN.get(k):   # a finger looped onto itself round the weapon
+            n_, c_ = finger_curl({r_: [math.degrees(2 * math.acos(min(1.0, abs(arm.pose.bones[b_].matrix_basis.to_quaternion().w)))) for b_ in bs_]
+                                  for r_, bs_ in FCHAIN[k].items()})
+            row["finger_curl_" + k] = round(c_, 1); row["_finger_curl_" + k] = n_
+            where["finger_curl_" + k] = [float(x) for x in head(n_)]; side["finger_curl_" + k] = k
         if "upper_arm_twist_" + k not in SKIP:   # the arm wrung under a weapon: bones turned about their own axis, elbow up
             ua_, fa_ = PROF.bone("upper_arm", s), B[s]["forearm"]; par_ = arm.data.bones[ua_].parent
             if par_: row["upper_arm_twist_" + k] = round(abs(joint_angles(rr(par_.name), rr(ua_), pr(par_.name), pr(ua_))[1]), 1)

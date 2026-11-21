@@ -5,9 +5,11 @@ Not for: a path that is itself wrong (the path is kept; `path_edits` only tilt o
     grips, a rig whose arm bones do not point at the next joint, an arm that never bends in the clip.
 Inputs: motion file `recipe` entry: `tip` (the weapon's tip) and `edge` (a direction across the blade toward a cutting
     edge), both in weapon mesh coordinates; `hand`, `in_hand`, `grip` as in one_hand_weapon (read from that entry of the
-    same file when left out); optional `loop`, `path_edits`, `targets`, `weights`, `grid` (below).
+    same file when left out); optional `loop`, `path_edits`, `pin`, `ease_frames`, `path_hold`, `other_arm_blend`,
+    `targets`, `weights`, `grid` (below).
 Output: the clip GLB with that side's shoulder, upper arm, forearm and hand keyed on every frame of the action;
-    `<out>_recipe.json`. The body, the other arm, the head and the fingers stay as the clip has them.
+    `<out>_recipe.json`. The body, the head and the fingers stay as the clip has them; the other arm too, unless
+    `other_arm_blend` is given.
 Checks: per whole frame, reported and not scored: upper-arm twist, forearm roll, wrist twist and bend, elbow above the
     shoulder (before and after, against `targets`), and how far the weapon ends up off its path. It does not look at
     the weapon or the arm going into the body: one_hand_weapon and the audit do.
@@ -23,6 +25,17 @@ bone turns only on frames where the grip is out of the arm's reach.
 `path_edits`: [{"frames": {"12": 1, "11": 0.66}, "move_cm": 20, "tilt_deg": 0, "tilt_toward": [0, -1, 0]}]: on those
     frames (weight 0-1) the grip moves `move_cm` toward the point half-way between the shoulder joint and the top of
     the head (bends a straight arm at the wind-up) and the blade tilts `tilt_deg` toward a world direction.
+Joining the next clip, and a changed weapon or hold:
+`pin`: [0]: frames of the action that keep the clip's own arm (its swivel, no weapon roll, the four bones as they
+    are): the frame an idle shares with this action. The sequence is solved through them.
+`path_hold`: {"in_hand": ..., and `grip`, `tip`, `edge` when the weapon changed too}: how the weapon sat in the hand
+    when the clip was made. The path is read with that hold and the arm is solved for this entry's own: the blade keeps
+    its accepted path under a new weapon or a new hold. A pinned frame keeps the arm, so its weapon is off the path.
+`ease_frames`: 5: over that many frames on both sides of a pinned frame the path eases from the weapon as the pinned
+    arm really holds it into itself (smoothstep; turned about the grip point, the grip point along a line).
+`other_arm_blend`: {"action": "idle", "frame": 0, "frames": 4, "clip": "idle.glb"}: on the first and last `frames` + 1
+    frames the other arm (shoulder to hand, or `bones`) turns toward its pose on that frame of that action, fully on
+    the first and the last frame. `clip` left out: the action is in the file being solved (character.py's merged file).
 `targets` (deg, cm), `weights`, `grid` (deg): TARGETS, WEIGHTS, GRID below; a key given replaces that one number.
 Run it on the clip, as chain.py and character.py do: on its own output `path_edits` would move the path a second time.
 The rest pose faces -Y with Z up (Blender), as everywhere in the pipeline."""
@@ -124,13 +137,18 @@ def hinge_axis(Bu, S, E, W):
     h = h / n; return unit(h - Y * (h @ Y)), n
 
 
+def swivel(S, E, W):
+    """The elbow's swivel about the shoulder-wrist line [frames], deg; 0 = as far down as it goes."""
+    D = unit(W - S); u, v = basis_down(D); e = (E - S) - D * np.sum((E - S) * D, -1, keepdims=True)
+    return np.degrees(np.arctan2(np.sum(e * v, -1), np.sum(e * u, -1)))
+
+
 def measure(C, Bs, Bu, Bf, Bh, S, E, W, head):
     """What each frame's arm does [frames]: the four joint angles (deg), elbow above the shoulder joint (cm), swivel (deg)
     and whether the wrist is above the top of the head."""
     out = {"upper_arm_twist": twist_bend(T(Bs @ C["R_su"]) @ Bu)[0], "forearm_roll": twist_bend(T(Bu @ C["R_uf"]) @ Bf)[0]}
     out["wrist_twist"], out["wrist_bend"] = twist_bend(T(Bf @ C["R_fh"]) @ Bh)
-    D = unit(W - S); u, v = basis_down(D); e = (E - S) - D * np.sum((E - S) * D, -1, keepdims=True)
-    out["swivel"] = np.degrees(np.arctan2(np.sum(e * v, -1), np.sum(e * u, -1)))
+    out["swivel"] = swivel(S, E, W)
     out["elbow_above_cm"] = (E - S) @ UP * 100; out["hand_high"] = (W - head) @ UP > 0
     return out
 
@@ -197,6 +215,38 @@ def edit_path(G3, Gt, s0, head, edits):
     return G3, Gt
 
 
+def turn_of(R):
+    """(angle in deg, axis) of a rotation matrix; a turn of nothing gets the X axis."""
+    ax = np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
+    return float(np.degrees(np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1)))), unit(ax) if np.linalg.norm(ax) > 1e-9 else X
+
+
+def smoothstep(x): return x * x * (3 - 2 * x)
+
+
+def ease_path(G3, Gt, real3, realt, pins, ease, loop):
+    """The path [frames] around pinned frames. A pinned frame keeps the clip's arm, so its weapon is where that arm holds it
+    (`real3`, `realt`): off the path when the hold changed. That pose becomes the pinned frame's target, and on the
+    `ease` - 1 frames on both sides the path is turned and moved toward it: smoothstep weight, the turn about the grip
+    point, the grip point along a straight line. -> (G3, Gt, {pin: (deg, cm) the weapon is off the path there})."""
+    G3, Gt = G3.copy(), Gt.copy(); N = len(Gt) - 1; off = {}
+    for p in pins:
+        ang, ax = turn_of(real3[p] @ G3[p].T); dT = realt[p] - Gt[p]; off[p] = (ang, float(np.linalg.norm(dT)) * 100)
+        G3[p], Gt[p] = real3[p], realt[p]
+        for k in range(1, ease):
+            s = 1 - smoothstep(k / ease)
+            for f in ({(p + k) % N, (p - k) % N} if loop else {p + k, p - k}):
+                if 0 <= f <= N and f not in pins: G3[f] = rot(ax, ang * s) @ G3[f]; Gt[f] = Gt[f] + dT * s
+    if loop and 0 in pins: G3[N], Gt[N] = real3[N], realt[N]   # the last frame repeats the first: the clip's arm too
+    return G3, Gt, off
+
+
+def end_weights(n, k):
+    """Weight per frame [n] of a pose blended in at both ends of an action: 1 on the first and the last frame, smoothstep
+    down to 0 on the frame `k` + 1 away."""
+    d = np.minimum(np.arange(n), n - 1 - np.arange(n)); return np.where(d <= k, smoothstep(1 - d / (k + 1.0)), 0.0)
+
+
 def cheapest(U, step, start=None):
     """Cheapest sequence of states through the unary costs U [frames, states] with the cost `step` [states, states] between
     neighbours; with `start` it begins there and pays the step back to it (a loop). -> (total, [state per frame])."""
@@ -224,14 +274,20 @@ def smooth(deg, loop):
     return np.degrees(a)
 
 
-def plan(clip, C, loop=True, edits=None):
+def plan(clip, C, loop=True, edits=None, pins=(), ease=0):
     """The arm for every frame of the clip. `clip`: arrays over the frames of the action (first and last included): the grip
     G3 [n, 3, 3] / Gt [n, 3], the shoulder bone c0, Bs, the shoulder joint s0, the top of the head `head`, the other
     shoulder joint `other`. `C`: the arm's constants (rest rotations R_su, R_uf, R_fh, lengths L1, L2, hinge, grip3,
-    grip_t, blade, targets, weights, grid). -> per-frame arrays: Bs, Bu, Bf, Bh, S, E, W (the pose), swivel, roll,
-    forearm, turn, short, cut, G3, Gt (the path asked for)."""
+    grip_t, blade, targets, weights, grid). `pins`: frames that keep the clip's arm, which `clip` then holds too (Bu, Bf,
+    Bh, E, W); `ease`: see ease_path. -> per-frame arrays: Bs, Bu, Bf, Bh, S, E, W (the pose), swivel, roll, forearm,
+    turn, short, cut, pinned, G3, Gt (the path asked for), and `held` (ease_path's offsets)."""
     n = len(clip["Gt"]); F = n - 1 if loop else n; g = C["grid"]; w = C["weights"]
+    if any(not 0 <= int(p) < n for p in pins): raise ValueError("pin: frames %s are outside the action (0-%d)" % (sorted(pins), n - 1))
+    pins = sorted({int(p) % F for p in pins}); held = {}
     G3, Gt = edit_path(clip["G3"], clip["Gt"], clip["s0"], clip["head"], edits)
+    if pins:
+        G3, Gt, held = ease_path(G3, Gt, clip["Bh"] @ C["grip3"], clip["W"] + clip["Bh"] @ C["grip_t"], pins, ease, loop)
+        sw_in = swivel(clip["s0"], clip["E"], clip["W"])
     frs = [dict({k: clip[k][f] for k in ("c0", "s0", "Bs", "head", "other")}, G3=G3[f], Gt=Gt[f], turn=0.0) for f in range(n)]
     tip = Gt + G3[:, :, 2] * C["blade"]; a_, b_ = np.arange(n) - 1, np.arange(n) + 1
     vel = (tip[b_ % (n - 1) if loop else np.minimum(b_, n - 1)] - tip[a_ % (n - 1) if loop else np.maximum(a_, 0)]) / 2
@@ -244,15 +300,26 @@ def plan(clip, C, loop=True, edits=None):
         U[f] = cost(C, fr, solve(C, fr, P, R))
         v = vel[f] - G3[f][:, 2] * (vel[f] @ G3[f][:, 2])
         if cut[f] and np.linalg.norm(v) > 1e-6: U[f] += w["edge"] * (1 - np.abs((G3[f] @ rot(Z, R))[:, :, 0] @ unit(v)))
+    for p in pins:   # only the state nearest the clip's arm: its swivel, no roll
+        j = int(np.argmin(np.abs(fold(P - sw_in[p])) + np.abs(fold(R)))); U[p] = np.inf; U[p, j] = 0.0
     step = w["swivel_step"] * wrapped(P, g["swivel"]) ** 2 + w["roll_step"] * wrapped(R, 15.0) ** 2
     path = cheapest_loop(U, step, loop)[1]; phi, roll = smooth(P[path], loop), smooth(R[path], loop)
+    for p in pins: phi[p], roll[p] = sw_in[p], 0.0
     sols = [solve(C, frs[f], phi[f], roll[f]) for f in range(F)]
     RHO = np.arange(-180, 180, g["forearm"]).astype(float)   # its own pass, so the forearm never flips through +-180 between frames
     U2 = np.array([roll_cost(C, *forearm(C, s, RHO)[1:])[0] for s in sols])
+    rho_in = {p: float(twist_bend(sols[p]["Bf0"][0].T @ clip["Bf"][p])[0]) for p in pins}   # the clip's forearm as a roll
+    for p, r in rho_in.items(): U2[p] = np.inf; U2[p, int(np.argmin(np.abs(fold(RHO - r))))] = 0.0
     rho = RHO[cheapest_loop(U2, w["forearm_step"] * wrapped(RHO, 5.0) ** 2, loop)[1]]
+    for p, r in rho_in.items(): rho[p] = r
     ii = np.arange(n) % F; out = {k: np.array([sols[i][k][0] for i in ii]) for k in ("S", "E", "W", "Bs", "Bu", "short")}
     out["Bh"] = np.array([sols[i]["H3"][0] for i in ii]); out["Bf"] = np.array([forearm(C, sols[i], rho[i:i + 1])[0][0, 0] for i in ii])
-    out.update(swivel=phi[ii], roll=roll[ii], forearm=rho[ii], turn=np.array([frs[i]["turn"] for i in ii]), cut=cut, G3=G3, Gt=Gt)
+    pinned = np.isin(ii, pins)
+    for k, src in (("S", "s0"), ("E", "E"), ("W", "W"), ("Bs", "Bs"), ("Bu", "Bu"), ("Bf", "Bf"), ("Bh", "Bh")):
+        if pins: out[k][pinned] = clip[src][pinned]
+    out["short"][pinned] = 0
+    out.update(swivel=phi[ii], roll=roll[ii], forearm=rho[ii], turn=np.array([frs[i]["turn"] for i in ii]), cut=cut, G3=G3, Gt=Gt,
+               pinned=pinned, held=held)
     return out
 
 
@@ -292,21 +359,42 @@ def main():
     A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
     R = json.load(open(A.motion, encoding="utf-8"))
     try:
-        P = weapon_inputs(R); GRIP, blade = grip_frame(P["in_hand"], P["grip"], P["tip"], P["edge"])
+        P = weapon_inputs(R); GRIP, blade = grip_frame(P["in_hand"], P["grip"], P["tip"], P["edge"]); PH = P.get("path_hold")
+        PATH = grip_frame(PH["in_hand"], PH.get("grip", P["grip"]), PH.get("tip", P["tip"]), PH.get("edge", P["edge"]))[0] if PH else GRIP
     except ValueError as e:
         raise SystemExit("%s: %s" % (A.motion, e))
-    side = P.get("hand", "right").capitalize(); loop = P.get("loop", True)
+    side = P.get("hand", "right").capitalize(); oside = "Left" if side == "Right" else "Right"; loop = P.get("loop", True)
+    OB = P.get("other_arm_blend"); target = {}
 
-    bpy.ops.wm.read_factory_settings(use_empty=True); bpy.ops.import_scene.gltf(filepath=os.path.abspath(A.glb)); sc = bpy.context.scene
-    arm = next(o for o in bpy.data.objects if o.type == "ARMATURE"); act = bpy.data.actions.get(R["action"])
-    if act is None: raise SystemExit("%s: no action %s (there are: %s)" % (A.glb, R["action"], ", ".join(sorted(a.name for a in bpy.data.actions))))
-    arm.animation_data.action = act
-    try: arm.animation_data.action_slot = act.slots[0]
-    except (AttributeError, IndexError): pass
-    for pb in arm.pose.bones: pb.matrix_basis = Matrix()   # bones without curves here keep another action's pose
+    def take(path, action):
+        """The armature of a GLB with `action` on it, every bone without a curve there at rest."""
+        if path: bpy.ops.wm.read_factory_settings(use_empty=True); bpy.ops.import_scene.gltf(filepath=os.path.abspath(path))
+        arm = next(o for o in bpy.data.objects if o.type == "ARMATURE"); act = bpy.data.actions.get(action)
+        if act is None: raise SystemExit("%s: no action %s (there are: %s)" % (path or A.glb, action, ", ".join(sorted(a.name for a in bpy.data.actions))))
+        arm.animation_data.action = act
+        try: arm.animation_data.action_slot = act.slots[0]
+        except (AttributeError, IndexError): pass
+        for pb in arm.pose.bones: pb.matrix_basis = Matrix()   # bones without curves here keep another action's pose
+        return arm, act
+
+    def other_pose(path):
+        """The other arm's bones -> their own rotation on the frame of the action `other_arm_blend` names."""
+        arm, _ = take(path, OB["action"]); prof = rig_of(arm, A.skeleton).prof
+        bones = OB.get("bones") or [prof.bone(r, oside) for r in ("shoulder", "upper_arm", "forearm", "hand") if prof.has(r, oside)]
+        missing = [b for b in bones if b not in arm.pose.bones]
+        if missing: raise SystemExit("%s: other_arm_blend.bones: no bone %s in %s" % (A.motion, ", ".join(missing), path or A.glb))
+        bpy.context.scene.frame_set(int(OB.get("frame", 0))); bpy.context.view_layer.update()
+        return {b: arm.pose.bones[b].matrix_basis.to_quaternion() for b in bones}
+
+    if OB and OB.get("clip"):
+        other_clip = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(A.motion)), OB["clip"]))
+        if not os.path.exists(other_clip): raise SystemExit("%s: other_arm_blend.clip: no file %s" % (A.motion, other_clip))
+        target = other_pose(other_clip)
+    arm, act = take(A.glb, R["action"]); sc = bpy.context.scene
+    if OB and not OB.get("clip"): target = other_pose(None); arm, act = take(None, R["action"])
     PROF = rig_of(arm, A.skeleton).prof; pbs, dbs = arm.pose.bones, arm.data.bones
     UA, FA, HA = (PROF.bone(r, side) for r in ("upper_arm", "forearm", "hand")); HEAD = PROF.bone("head")
-    OTHER = PROF.bone("upper_arm", "Left" if side == "Right" else "Right")
+    OTHER = PROF.bone("upper_arm", oside)
     if dbs[UA].parent is None: raise SystemExit("%s: the upper arm %s has no parent bone to measure its twist against" % (A.glb, UA))
     CL = dbs[UA].parent.name; turn_ok = PROF.has("shoulder", side) and PROF.bone("shoulder", side) == CL
     AW = np.array(arm.matrix_world); scale = float(abs(np.linalg.det(AW[:3, :3])) ** (1 / 3)); RW = AW[:3, :3] / scale
@@ -329,17 +417,24 @@ def main():
     C = {"R_su": rest(CL).T @ rest(UA), "R_uf": rest(UA).T @ rest(FA), "R_fh": rest(FA).T @ rest(HA),
          "L1": float(np.linalg.norm(point(dbs[FA].head_local) - point(dbs[UA].head_local))),
          "L2": float(np.linalg.norm(point(dbs[HA].head_local) - point(dbs[FA].head_local))),
-         "grip3": GRIP[:3, :3], "grip_t": GRIP[:3, 3] * scale, "blade": blade * scale,
+         "grip3": GRIP[:3, :3], "grip_t": GRIP[:3, 3] * scale, "path3": PATH[:3, :3], "path_t": PATH[:3, 3] * scale, "blade": blade * scale,
          "targets": dict(TARGETS, **P.get("targets", {})), "weights": dict(WEIGHTS, **P.get("weights", {})), "grid": dict(GRID, **P.get("grid", {}))}
     hinge, bent = hinge_axis(I["Bu"], I["s0"], I["E"], I["W"])
     if hinge is None: raise SystemExit("%s: the %s arm never bends %d deg in %s: no elbow hinge to read" % (A.glb, side.lower(), BENT, R["action"]))
     C["hinge"] = np.stack([hinge, Y, np.cross(hinge, Y)], -1)
     C["shoulder_max"] = SHOULDER_MAX if turn_ok else 0.0   # an upper arm hanging on the chest: nothing to turn toward a far grip
-    clip = dict({k: I[k] for k in ("c0", "s0", "Bs", "head", "other")}, G3=I["Bh"] @ C["grip3"], Gt=I["W"] + I["Bh"] @ C["grip_t"])
-    try:   # path_edits name frames of the action; plan() counts from its first frame
-        O = plan(clip, C, loop, [dict(e, frames={int(k) - f0: v for k, v in e["frames"].items()}) for e in P.get("path_edits", [])])
+    # the path is read with the hold the clip was made with, the arm solved for this entry's own
+    clip = dict({k: I[k] for k in ("c0", "s0", "Bs", "head", "other", "Bu", "Bf", "Bh", "E", "W")}, G3=I["Bh"] @ C["path3"], Gt=I["W"] + I["Bh"] @ C["path_t"])
+    try:   # path_edits and pin name frames of the action; plan() counts from its first frame
+        O = plan(clip, C, loop, [dict(e, frames={int(k) - f0: v for k, v in e["frames"].items()}) for e in P.get("path_edits", [])],
+                 [int(p) - f0 for p in P.get("pin", [])], int(P.get("ease_frames", 0)))
     except ValueError as e:
         raise SystemExit("%s: recipe %s: %s" % (A.motion, NAME, e))
+    notes = []
+    if PH: notes.append("path read with the hold the clip was made with")
+    for p, (deg, cm) in sorted(O["held"].items()):
+        notes.append("fr. %d pinned to the clip's arm, the weapon there %.1f deg / %.1f cm off the path%s" % (
+            frames[p], deg, cm, ", eased in over %d frames" % P["ease_frames"] if P.get("ease_frames", 0) > 1 else ""))
     print("recipe %s: %s arm (%s, %s, %s, %s), hinge from %d bent frames, tip cutting on fr. %s%s" % (
         NAME, side.lower(), CL, UA, FA, HA, bent, [frames[f] for f in np.where(O["cut"])[0]],
         ", %d path edit(s)" % len(P["path_edits"]) if P.get("path_edits") else ""))
@@ -362,6 +457,16 @@ def main():
             q = pbs[n].rotation_quaternion.copy()
             if n in prev and q.dot(prev[n]) < 0: q = -q
             pbs[n].rotation_quaternion = q; prev[n] = q; pbs[n].keyframe_insert("rotation_quaternion", frame=f)
+    if OB:   # the other arm toward the next clip's pose at both ends of the action
+        wts = end_weights(len(frames), int(OB.get("frames", 4)))
+        for i in np.where(wts > 0)[0]:
+            sc.frame_set(frames[i])
+            for b, q1 in target.items():
+                pbs[b].rotation_mode = "QUATERNION"; q0 = pbs[b].rotation_quaternion.copy()
+                pbs[b].rotation_quaternion = q0.slerp(-q1 if q0.dot(q1) < 0 else q1, float(wts[i]))
+                pbs[b].keyframe_insert("rotation_quaternion", frame=frames[i])
+        notes.append("other arm (%s) blended toward %s fr. %d on %d frames at each end" % (
+            ", ".join(target), OB["action"], OB.get("frame", 0), int((wts > 0).sum()) // 2))
 
     # what came out, read back from the keyed clip
     N_ = read(); before = measure(C, I["Bs"], I["Bu"], I["Bf"], I["Bh"], I["s0"], I["E"], I["W"], I["head"])
@@ -373,13 +478,16 @@ def main():
     rows = [{"frame": f, "before": vals(before, i), "after": vals(after, i), "over": over[i], "grip_off_cm": round(float(off[i]), 2),
              "blade_off_deg": round(float(bl[i]), 2), "short_cm": round(float(O["short"][i]) * 100, 1),
              "weapon_roll": round(float(O["roll"][i]), 1), "shoulder_turn": float(O["turn"][i]), "cutting": bool(O["cut"][i]),
+             "pinned": bool(O["pinned"][i]),
              "path_moved_cm": round(float(np.linalg.norm(O["Gt"][i] - clip["Gt"][i])) * 100, 1)} for i, f in enumerate(frames)]
     for r in rows:
         print("ARM %3d | twist %4.0f -> %4.0f | forearm roll %4.0f -> %4.0f | wrist twist %4.0f -> %4.0f, bend %4.0f -> %4.0f | elbow %+4.0f -> %+4.0f cm%s" % (
             r["frame"], *(r[w][k] for k in KEYS for w in ("before", "after")), r["before"]["elbow_above_cm"], r["after"]["elbow_above_cm"],
             " | over: " + ", ".join(r["over"]) if r["over"] else ""))
     rep = dict({"recipe": NAME, "action": R["action"], "hand": side[0], "sets_hand": side[0], "bones": list(names)}, **summary(rows))
-    rep["targets"] = C["targets"]
+    rep["targets"] = C["targets"]; rep["pinned"] = [r["frame"] for r in rows if r["pinned"]]
+    rep["held_off_path"] = {str(frames[p]): {"deg": round(deg, 1), "cm": round(cm, 1)} for p, (deg, cm) in O["held"].items()}
+    if notes: rep["notes"] = notes; rep["line"] += "; " + "; ".join(notes)
     rep["limits"] = ("whole frames; comfort targets are the solver's aim, not the audit's limits; the weapon or the arm in the "
                      "body is not looked at here; the shoulder bone turns only for a grip out of reach")
     rep["per_frame"] = rows

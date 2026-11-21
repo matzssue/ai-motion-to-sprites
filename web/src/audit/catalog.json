@@ -300,6 +300,18 @@
     "group": "joints"
   },
   {
+    "key": "finger_curl_L",
+    "label": "left finger looped round the weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "finger_curl_R",
+    "label": "right finger looped round the weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
     "key": "head_yaw",
     "label": "head turned off the facing",
     "unit": "deg",
