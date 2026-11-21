@@ -25,7 +25,7 @@ model.glb ─► prepare ─► auto-rig ─► AI rig ─► calibration ─►
 | rig_ai | `prepare_rig.py` | cuts the prop out of the mesh (or takes a separate prop mesh whole) onto its own bone (rule-based selection, island closure, thin-part growth for bow strings, debris cleanup), grows finger bones out of fused claws (keeps the rig's own fingers when it has them), finds the thumb and the palm side |
 | calibration | `merge_actions.py` + `motion_audit.py` | library clips must pass the audit on this rig, so a bad rig is not blamed on the AI motion |
 | ai | `kimodo_text.py`, `kimodo_motion.py`, `kimodo_keyposes.py`, `keyposes_to_kimodo.py` | one sentence per phase; body samples without hand constraints; key poses set on the best sample and reviewed; then Kimodo is constrained through those poses (`FullBodyConstraintSet`) |
-| (chain) | `soma_to_mixamo.py`, a recipe or `prop_in_hands.py` | SOMA77 BVH to the rig, bone by role (skeleton profile), with an A/T rest-pose correction and loop closure; then the recipe the motion file names (below), or the **experimental** two-handed solver: prop pose search without body collisions, analytic two-arm IK, Viterbi path for grip roll and elbow over the whole clip, fingers wrapped on the real prop surface (BVH), recoil |
+| (chain) | `soma_to_mixamo.py`, `pose_upper_body.py`, `head_forward.py`, a recipe or `prop_in_hands.py` | SOMA77 BVH to the rig, bone by role (skeleton profile), with an A/T rest-pose correction and loop closure; for an action whose motion file asks for it, spine, arms and hands from the key poses and the head on the facing direction; then the recipe the motion file names (below), or the **experimental** two-handed solver: prop pose search without body collisions, analytic two-arm IK, Viterbi path for grip roll and elbow over the whole clip, fingers wrapped on the real prop surface (BVH), recoil |
 | merge | `combine_actions.py` | every action processed from the same merged file, then combined and grounded on the walk |
 | preview | `preview_8.py`, `review_page.py` | 8 isometric directions; a self-contained review page with a frame-synced player, hand close-ups and audit numbers next to the previous version |
 
@@ -34,14 +34,20 @@ pipeline/
   character.py, chain.py, variants.py   orchestration: whole character, one sample, parameter grid
   lib/       config (env paths), GPU queue, skeleton profiles, body collisions, skin-twist math, audit metrics, Kimodo setup
   rig/       prepare, auto-rig, AI rig
-  motion/    Kimodo, retarget, prop in hands (experimental), merge/combine actions
+  motion/    Kimodo, retarget, upper body from key poses, head forward, prop in hands (experimental), merge/combine actions
   recipes/   one small script per kind of grip or weapon; README.md is the generated index
   checks/    motion audit, skin check, alpha check, motion compare
   review/    8-direction preview, hand close-ups, review page
+docs/motions/   playbooks: one page per kind of motion made and accepted (route, keys, steps, what was rejected); README.md is the generated index
 ```
 
 `character.py` runs all of it from one `character.json` (see `examples/`). It skips stages whose outputs are newer than their
 inputs, and stops with an exit code of 2 at each human gate.
+
+**Each kind of motion has a route, written down once it worked.** [`docs/motions/README.md`](docs/motions/README.md) indexes
+the playbooks. The first one, a one-handed weapon attack, takes legs and hips from the model through dense key poses, the
+upper body from the poses themselves (`"upper_body"` in the motion file), locks the head forward (`"head"`), and solves
+the weapon arm again under the weapon's path.
 
 **Weapons and props are recipes.** What depends on the weapon or the grip lives in `pipeline/recipes/<name>.py`: one
 narrow script per case, named by the motion file (`"recipe": {"name": ...}`, or a list run in order) and run in the prop step. Each file starts

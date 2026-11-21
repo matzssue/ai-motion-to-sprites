@@ -64,6 +64,9 @@ Calibration: the library walk on this rig must pass the audit (`character.py --f
 If it fails, understand why first (§5), then do motion.
 
 ## 3. Per motion (the blocks `character.py` calls; by hand only to fix one sample)
+**Playbook first.** `docs/motions/README.md` is the generated index of the kinds of motion that were made and accepted,
+one page each: which route through the tool, how many key poses, the order of steps, what to look at, what was rejected
+(do not retry it). So far: a one-handed weapon attack. No page for your motion: follow this section and say so in the report.
 **Reference first, then the motion file.** A crossbow shot made without one needed the reviewer to point out what any
 shooting manual says (left hand under the stock, elbow down, cheek to the stock). Before the first version: 2–3 sources on
 the stance, conclusions in one sentence in the motion file's `_reference`, and grip vectors, elbows and head from them.
@@ -86,8 +89,7 @@ run in the prop step of `chain.py` and of the merge stage; the audit reports wha
 - One-handed weapon rigid in one hand (the knight's sword): `one_hand_weapon`. `in_hand` and `fingers` come from the
   approved pose scene (`--read-scene`), `grip` from the model (`examples/one_hand_weapon.example.json`). The weapon is
   a mesh in the output GLB; body joints and `key_hands.py`'s hand rotation stay as they are.
-- Its path is right but the arm holding it is wrung (audit: `upper_arm_twist`, `elbow_above_shoulder`): `swing_arm`, listed
-  before it, solves that arm again under the same path (`examples/swing_arm.example.json`).
+- A one-handed attack runs `swing_arm` before it (the arm solved again under the weapon's path): the playbook has the route.
 - Nothing fits: write a new recipe from the smallest one (README there, "Writing one"). One recipe = one narrow case.
 - **Do not add a switch, a mode or a rule to `prop_in_hands.py`**: the two-handed solver (`actions.<a>.prop: true`) is
   EXPERIMENTAL and frozen. What this file says below about its grip, aim, passes and traps describes it as it is.
@@ -200,17 +202,15 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   cm (round 5, unturned poses: 0..3 deg, 0.9 cm). `kimodo_keyposes.py` now sends heading and (x, z) interpolated through
   the keys' own (monotone cubic, `keypose_root.root_between`) and `--dry-run` prints that path; keys facing forward on the
   track give the old payload bit for bit. Gate: `pelvis_shake` / `knee_shake` (5-frame residual, `shake.py`).
-- **Kimodo keeps a key pose's joint POSITIONS, not the hands' ROTATION:** a full-body key constrains positions only and the
-  clip comes from the rotation channel; the knight's sword hand hit its keys 2-8 cm close but turned 15-176 deg off (the
-  retarget is faithful: same error before and after it). The working fix: `chain.py --key-poses` runs `key_hands.py` after
-  the retarget: per key the forearm roll that leaves the POSE's wrist twist and the wrist that then hits the posed hand
-  (cut to twist 55 / bend 80 deg), smoothstep between keys, joint positions unchanged. Kimodo's own wrist is dropped: it is
-  unconstrained too (round 7 raw: twist 102-180 deg), and keeping it under a corrected forearm left 149-158 deg. `kimodo_keyposes.py --hand-rotations` also sends the hands' rotation to Kimodo (its own
-  end-effector channel): EXPERIMENTAL, off by default, until a generation run shows Kimodo honours it. Gate: `key_hand_rot_L/R` on the key frames
-  (limit 50 deg: knight before 101-176, after 0-5, round 7 right hand up to 9). Wrist twist after: 20-23 L / 43-54 R on 16
-  samples. Cost: Kimodo's wrist no longer damps the arm's whip, so hand_jump stays 16-24 deg (raw 10-89) and on 6 of 16
-  samples is 2-9 deg above the uncorrected clip: `key_hands.py` prints a WORSE line for that. With a prop the grip solver
-  sets the hands: measured, not corrected or scored.
+- **Kimodo keeps a key pose's joint POSITIONS, not the hands' ROTATION:** a full-body key constrains positions only; the
+  knight's sword hand hit its keys 2-8 cm close but turned 15-176 deg off. The fix: `chain.py --key-poses` runs
+  `key_hands.py` after the retarget (per key the forearm roll and the wrist that hit the posed hand, cut to twist 55 /
+  bend 80 deg, smoothstep between keys). Gate: `key_hand_rot_L/R` (limit 50 deg; numbers in AUDIT.md). Cost: hand_jump
+  stays 16-24 deg, and a WORSE line is printed where it passes the uncorrected clip. With a prop the grip solver sets the
+  hands: measured, not scored. `kimodo_keyposes.py --hand-rotations` (rotation sent to Kimodo) is EXPERIMENTAL and off.
+- **Between dense key poses the model folds the arm** (knight: 9 keys in 38 frames, elbow flex 47 -> 89 -> 65 deg in
+  mid-swing). A motion file with `upper_body` takes spine, arms and hands from the poses (`pose_upper_body.py`) and `head`
+  turns the head to the facing direction (`head_forward.py`); when and with what numbers: the playbook.
 - **Kimodo cannot do a deep forward bend from text** ("curls forward, chest on knees" twice gave a squat with the shoulders
   22 cm BEHIND the hips). Set such a key pose by hand from a reference picture (bone directions + 2-bone IK from bone heads)
   and run the motion through it. Measure the lean (shoulder vs hip along the forward axis), do not judge from a thumbnail.

@@ -71,3 +71,9 @@ def test_arm_limits_sit_between_the_two_verdicts():
         assert 0.063 * 1.8 / 1.9 < M.METRICS["elbow_above_shoulder_" + s][0] < 0.11 * 1.8 / 1.9   # accepted, rejected at the knight's 1.90 m
         assert M.METRICS["forearm_roll_" + s][0] is None                  # accepted clips roll it 85-145 deg
     assert M.METRICS["head_yaw"][0] is None and M.METRICS["head_pitch"][0] is None
+
+
+def test_a_hand_a_recipe_solved_again_is_not_scored_against_its_key_pose():
+    reps = [{"recipe": "swing_arm", "action": "attack", "sets_hand": "R"}, {"recipe": "one_hand_weapon", "action": "attack", "hand": "R"},
+            {"recipe": "swing_arm", "action": "block", "sets_hand": "L"}, "not a report"]
+    assert M.hands_set_by_recipes(reps, "attack") == {"R"} and M.hands_set_by_recipes([], "attack") == set()

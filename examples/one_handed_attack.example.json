@@ -1,0 +1,169 @@
+{
+ "_about": "A one-handed sword attack shaped by dense key poses, the whole route of docs/motions/one_handed_weapon_attack.md: legs and hips from the model through the key poses, `upper_body` takes spine, arms and hands from the poses (tangents: faster into the strike, braking after it; two breakdown poses of the sword arm keep the blade off the face), `head` locks the head forward, then the recipes in order: swing_arm solves the sword arm again under the sword's path, one_hand_weapon puts the sword and the fist on it.",
+ "action": "attack",
+ "phases": [
+  {
+   "duration": 0.6,
+   "text": "A person stands in a fighting stance with the left foot forward, then raises the right arm high above the right shoulder and holds it there for a moment."
+  },
+  {
+   "duration": 0.25,
+   "text": "The person swings the right arm hard down and across the body to the left, the front knee bending as the hips turn into the cut."
+  },
+  {
+   "duration": 0.45,
+   "text": "The person lets the right arm carry on low past the left hip, then sweeps it up across the front of the body and back over the right shoulder."
+  },
+  {
+   "duration": 1.05,
+   "text": "The person lowers the right arm and settles back into the fighting stance, and holds the guard."
+  }
+ ],
+ "loop_blend_s": 0.4,
+ "key_poses": {
+  "ready": 0,
+  "raise": 8,
+  "windup_in": 12,
+  "windup": 14,
+  "strike": 20,
+  "follow": 22,
+  "passing": 25,
+  "withdraw": 30,
+  "recover": 38
+ },
+ "upper_body": {
+  "tangents": {
+   "20": 1.6,
+   "22": 0.25
+  },
+  "breakdowns": {
+   "17": {
+    "wrist_move": [
+     0.0,
+     0.15,
+     0.12
+    ],
+    "weapon_toward": [
+     -0.85,
+     0.25,
+     0.45
+    ]
+   },
+   "28": {
+    "wrist_move": [
+     -0.26,
+     0.27,
+     -0.01
+    ],
+    "weapon_toward": [
+     -0.75,
+     0.35,
+     0.55
+    ]
+   }
+  }
+ },
+ "head": {
+  "mode": "lock",
+  "pitch_deg": 3
+ },
+ "recipe": [
+  {
+   "name": "swing_arm",
+   "tip": [
+    0.0,
+    0.0,
+    0.99
+   ],
+   "edge": [
+    1.0,
+    0.0,
+    0.0
+   ],
+   "loop": true,
+   "path_edits": [
+    {
+     "frames": {
+      "10": 0.33,
+      "11": 0.66,
+      "12": 1,
+      "13": 1,
+      "14": 1,
+      "15": 0.66,
+      "16": 0.33
+     },
+     "move_cm": 20
+    }
+   ]
+  },
+  {
+   "name": "one_hand_weapon",
+   "weapon": "sword.glb",
+   "hand": "right",
+   "in_hand": [
+    [
+     0.0,
+     0.0,
+     0.5,
+     0.004
+    ],
+    [
+     0.5,
+     0.0,
+     0.0,
+     0.105
+    ],
+    [
+     0.0,
+     0.5,
+     0.0,
+     -0.004
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "grip": [
+    [
+     0.0,
+     0.0,
+     -0.8
+    ],
+    [
+     0.0,
+     0.0,
+     -0.5
+    ]
+   ],
+   "fingers": {
+    "index.1.R": [
+     0.714,
+     0.7,
+     0.0,
+     0.0
+    ],
+    "index.2.R": [
+     0.703,
+     0.711,
+     0.0,
+     0.0
+    ],
+    "index.3.R": [
+     0.704,
+     0.709,
+     0.0,
+     0.044
+    ],
+    "thumb.1.R": [
+     0.94,
+     0.2,
+     0.1,
+     0.25
+    ]
+   }
+  }
+ ]
+}
