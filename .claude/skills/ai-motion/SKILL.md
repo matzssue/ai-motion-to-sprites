@@ -330,6 +330,20 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   (spheres around bones) barely agrees with the audit (IK reports a collision in 81 frames, the audit an error in 32; in 9
   frames the audit fails and IK sees nothing). Tune for the audit, never for the "frames with a collision" counter; a small
   parameter change can rearrange everything (8.7 → 12.2 after 4 cm).
+- **The prop pose search is slow by its count, not by its geometry** (own skeleton / armpit: every candidate pose is
+  scored on the real skin). An aim frame asks for ~490 candidates (108 starts + six descents), a hold frame for ~28.
+  Kusznik (38k vertices, 56k faces): 105 ms per candidate, 54 ms of it Python lists rebuilt for one BVH (labelled faces
+  picked again, 38k Vectors) while the tree itself builds in 7 ms; one sample took 1 h 46 min. Now 13 ms: faces picked
+  once, trees on the vertices they use, one skin deform per candidate, arm setups / body hits / skin depths remembered
+  per prop pose inside a frame's search, a candidate dropped once its cost so far cannot beat the best (every part of
+  the cost is >= 0), a frame whose body did not change since the last pass keeps its answer. Measure before tuning:
+  `time [s]:` and `time, search:` in the output.
+- **A speed change to the solver must give the same file.** A float that differs in its last bit flips one `<` in the
+  descent and a frame comes out elsewhere (as with any small parameter change, above). Check a frame set with
+  `--frames` and the whole clip with `compare_motion.py` (`COMPARE IDENTICAL`) against the output of the old code on
+  the same merged file. Traps met: the matrix product of a part of an array may round differently from the same rows
+  of the whole array's product; two trees over a split face set break ties (a point nearest to a shared edge) in
+  another order than one tree, and the face decides the region and the sign.
 - The grip path does not know about the loop: the last and first frame can differ (7 versions had 30° on the seam).
   Audit: `loop_seam_*`.
 - Read the audit with `share` and `side` (AUDIT.md): "fr. 1–99" is a range, not the whole clip; "forearm in head" does not say which one.
