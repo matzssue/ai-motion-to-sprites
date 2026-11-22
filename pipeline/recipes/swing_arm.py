@@ -6,7 +6,8 @@ Not for: a path that is itself wrong (the path is kept; `path_edits` only tilt o
 Inputs: motion file `recipe` entry: `tip` (the weapon's tip) and `edge` (a direction across the blade toward a cutting
     edge), both in weapon mesh coordinates; `hand`, `in_hand`, `grip` as in one_hand_weapon (read from that entry of the
     same file when left out); optional `loop`, `path_edits`, `pin`, `ease_frames`, `path_hold`, `other_arm_blend`,
-    `wrist`, `targets`, `weights`, `grid` (below).
+    `wrist`, `targets`, `weights`, `grid`, and the strike options `pin_toward`, `reach`, `wrist_anatomical`,
+    `wrist_twist_cap`, `forearm_clear` with `clear_points`, `guard` (below).
 Output: the clip GLB with that side's shoulder, upper arm, forearm and hand keyed on every frame of the action;
     `<out>_recipe.json`. The body, the head and the fingers stay as the clip has them; the other arm too, unless
     `other_arm_blend` is given.
@@ -43,6 +44,29 @@ Joining the next clip, and a changed weapon or hold:
     100 deg (knight fr. 27: deviation 85 -> 16, twist 64 -> 100); those frames are the path's to fix.
     `weights.elbow_straight` (default 0, try 1 with "split"): a cost for an elbow opened past `targets.elbow_angle`.
 `targets` (deg, cm), `weights`, `grid` (deg): TARGETS, WEIGHTS, GRID below; a key given replaces that one number.
+Options for a strike the path alone does not serve (all off by default; the knight example uses each, see
+examples/knight/attack.json). Frames are frames of the action; spans [first, last] are inclusive.
+`pin_toward`: {"frame": 19, "poses": "poses_by_hand/poses.glb", "action": "attack", "t": 0.75, "ease": 4}: the path's
+    target on that frame moves the share `t` toward the weapon as the hand of that key pose holds it (pose_edit_scene.py
+    exports it; `poses` relative to the motion file, `action` default this one), smoothstep over +-`ease` frames. Not a
+    pin: the arm is still solved. t = 1 put the knight's arm straight (elbow 156 deg): the posed shoulder turned too.
+`reach`: [{"frames": [24, 25], "rolls": {"24": 30, "25": 12}, "cap_cm": 12, "grid_cm": 3, "ramp": [0.66, 0.33],
+    "clear_reject_cm": 9, "helmet_reject_cm": 12, "elbow_soft": [150, 3]}]: spans, in order, on which the grip POINT moves
+    by one offset (blade direction and hold kept) so the forearm lines up with the hand; `ramp` weights it on the frames
+    next to the span. The offset is the grid point (step `grid_cm`, within `cap_cm`) of least summed cost over the span:
+    wrist deviation / 30 deg and flexion / 70 deg about the hand's own axes, upper-arm twist, offset size; rejected
+    where the weapon comes within `clear_reject_cm` of the arm's axis (`clear_points`) or the blade within
+    `helmet_reject_cm` of the helmet as the S and SE cameras see it (`guard`); `elbow_soft` [deg, weight]: an elbow
+    opened past deg costs. `rolls`: the weapon roll per frame to judge it at (`weapon_roll` of an earlier run's report).
+    One offset per span: per-frame offsets pointed different ways and cancelled out when smoothed (knight, frame 26).
+`wrist_anatomical`: {"flexion": 70, "deviation": 30, "frames": [14, 30]}: on those frames the wrist's bend is costed
+    as flexion and deviation about the hand bone's own rest axes (Z, X), in place of the one cone: one 85 deg cone let
+    73 deg toward the little finger pass.
+`wrist_twist_cap`: 68: a wrist twist past this many degrees costs 100 per 5 deg over.
+`forearm_clear`: {"radius_cm": 9, "weight": 200, "past_wrist_cm": 5, "frames": [22, 30]}: the weapon's `clear_points`
+    within `radius_cm` of the arm's axis (shoulder-elbow, elbow-wrist and `past_wrist_cm` beyond) cost on those frames.
+`clear_points`: points of the weapon (guard ends, along the blade, pommel), weapon mesh coordinates.
+`guard`: where the blade leaves the guard, weapon mesh coordinates (the blade the helmet check samples).
 Run it on the clip, as chain.py and character.py do: on its own output `path_edits` would move the path a second time.
 The rest pose faces -Y with Z up (Blender), as everywhere in the pipeline."""
 import json
@@ -73,6 +97,10 @@ FORWARD, UP = np.array([0.0, -1.0, 0.0]), np.array([0.0, 0.0, 1.0])
 X, Y, Z = np.eye(3)
 KEYS = ("upper_arm_twist", "forearm_roll", "wrist_twist", "wrist_bend")
 SPLIT = ("wrist_flexion", "wrist_deviation")   # measured and costed in place of wrist_bend when the hand's axes are known
+REACH_SWIVEL = np.arange(-180, 180, 10)        # swivels `reach` tries per offset
+REJECT = 1000.0                                 # what a `reach` offset pays for a weapon in the arm or the helmet
+HELMET_DOWN = 0.12                              # m below the head bone's tail: the helmet's centre for helmet_reject_cm
+CAMERAS = (0.0, 315.0)                          # S and SE, 30 deg down: where a blade over the helmet reads as one
 
 
 def unit(v):
@@ -191,7 +219,7 @@ def solve(C, fr, phi, roll, turn=None):
     Yw, Fw = unit(E - S), unit(W - E); h = unit(np.cross(e, D)); h = unit(h - Yw * np.sum(h * Yw, -1, keepdims=True))
     Bu = np.stack([h, Yw, np.cross(h, Yw)], -1) @ C["hinge"].T
     Bc = Bu @ C["R_uf"]; Bf0 = arc(Bc[..., :, 1], Fw) @ Bc   # the forearm by the hinge alone, before its own roll
-    return {"S": S, "E": E, "W": W, "H3": H3, "Bs": Bs, "Bu": Bu, "Bf0": Bf0, "short": short, "e": e, "turn": turn}
+    return {"S": S, "E": E, "W": W, "H3": H3, "Bs": Bs, "Bu": Bu, "Bf0": Bf0, "short": short, "e": e, "turn": turn, "f": fr.get("f")}
 
 
 def forearm(C, s, rho):
@@ -204,18 +232,69 @@ def forearm(C, s, rho):
 def soft(x, target): return (x / target) ** 2 + OVER * np.maximum(0.0, np.abs(x) / target - 1) ** 2
 
 
-def roll_cost(C, pr, wt, wb, fd=None):
+def axis_flex_dev(C, Bf, H3):
+    """(flexion, deviation) of the wrist, deg, about the hand bone's own rest axes Z and X (no finger axes needed): where
+    the hand's long axis points under forearm rotations `Bf` [..., 3, 3]. `wrist_anatomical` and `reach` cost with it."""
+    y = (T(Bf @ C["R_fh"]) @ H3)[..., :, 1]
+    return np.degrees(np.arctan2(y[..., 2], y[..., 1])), np.degrees(np.arctan2(y[..., 0], y[..., 1]))
+
+
+def in_span(o, f):
+    """Whether option `o` ({"frames": [first, last]} or no "frames": every frame) is on at frame `f`."""
+    return bool(o) and ("frames" not in o or (f is not None and o["frames"][0] <= f <= o["frames"][1]))
+
+
+def roll_cost(C, pr, wt, wb, fd=None, fa=None):
     """What the forearm's roll and the wrist cost. `fd` (flexion, deviation): the wrist's bend by direction, each against its
-    own target, in place of the one cone `wb`."""
+    own target, in place of the one cone `wb`; `fa`: the same about the hand's own axes against `wrist_anatomical`."""
     t, w = C["targets"], C["weights"]
-    bend = soft(wb, t["wrist_bend"]) if fd is None else soft(fd[0], t["wrist_flexion"]) + soft(fd[1], t["wrist_deviation"])
-    return w["forearm_roll"] * soft(pr, t["forearm_roll"]) + w["wrist"] * (soft(wt, t["wrist_twist"]) + bend)
+    if fa is not None: A = C["anatomical"]; bend = soft(fa[1], A.get("deviation", 30)) + soft(fa[0], A.get("flexion", 70))
+    else: bend = soft(wb, t["wrist_bend"]) if fd is None else soft(fd[0], t["wrist_flexion"]) + soft(fd[1], t["wrist_deviation"])
+    c = w["forearm_roll"] * soft(pr, t["forearm_roll"]) + w["wrist"] * (soft(wt, t["wrist_twist"]) + bend)
+    if C.get("wrist_twist_cap"): c = c + 100 * np.maximum(0.0, np.abs(wt) - C["wrist_twist_cap"]) ** 2 / 25
+    return c
 
 
 def forearm_cost(C, s, rho):
     """`roll_cost` of the forearm rolls `rho` on the states `s` [states, rolls]."""
     Bf, pr, wt, wb = forearm(C, s, rho)
+    if in_span(C.get("anatomical"), s.get("f")): return roll_cost(C, pr, wt, wb, fa=axis_flex_dev(C, Bf, s["H3"][:, None]))
     return roll_cost(C, pr, wt, wb, flex_dev(C, Bf, s["H3"][:, None]) if C.get("wrist_split") else None)
+
+
+def seg_dist(P, A, B):
+    """Distance of points P [..., 3] from the segments A-B [..., 3]."""
+    ab = B - A; t = np.clip(np.sum((P - A) * ab, -1) / np.maximum(np.sum(ab * ab, -1), 1e-12), 0, 1)
+    return np.linalg.norm(P - (A + ab * t[..., None]), axis=-1)
+
+
+def clear_dist(C, Gt, s):
+    """[states, points]: m from the weapon's `clear_points` to the arm's axis (shoulder-elbow, elbow-wrist and
+    past_wrist_cm beyond the wrist), the weapon's grip point at `Gt` [3] or [states, 3]."""
+    past = (C.get("forearm_clear") or {}).get("past_wrist_cm", 5) / 100
+    P = np.broadcast_to(Gt, s["W"].shape)[:, None] + np.einsum("sij,pj->spi", s["H3"] @ C["grip3"], C["clear_pts"])
+    S, E, W = s["S"][:, None], s["E"][:, None], s["W"][:, None]; Wx = W + unit(W - E) * past
+    return np.minimum(seg_dist(P, E, Wx), seg_dist(P, S, E))
+
+
+def clear_cost(C, fr, s):
+    """[states]: `forearm_clear` - each weapon point inside radius_cm of the arm's axis costs ((r - d) / r)^2."""
+    FC = C.get("forearm_clear")
+    if not in_span(FC, fr.get("f")): return 0.0
+    r = FC["radius_cm"] / 100; d = clear_dist(C, fr["Gt"], s)
+    return FC.get("weight", 50) * np.sum(np.where(d < r, ((r - d) / r) ** 2, 0.0), -1)
+
+
+def helmet_cm(C, head, blade, Gt):
+    """[grip points Gt [m, 3]]: cm between the blade (from `guard` to the tip along `blade`) and the helmet's centre as the
+    S and SE cameras see it; 99 where the blade is behind the head in both."""
+    hc = head - UP * HELMET_DOWN; best = np.full(len(Gt), 99.0); c30, s30 = np.cos(np.radians(30)), np.sin(np.radians(30))
+    for g in np.radians(CAMERAS):
+        d = unit(np.array([np.sin(g) * c30, -np.cos(g) * c30, s30]))
+        for y in np.arange(C["guard"], C["blade"] + 0.01, 0.05):
+            v = Gt + blade * y - hc; a = v @ d
+            best = np.where(a > 0, np.minimum(best, np.linalg.norm(v - np.outer(a, d), axis=1) * 100), best)
+    return best
 
 
 def cost(C, fr, s):
@@ -231,7 +310,8 @@ def cost(C, fr, s):
     em = np.sum(s["e"] * unit(fr["other"] - s["S"]), -1); ef = s["e"] @ FORWARD
     c = c + np.where(em > 0.2, w["elbow_across"] * (em - 0.2) ** 2 * 10, 0)
     c = c + np.where((ef > 0.4) & (s["e"] @ UP > 0), w["elbow_across"] * (ef - 0.4) * 10, 0)
-    return c + w["out_of_reach"] * s["short"] * 100 + w["shoulder"] * (s["turn"] / 10) ** 2
+    c = c + w["out_of_reach"] * s["short"] * 100 + w["shoulder"] * (s["turn"] / 10) ** 2
+    return c + clear_cost(C, fr, s) if C.get("forearm_clear") else c
 
 
 def edit_path(G3, Gt, s0, head, edits):
@@ -274,6 +354,48 @@ def ease_path(G3, Gt, real3, realt, pins, ease, loop):
     return G3, Gt, off
 
 
+def toward_path(G3, Gt, tw, loop):
+    """The path [frames] with frame tw["frame"]'s target moved the share tw["t"] toward the weapon `tw` G3 / Gt (where the
+    key pose's hand holds it), smoothstep over +-tw["ease"] frames. -> (G3, Gt, (deg, cm) from the path to that weapon)."""
+    G3, Gt = G3.copy(), Gt.copy(); N = len(Gt) - 1; p = tw["frame"]; K = tw.get("ease", 4)
+    if not 0 <= p <= N: raise ValueError("pin_toward: frame %d is outside the action (0-%d)" % (p, N))
+    ang, ax = turn_of(tw["G3"] @ G3[p].T); dT = tw["Gt"] - Gt[p]
+    for k in range(-K, K + 1):
+        w = tw.get("t", 1.0) * smoothstep(1 - abs(k) / (K + 1)); f = (p + k) % N if loop else p + k
+        if 0 <= f <= N: G3[f] = rot(ax, ang * w) @ G3[f]; Gt[f] = Gt[f] + dT * w
+    return G3, Gt, (ang, float(np.linalg.norm(dT)) * 100)
+
+
+def reach_costs(C, fr, V, roll, span):
+    """What the grip moved by each offset V [m, 3] costs on one frame (`fr`, weapon roll `roll`), its best swivel: wrist
+    deviation and flexion about the hand's own axes, upper-arm twist, offset size, the span's rejects. -> [m]."""
+    m, k = len(V), len(REACH_SWIVEL); Gt = fr["Gt"] + np.repeat(V, k, 0)
+    s = solve(C, dict(fr, Gt=Gt), np.tile(REACH_SWIVEL, m), np.full(m * k, float(roll)), turn=0.0)
+    fl, dv = axis_flex_dev(C, s["Bf0"], s["H3"]); ut = twist_bend(T(s["Bs"] @ C["R_su"]) @ s["Bu"])[0]
+    c = (dv / 30) ** 2 + (fl / 70) ** 2 + s["short"] * 1000 + 0.3 * (np.linalg.norm(Gt - fr["Gt"], axis=1) / 0.2) ** 2
+    c = c + 0.3 * soft(ut, C["targets"]["upper_arm_twist"])
+    if span.get("elbow_soft"):   # [deg, weight]: keep the arm from locking straight
+        c = c + span["elbow_soft"][1] * (np.maximum(0.0, elbow_angle(s["S"], s["E"], s["W"]) - span["elbow_soft"][0]) / 10) ** 2
+    if span.get("clear_reject_cm"): c = c + np.where(clear_dist(C, Gt, s).min(1) * 100 < span["clear_reject_cm"], REJECT, 0)
+    if span.get("helmet_reject_cm"): c = c + np.where(helmet_cm(C, fr["head"], fr["G3"][:, 2], Gt) < span["helmet_reject_cm"], REJECT, 0)
+    return c.reshape(m, k).min(1)
+
+
+def reach_offset(C, frs, span):
+    """`reach`: the one grip offset [3] for the frames of `span` (frs: those frames' fr dicts) and its summed cost. Grid
+    points down / out from the shoulder / to the side, `grid_cm` apart within `cap_cm`; no offset wins a tie."""
+    fs = span["frames"]; F0 = frs[fs[len(fs) // 2]]; W0 = F0["Gt"] - F0["G3"] @ C["grip3"].T @ C["grip_t"]
+    dn = -UP; out = unit(W0 - F0["s0"]); out = unit(out - dn * (out @ dn)); sd = np.cross(dn, out); cap = span.get("cap_cm", 12) / 100
+    rng = np.arange(-span.get("cap_cm", 12), span.get("cap_cm", 12) + 0.1, span.get("grid_cm", 3)) / 100
+    V = np.array([np.zeros(3)] + [dn * a + out * b + sd * c for a in rng for b in rng for c in rng])
+    V = V[np.r_[True, np.linalg.norm(V[1:], axis=1) <= cap + 1e-9]]
+    rolls = {int(k): v for k, v in span["rolls"].items()}
+    missing = [f for f in fs if f not in rolls]
+    if missing: raise ValueError("reach: no `rolls` for frames %s" % missing)
+    tot = sum(reach_costs(C, frs[f], V, rolls[f], span) for f in fs); i = int(np.argmin(tot))
+    return V[i], float(tot[i]), float(tot[0])
+
+
 def end_weights(n, k):
     """Weight per frame [n] of a pose blended in at both ends of an action: 1 on the first and the last frame, smoothstep
     down to 0 on the frame `k` + 1 away."""
@@ -307,21 +429,38 @@ def smooth(deg, loop):
     return np.degrees(a)
 
 
-def plan(clip, C, loop=True, edits=None, pins=(), ease=0):
+def plan(clip, C, loop=True, edits=None, pins=(), ease=0, toward=None, reach=()):
     """The arm for every frame of the clip. `clip`: arrays over the frames of the action (first and last included): the grip
     G3 [n, 3, 3] / Gt [n, 3], the shoulder bone c0, Bs, the shoulder joint s0, the top of the head `head`, the other
     shoulder joint `other`. `C`: the arm's constants (rest rotations R_su, R_uf, R_fh, lengths L1, L2, hinge, grip3,
-    grip_t, blade, targets, weights, grid). `pins`: frames that keep the clip's arm, which `clip` then holds too (Bu, Bf,
-    Bh, E, W); `ease`: see ease_path. -> per-frame arrays: Bs, Bu, Bf, Bh, S, E, W (the pose), swivel, roll, forearm,
-    turn, short, cut, pinned, G3, Gt (the path asked for), and `held` (ease_path's offsets)."""
+    grip_t, blade, targets, weights, grid; the options' anatomical, wrist_twist_cap, forearm_clear, clear_pts, guard).
+    `pins`: frames that keep the clip's arm, which `clip` then holds too (Bu, Bf, Bh, E, W); `ease`: see ease_path;
+    `toward`: see toward_path; `reach`: the spans of the recipe's `reach`. -> per-frame arrays: Bs, Bu, Bf, Bh, S, E, W
+    (the pose), swivel, roll, forearm, turn, short, cut, pinned, G3, Gt (the path asked for), `held` (ease_path's
+    offsets), `toward` ((deg, cm) or None), `reached` ([(frames, offset [3], cost, cost without)])."""
     n = len(clip["Gt"]); F = n - 1 if loop else n; g = C["grid"]; w = C["weights"]
     if any(not 0 <= int(p) < n for p in pins): raise ValueError("pin: frames %s are outside the action (0-%d)" % (sorted(pins), n - 1))
-    pins = sorted({int(p) % F for p in pins}); held = {}
+    pins = sorted({int(p) % F for p in pins}); held = {}; toward_off = None; reached = []
     G3, Gt = edit_path(clip["G3"], clip["Gt"], clip["s0"], clip["head"], edits)
+    if toward: G3, Gt, toward_off = toward_path(G3, Gt, toward, loop)
     if pins:
         G3, Gt, held = ease_path(G3, Gt, clip["Bh"] @ C["grip3"], clip["W"] + clip["Bh"] @ C["grip_t"], pins, ease, loop)
         sw_in = swivel(clip["s0"], clip["E"], clip["W"])
-    frs = [dict({k: clip[k][f] for k in ("c0", "s0", "Bs", "head", "other")}, G3=G3[f], Gt=Gt[f], turn=0.0) for f in range(n)]
+
+    def frame_of(f): return dict({k: clip[k][f] for k in ("c0", "s0", "Bs", "head", "other")}, G3=G3[f], Gt=Gt[f], turn=0.0, f=f)
+
+    for span in reach:   # in order: each span sees the path the one before it left
+        bad = [f for f in span["frames"] if not 0 <= f < n]
+        if bad: raise ValueError("reach: frames %s are outside the action (0-%d)" % (bad, n - 1))
+        V, c, c0 = reach_offset(C, {f: frame_of(f) for f in span["frames"]}, span)
+        off = {f: V for f in span["frames"]}
+        for k, wr in enumerate(span.get("ramp", [0.66, 0.33]), 1):
+            off.setdefault(span["frames"][0] - k, V * wr); off.setdefault(span["frames"][-1] + k, V * wr)
+        Gt = Gt.copy()
+        for f, o in off.items():
+            if 0 <= f < n: Gt[f] = Gt[f] + o
+        reached.append((list(span["frames"]), V, c, c0))
+    frs = [frame_of(f) for f in range(n)]
     tip = Gt + G3[:, :, 2] * C["blade"]; a_, b_ = np.arange(n) - 1, np.arange(n) + 1
     vel = (tip[b_ % (n - 1) if loop else np.minimum(b_, n - 1)] - tip[a_ % (n - 1) if loop else np.maximum(a_, 0)]) / 2
     speed = np.linalg.norm(vel, axis=1); cut = speed > CUT_SHARE * speed.max()
@@ -352,7 +491,7 @@ def plan(clip, C, loop=True, edits=None, pins=(), ease=0):
         if pins: out[k][pinned] = clip[src][pinned]
     out["short"][pinned] = 0
     out.update(swivel=phi[ii], roll=roll[ii], forearm=rho[ii], turn=np.array([frs[i]["turn"] for i in ii]), cut=cut, G3=G3, Gt=Gt,
-               pinned=pinned, held=held)
+               pinned=pinned, held=held, toward=toward_off, reached=reached)
     return out
 
 
@@ -427,10 +566,20 @@ def main():
         bpy.context.scene.frame_set(int(OB.get("frame", 0))); bpy.context.view_layer.update()
         return {b: arm.pose.bones[b].matrix_basis.to_quaternion() for b in bones}
 
-    if OB and OB.get("clip"):
-        other_clip = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(A.motion)), OB["clip"]))
-        if not os.path.exists(other_clip): raise SystemExit("%s: other_arm_blend.clip: no file %s" % (A.motion, other_clip))
-        target = other_pose(other_clip)
+    def beside(path, key):
+        """A file named in the motion file, relative to it."""
+        p = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(A.motion)), path))
+        if not os.path.exists(p): raise SystemExit("%s: %s: no file %s" % (A.motion, key, p))
+        return p
+
+    if OB and OB.get("clip"): target = other_pose(beside(OB["clip"], "other_arm_blend.clip"))
+    PT = P.get("pin_toward"); key_hand = None
+    if PT:   # the key pose's hand (world rotation, wrist point) on that frame of the poses file
+        parm, _ = take(beside(PT["poses"], "pin_toward.poses"), PT.get("action", R["action"]))
+        hb = rig_of(parm, A.skeleton).prof.bone("hand", side); bpy.context.scene.frame_set(int(PT["frame"])); bpy.context.view_layer.update()
+        PW = np.array(parm.matrix_world); pm = parm.pose.bones[hb].matrix
+        key_hand = (PW[:3, :3] / float(abs(np.linalg.det(PW[:3, :3])) ** (1 / 3)) @ np.array(pm.to_3x3().normalized()),
+                    PW[:3, :3] @ np.array(pm.translation) + PW[:3, 3])
     arm, act = take(A.glb, R["action"]); sc = bpy.context.scene
     if OB and not OB.get("clip"): target = other_pose(None); arm, act = take(None, R["action"])
     RIG = rig_of(arm, A.skeleton); PROF = RIG.prof; pbs, dbs = arm.pose.bones, arm.data.bones
@@ -469,15 +618,34 @@ def main():
     C["wrist_split"] = bool(axes) and wrist_mode(P) == "split"
     if wrist_mode(P) == "split" and not axes:
         print("recipe %s: no fingers below %s to tell the hand's sides apart: the wrist is costed as one cone" % (NAME, HA))
+    span = lambda o: dict(o, frames=[int(x) - f0 for x in o["frames"]]) if o and "frames" in o else o   # noqa: E731
+    C["anatomical"], C["forearm_clear"], C["wrist_twist_cap"] = span(P.get("wrist_anatomical")), span(P.get("forearm_clear")), P.get("wrist_twist_cap")
+    reach = [dict(span(s), rolls={int(k) - f0: v for k, v in s.get("rolls", {}).items()}) for s in P.get("reach", [])]
+    M = np.asarray(P["in_hand"], float); GRIPi = np.linalg.inv(GRIP)
+    if C["forearm_clear"] or any(s.get("clear_reject_cm") for s in reach):
+        if not P.get("clear_points"): raise SystemExit("%s: recipe %s: forearm_clear and reach.clear_reject_cm need `clear_points`" % (A.motion, NAME))
+        C["clear_pts"] = np.array([(GRIPi @ M @ np.r_[p, 1.0])[:3] for p in P["clear_points"]]) * scale
+    if any(s.get("helmet_reject_cm") for s in reach):
+        if "guard" not in P: raise SystemExit("%s: recipe %s: reach.helmet_reject_cm needs `guard`" % (A.motion, NAME))
+        C["guard"] = float((GRIPi @ M @ np.r_[P["guard"], 1.0])[2]) * scale
+    toward = None
+    if PT:   # the weapon where the key pose's hand holds it with this entry's hold
+        toward = dict(PT, frame=int(PT["frame"]) - f0, G3=key_hand[0] @ C["grip3"], Gt=key_hand[1] + key_hand[0] @ C["grip_t"])
     # the path is read with the hold the clip was made with, the arm solved for this entry's own
     clip = dict({k: I[k] for k in ("c0", "s0", "Bs", "head", "other", "Bu", "Bf", "Bh", "E", "W")}, G3=I["Bh"] @ C["path3"], Gt=I["W"] + I["Bh"] @ C["path_t"])
     try:   # path_edits and pin name frames of the action; plan() counts from its first frame
         O = plan(clip, C, loop, [dict(e, frames={int(k) - f0: v for k, v in e["frames"].items()}) for e in P.get("path_edits", [])],
-                 [int(p) - f0 for p in P.get("pin", [])], int(P.get("ease_frames", 0)))
+                 [int(p) - f0 for p in P.get("pin", [])], int(P.get("ease_frames", 0)), toward, reach)
     except ValueError as e:
         raise SystemExit("%s: recipe %s: %s" % (A.motion, NAME, e))
     notes = []
     if PH: notes.append("path read with the hold the clip was made with")
+    if O["toward"]:
+        notes.append("fr. %d moved %.2f of the way toward the key pose's weapon (%.1f deg / %.1f cm off the path) over +-%d frames" % (
+            PT["frame"], PT.get("t", 1.0), O["toward"][0], O["toward"][1], PT.get("ease", 4)))
+    for fs, V, c, c0 in O["reached"]:
+        notes.append("reach fr. %d-%d: grip moved %.1f cm (world x %+.1f y %+.1f z %+.1f), cost %.2f -> %.2f" % (
+            frames[fs[0]], frames[fs[-1]], np.linalg.norm(V) * 100, *(V * 100), c0, c))
     for p, (deg, cm) in sorted(O["held"].items()):
         notes.append("fr. %d pinned to the clip's arm, the weapon there %.1f deg / %.1f cm off the path%s" % (
             frames[p], deg, cm, ", eased in over %d frames" % P["ease_frames"] if P.get("ease_frames", 0) > 1 else ""))
