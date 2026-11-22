@@ -93,6 +93,11 @@ METRICS = {
     "upper_arm_twist_L": (100, "deg", "joints"), "upper_arm_twist_R": (100, "deg", "joints"),
     "forearm_roll_L": (None, "deg", "joints"), "forearm_roll_R": (None, "deg", "joints"),
     "elbow_above_shoulder_L": (0.10, "m", "joints"), "elbow_above_shoulder_R": (0.10, "m", "joints"),
+    # a finger looped onto itself round a weapon a recipe put in that hand: the most any finger bends, summed over its bones
+    # (each bone's turn since rest). The knight's fist set on a thick placeholder grip, then used on a thin one: 270-297 deg
+    # per finger, the index tip 1.6 cm from its own base, the author: "one finger is curled up". His own hand-posed fist on
+    # the same sword: 58-109. A fist computed to wrap that grip: 154-160. Skipped for a hand without a recipe weapon
+    "finger_curl_L": (220, "deg", "joints"), "finger_curl_R": (220, "deg", "joints"),
     # the head's forward axis against the way the rest pose faces (HEAD_YAW_WARN below): reported, a warning, no score
     "head_yaw": (None, "deg", "joints"), "head_pitch": (None, "deg", "joints"),
 }
@@ -117,6 +122,7 @@ LABELS = {
     "upper_arm_twist_L": "left upper arm twist", "upper_arm_twist_R": "right upper arm twist",
     "forearm_roll_L": "left forearm roll", "forearm_roll_R": "right forearm roll",
     "elbow_above_shoulder_L": "left elbow above shoulder", "elbow_above_shoulder_R": "right elbow above shoulder",
+    "finger_curl_L": "left finger looped round the weapon", "finger_curl_R": "right finger looped round the weapon",
     "head_yaw": "head turned off the facing", "head_pitch": "head tilted up or down",
 }
 UNIT_SHOWN = {"m": "cm", "deg": "deg", "frac": "percent"}   # METRICS unit -> how a page shows it
@@ -164,6 +170,16 @@ def hands_set_by_recipes(reports, action):
     return {r["sets_hand"] for r in reports if isinstance(r, dict) and r.get("action") == action and r.get("sets_hand") in ("L", "R")}
 
 
+def hands_with_weapon(reports, action):
+    """Sides ("L"/"R") whose hand holds a weapon a recipe of this action put there (`weapon` and `hand` in its report)."""
+    return {r["hand"] for r in reports if isinstance(r, dict) and r.get("action") == action and r.get("weapon") and r.get("hand") in ("L", "R")}
+
+
+def finger_curl(flexion):
+    """{finger: [each bone's turn since rest, deg]} -> (the finger that bends most, its sum)."""
+    n = max(flexion, key=lambda k: sum(flexion[k])); return n, float(sum(flexion[n]))
+
+
 def catalog():
     """Every metric in METRICS order with its label, displayed unit and group: the web viewer's copy
     (web/src/audit/catalog.json, written by `python pipeline/lib/audit_metrics.py --catalog <file>`)."""
@@ -195,6 +211,7 @@ NEEDS = {
     "pelvis_shake": ("upper_leg",), "knee_shake": ("lower_leg",),
     "upper_arm_twist_L": ARM_L, "forearm_roll_L": ARM_L, "elbow_above_shoulder_L": ARM_L,
     "upper_arm_twist_R": ARM_R, "forearm_roll_R": ARM_R, "elbow_above_shoulder_R": ARM_R,
+    "finger_curl_L": ("hand.left", "fingers"), "finger_curl_R": ("hand.right", "fingers"),
     "head_yaw": ("head", "upper_arm"), "head_pitch": ("head", "upper_arm"),
 }
 

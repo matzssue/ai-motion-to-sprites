@@ -89,7 +89,7 @@ run in the prop step of `chain.py` and of the merge stage; the audit reports wha
 - One-handed weapon rigid in one hand (the knight's sword): `one_hand_weapon`. `in_hand` and `fingers` come from the
   approved pose scene (`--read-scene`), `grip` from the model (`examples/one_hand_weapon.example.json`). The weapon is
   a mesh in the output GLB; body joints and `key_hands.py`'s hand rotation stay as they are.
-- A one-handed attack runs `swing_arm` before it (the arm solved again under the weapon's path): the playbook has the route.
+- A one-handed attack runs `swing_arm` before it: the playbook has the route and "Swapping the weapon" (keep the fist, `path_hold`, `pin`).
 - Nothing fits: write a new recipe from the smallest one (README there, "Writing one"). One recipe = one narrow case.
 - **Do not add a switch, a mode or a rule to `prop_in_hands.py`**: the two-handed solver (`actions.<a>.prop: true`) is
   EXPERIMENTAL and frozen. What this file says below about its grip, aim, passes and traps describes it as it is.
@@ -143,6 +143,8 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 1. **Audit OK** (`<out>/audit.json`, limits and their meaning: [AUDIT.md](AUDIT.md)).
    "May slightly pass through" = depth below the region's limit, not "a bit over".
    Never raise a limit to make a take pass; raise it only from a measurement, with an entry in AUDIT.md.
+   **Hand-posed keys are read-only input.** A step that writes them again prints `pipeline/checks/pose_diff.py` (per bone,
+   what changed); call a pose or a fist "approved" only when the author saw exactly that one.
    The audit also measures arm skin twist (`skin_twist`, `skin_spread`). **Poses computed outside the chain** (a pose
    script, IK, bone rotations) go through the skin check separately, and a frame composited with a mask through the alpha check:
    ```
@@ -151,8 +153,6 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
    python pipeline/checks/alpha_check.py --raw <body layer>.png --final <composited layer>.png --out <dir>
    ```
    FAIL = look at `closeups/*_stripes.png` (stripes along the arm turn into a spiral) and `alpha_islands.png` (islands in red).
-   Both checks exist because a reviewer asked "we have an animation tool, and it did not catch this?" – a swing with
-   twisted arms and fingers cut by a mask.
 2. **Close-ups** of every failure (`closeups/`, 5 sides) and, even when OK, 3 frames by hand: start, aim peak, shot.
    The audit does not see "unnatural": fingers wrapped the wrong way, elbow up, palm sideways to the stock. Read full frames,
    not crops.

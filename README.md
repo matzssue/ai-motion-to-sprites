@@ -36,7 +36,7 @@ pipeline/
   rig/       prepare, auto-rig, AI rig
   motion/    Kimodo, retarget, upper body from key poses, head forward, prop in hands (experimental), merge/combine actions
   recipes/   one small script per kind of grip or weapon; README.md is the generated index
-  checks/    motion audit, skin check, alpha check, motion compare
+  checks/    motion audit, skin check, alpha check, motion compare, pose diff
   review/    8-direction preview, hand close-ups, review page
 docs/motions/   playbooks: one page per kind of motion made and accepted (route, keys, steps, what was rejected); README.md is the generated index
 ```
@@ -116,6 +116,8 @@ Mask-edge specks are 2–19 px and cut fingertips 65–374 px, so the limits are
 ### Other tools
 - `compare_motion.py`: frame-by-frame bone diff of two GLBs. After a *tool* change the approved motion must come out
   `IDENTICAL` (0.5 mm / 0.5°). The audit score alone has ±0.1 noise from GLB vertex reordering.
+- `pose_diff.py`: two sets of poses (GLB or .blend), per bone the largest rotation difference, most changed first. Hand-posed
+  key poses are read-only input: a step that writes them again shows with this what it changed.
 - `variants.py`: cartesian grid (or named set) of motion-file parameters, run in parallel within free RAM, ranked table
   with per-group scores and `LIMIT` lines (a solution stuck at the edge of its search range).
 - `pose_edit_scene.py`: key poses by hand when no sample did the motion. At the key-pose STOP, `character.py` leaves

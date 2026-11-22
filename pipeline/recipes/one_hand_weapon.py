@@ -12,6 +12,9 @@ Output: the clip GLB with the weapon as a mesh parented to the hand bone and the
 Checks: per whole frame, reported and not scored: how deep the weapon is in the body outside the holding hand and wrist
     (by region), and the share of the grip the fist covers. Points are the weapon's vertices and its edges every 2 cm:
     a body part thinner than that between two points is missed, as is anything between whole frames.
+    The fist, once (it is the same on every frame), reported: per finger the summed flexion of its bones, how deep its
+    skin is inside the grip and how far its farthest phalanx is off it, against the grip's surface radius around its
+    axis. The audit scores the flexion (`finger_curl`): a finger looped onto itself fails the clip.
 
 blender -b --python pipeline/recipes/one_hand_weapon.py -- --glb merged.glb --motion <motion>.json --out out.glb [--skeleton X]
 blender -b <pose scene>.blend --python pipeline/recipes/one_hand_weapon.py -- --read-scene <weapon object> [--hand right]
@@ -26,6 +29,7 @@ import numpy as np
 NAME = "one_hand_weapon"
 STEP = 0.02    # m: spacing of the check points along the weapon's edges
 TOUCH = 0.01   # m: a grip point this close to the holding hand's skin is covered by the fist
+BIN_T, BIN_A = 0.005, 15   # m along the grip, deg around it: bins of the grip's surface radius
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -43,6 +47,65 @@ def grip_mask(pts, a, b):
     """Points of the grip section: between the planes through `a` and `b` across the grip axis."""
     a, b = np.asarray(a, float), np.asarray(b, float); t = (np.asarray(pts, float) - a) @ (b - a) / ((b - a) @ (b - a))
     return (t >= 0) & (t <= 1)
+
+
+def surface_points(co, tris, step=BIN_T):
+    """The vertices plus points on every triangle wider than `step`, about `step` apart."""
+    co = np.asarray(co, float); out = [co]
+    for a, b, c in tris:
+        p, q, r = co[a], co[b], co[c]; n = int(np.ceil(max(np.linalg.norm(q - p), np.linalg.norm(r - p), np.linalg.norm(r - q)) / step))
+        if n > 1:
+            i, j = np.meshgrid(np.arange(n + 1), np.arange(n + 1), indexing="ij"); m = i + j <= n
+            out.append(p + np.outer(i[m] / n, q - p) + np.outer(j[m] / n, r - p))
+    return np.concatenate(out)
+
+
+def cylinder(pts, a, b):
+    """Points around the axis from `a` to `b`: (m along it from `a`, m from it, deg around it 0-360)."""
+    a, b = np.asarray(a, float), np.asarray(b, float); ax = (b - a) / np.linalg.norm(b - a)
+    u = np.cross(ax, [1.0, 0.0, 0.0]) if abs(ax[0]) < 0.9 else np.cross(ax, [0.0, 1.0, 0.0]); u = u / np.linalg.norm(u); v = np.cross(ax, u)
+    d = np.asarray(pts, float) - a; t = d @ ax; r = d - np.outer(t, ax)
+    return t, np.linalg.norm(r, axis=1), np.degrees(np.arctan2(r @ v, r @ u)) % 360
+
+
+def grip_profile(pts, a, b):
+    """The grip's surface radius around its axis [slices of BIN_T from `a` to `b`, sectors of BIN_A deg] from points on its
+    surface: the largest radius in the bin and its eight neighbours; 0 where none of them holds a point."""
+    a, b = np.asarray(a, float), np.asarray(b, float); L = float(np.linalg.norm(b - a)); nt, na = max(1, int(np.ceil(L / BIN_T))), 360 // BIN_A
+    t, r, an = cylinder(pts, a, b); ok = (t >= 0) & (t <= L); P = np.zeros((nt, na))
+    np.maximum.at(P, (np.minimum((t[ok] / BIN_T).astype(int), nt - 1), (an[ok] // BIN_A).astype(int) % na), r[ok])
+    pad = np.vstack([np.zeros((1, na)), P, np.zeros((1, na))])   # along the grip the ends have no neighbour; around it the bins wrap
+    return np.max([np.roll(pad[1 + i:1 + i + nt], j, 1) for i in (-1, 0, 1) for j in (-1, 0, 1)], 0)
+
+
+def grip_depth(profile, pts, a, b):
+    """How far each point is outside the grip's surface, m (negative: inside it); NaN beside the grip's span and where the
+    profile holds no surface."""
+    L = float(np.linalg.norm(np.asarray(b, float) - np.asarray(a, float))); t, r, an = cylinder(pts, a, b); nt, na = profile.shape
+    s = profile[np.clip((t / BIN_T).astype(int), 0, nt - 1), (an // BIN_A).astype(int) % na]
+    return np.where((t >= 0) & (t <= L) & (s > 0), r - s, np.nan)
+
+
+def finger_row(bones):
+    """One finger from its bones, base first [(name, turn since rest in deg, its skin's grip_depth)] -> the summed flexion,
+    the deepest its skin is inside the grip and the farthest one of its phalanges is off it (cm; None: no skin beside the grip)."""
+    rows = {}
+    for n, flex, d in bones:
+        d = np.asarray(d, float); d = d[~np.isnan(d)]
+        rows[n] = {"flexion_deg": round(float(flex)), "inside_cm": round(max(0.0, -float(d.min())) * 100, 1) if d.size else None,
+                   "gap_cm": round(max(0.0, float(d.min())) * 100, 1) if d.size else None}
+    worst = lambda k: max((r[k] for r in rows.values() if r[k] is not None), default=None)   # noqa: E731
+    return {"flexion_deg": round(float(sum(b[1] for b in bones))), "inside_cm": worst("inside_cm"), "gap_cm": worst("gap_cm"), "bones": rows}
+
+
+def fist_line(fingers):
+    """{finger: finger_row} -> the report's words for the fist (the bone named is the phalanx that is worst)."""
+    if not fingers: return "no finger bones below the hand"
+    fl = [f["flexion_deg"] for f in fingers.values()]; out = "fingers bend %d-%d deg in sum" % (min(fl), max(fl))
+    for k, text in (("inside_cm", "skin up to %.1f cm inside the grip (%s)"), ("gap_cm", "a phalanx up to %.1f cm off it (%s)")):
+        v = {b: r[k] for f in fingers.values() for b, r in f["bones"].items() if r[k]}
+        if v: n = max(v, key=v.get); out += ", " + text % (v[n], n)
+    return out
 
 
 def summary(rows):
@@ -151,8 +214,20 @@ def main():
             cov += loc is not None and RA[fi] in ("hands", "fingers") and SA[fi] == s1 and (d <= TOUCH or (v - loc).dot(nor) < 0)
         rows.append({"frame": f, "in_body_cm": {k: round(v[0] * 100, 1) for k, v in hits.items() if round(v[0] * 100, 1) > 0},
                      "grip_covered": round(cov / int(G.sum()), 2)})
+    # the fist against the grip, once: it is rigid in the hand
+    sc.frame_set(f0); bpy.context.view_layer.update(); MW = np.array(w.matrix_world); co = vertices(body, bpy.context.evaluated_depsgraph_get())
+    wco = np.array([v.co for v in w.data.vertices]); w.data.calc_loop_triangles(); inside = grip_mask(wco, *P["grip"])
+    surf = surface_points(wco, [t.vertices for t in w.data.loop_triangles if inside[list(t.vertices)].any()]) @ MW[:3, :3].T + MW[:3, 3]
+    ga, gb = (np.array(g, float) @ MW[:3, :3].T + MW[:3, 3] for g in P["grip"]); prof = grip_profile(surf, ga, gb); chains = {}
+    for b in arm.data.bones:
+        if b.name in fing: chains.setdefault(RIG.finger_root.get(b.name, b.name), []).append(b.name)
+    fist = {root: finger_row([(b, np.degrees(2 * np.arccos(min(1.0, abs(arm.pose.bones[b].matrix_basis.to_quaternion().w)))),
+                               grip_depth(prof, co[dom == b], ga, gb)) for b in bs]) for root, bs in chains.items()}
     rep = dict({"recipe": NAME, "action": R["action"], "weapon": wname, "hand": s1}, **summary(rows))
-    rep["limits"] = "whole frames; weapon vertices and edges every %d cm; holding hand, fingers and wrist left out" % round(STEP * 100)
+    rep["fist"] = {"frame": f0, "fingers": fist}; rep["line"] += "; fist: " + fist_line(fist)
+    rep["limits"] = ("whole frames; weapon vertices and edges every %d cm; holding hand, fingers and wrist left out; the fist on the "
+                     "first frame against the grip's radius in %d mm x %d deg bins, each as wide as its widest neighbour" % (
+                         round(STEP * 100), round(BIN_T * 1000), BIN_A))
     rep["per_frame"] = rows
     out = os.path.abspath(A.out); json.dump(rep, open(out.replace(".glb", "_recipe.json"), "w", encoding="utf-8"), indent=1)
     sc.frame_set(f0)
