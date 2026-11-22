@@ -1,7 +1,7 @@
 """Kimodo BVH (SOMA77 skeleton, T-pose) -> action on the rig (FBX, or GLB from prepare_rig), exported as a GLB clip
 for merge_actions. Bones are matched by role (skeletons/soma.json -> the rig's skeleton profile, default mixamo).
 Rest-pose correction (CORR): the auto-rig stands in an A-pose; without it the arms go sideways.
-blender -b --python pipeline/motion/soma_to_mixamo.py -- src.bvh rig.(fbx|glb) out.glb action_name [loop_blend_s] [--skeleton X]
+blender -b --python pipeline/motion/retarget_kimodo.py -- src.bvh rig.(fbx|glb) out.glb action_name [loop_blend_s] [--skeleton X]
 loop_blend_s > 0: the last N s blend smoothly back to the frame-0 pose (Kimodo does not return: a head popped 26 deg at the loop seam)."""
 import bpy, sys, os, math
 from mathutils import Matrix, Quaternion, Vector

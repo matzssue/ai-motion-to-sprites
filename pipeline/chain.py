@@ -88,7 +88,7 @@ def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=Tr
     clip, merged, ready = (os.path.join(out, "%s_%s.glb" % (p, name)) for p in ("clip", "merged", "prop"))
     data = rig.replace(".glb", "_data.json")
     steps = ["retarget", "merge", "prop", "audit"]; k = steps.index(start)
-    if k <= 0: blender("soma_to_mixamo.py", "RETARGET OK", bvh, rig, clip, "ai_source", str(R.get("loop_blend_s", 0)), *skel(skeleton))
+    if k <= 0: blender("retarget_kimodo.py", "RETARGET OK", bvh, rig, clip, "ai_source", str(R.get("loop_blend_s", 0)), *skel(skeleton))
     upper = "upper_body" in R
     if upper and not key_poses: raise SystemExit("%s has `upper_body`: it needs the approved key poses (--key-poses, --key-frames)" % motion)
     if upper and with_prop: raise SystemExit("%s has `upper_body`: not tried with the prop solver (`prop`), which sets both arms itself" % motion)

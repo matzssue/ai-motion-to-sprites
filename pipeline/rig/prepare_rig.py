@@ -1,6 +1,6 @@
 """Rig for AI motion (once per character): the prop is cut out of the mesh onto its own bone (parented to the back),
 finger bones are grown out of the claws with weights, debris left by the cut is removed. Output = base for
-soma_to_mixamo / merge_actions (--base) and the audit. Next to it `<out>_data.json` for prop_in_hands.
+retarget_kimodo / merge_actions (--base) and the audit. Next to it `<out>_data.json` for prop_in_hands.
 blender -b --python pipeline/rig/prepare_rig.py -- --rig rig_base.fbx --config <character>/rig.json --out rig_ai.glb [--preview]
     [--skeleton mixamo|profile.json]
 Paths inside the config are relative to the config file. `prop.parent` is a bone name without the skeleton prefix.

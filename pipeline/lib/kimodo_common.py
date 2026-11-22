@@ -46,7 +46,7 @@ def back_in_place(pj, track):
 
 
 def save_bvhs(out_dir, name, pj, gr, sk30, n_samples, dev, fps):
-    """BVH per sample on the SOMA77 skeleton (T-pose) for soma_to_mixamo.py."""
+    """BVH per sample on the SOMA77 skeleton (T-pose) for retarget_kimodo.py."""
     import torch
     from kimodo.exports.bvh import save_motion_bvh
     from kimodo.skeleton import SOMASkeleton30, global_rots_to_local_rots
