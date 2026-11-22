@@ -57,8 +57,8 @@ blade passed upright in front of the helmet on its way from overhead to the stri
    retarget is this repo's code, so a round costs seconds and no model run. `character.py` would generate again, because
    the motion file changed; go back to it when the motion is approved (`"approved"` in character.json).
 5. What the numbers should say on the way: `HEAD lock: yaw ... -> 0..1`; the recipe line of `swing_arm` (twist, roll,
-   bend before -> after, weapon off its path 0.0 cm); `one_hand_weapon`'s weapon-in-body frames and its fist line; the audit's
-   `upper_arm_twist`, `elbow_above_shoulder` and `head` lines. The accepted knight clip: audit FAIL 3.71 (hand and elbow
+   bend before -> after, weapon off its path 0.0 cm) and its `WRIST` rows; `one_hand_weapon`'s weapon-in-body frames and its
+   fist line; the audit's `upper_arm_twist`, `elbow_above_shoulder`, `wrist_flexion`, `wrist_deviation` and `head` lines. The accepted knight clip: audit FAIL 3.71 (hand and elbow
    jump at strike speed, wrist bend 100 deg around frame 26, wrist twist 72), upper arm 56 deg, elbow +6 cm, sword in the body on 1 of 56
    frames (0.2 cm, forearm). `key_hand_rot` of the weapon hand is reported, not scored (58 deg on the accepted clip: the
    solver turned that hand on purpose). The audit does not close a motion; the author's verdict does.
@@ -94,6 +94,34 @@ blade passed upright in front of the helmet on its way from overhead to the stri
 - Smoothing the weapon's path on the return (blade direction, with or without the grip, re-timed at a constant speed over
   23-28): judged fine from stills; in motion the blade drops point down between the legs on 24-25, the sword is 0.6 to 11
   cm inside the left leg and the wrist flips (twist -67 to +60 deg in one frame). Keep the posed return.
+
+## The wrist in line with the forearm
+
+The author's rule, for a sword and any other weapon held in one or two hands: "there should never be such a big bend of
+the wrist against the forearm; the wrist should practically always be in one line with the forearm, at most a small
+deviation". On the knight's strike (frame 19) the forearm ran level and the fist hung under it, 74 deg toward the little
+finger. Nothing flagged it: the wrist was measured as one cone of 85 deg in any direction. It is now split
+(`pipeline/lib/wrist.py`) into flexion / extension and deviation to a side, from the rig's rest pose.
+
+- **Gate**: the audit's `wrist_flexion` (50 deg) and `wrist_deviation` (25) for every hand that holds a weapon. From his
+  hand-posed frames: frame 19 as he re-posed it, extension 24 / toward the little finger 16; his keys 0, 14, 20, 28,
+  extension 20-43 / to a side 5-20. The clip accepted before the rule fails on 16-28 (deviation 27-88).
+- **Correct it by lowering or raising the forearm (the elbow angle).** He re-posed frame 19 that way: forearm 18 deg
+  lower, elbow 119 -> 137 deg, the hand turned at the wrist; the fist and the hold as they were.
+- `swing_arm` can cost the two parts separately: `"wrist": "split"` (targets 35 and 15 deg), with
+  `"weights": {"elbow_straight": 1}` for an elbow opened past 160. An option, off by default: it moves the bend into
+  a twist of the hand about the forearm, up to 100 deg. Same input and path as the clip above: deviation 88 -> 21 at
+  most (16 away from the pinned loop frame), flexion 34 -> 46, elbow 85-156 deg, sword in the body on 0 of 56 frames,
+  weapon off its path 0.0 cm; but on 16-19 and 26-28 the blade's direction leaves no arm with the hand in line and
+  the twist goes to 70-100 deg (64 -> 100 on frame 27; audit `wrist_twist` 60). Those frames need the forearm moved,
+  which is the weapon's place on them: pose the frame, or change the path there.
+
+Rejected - do not retry:
+- Moving the grip point alone, the arm chosen as before: 73 -> 56 deg on the strike frame, the frame before it still 74.
+- One cone limit for the wrist: it hides a sideways bend (74 deg is inside 85).
+- Straightening the arm until the elbow locks to bring the hand in line (173 deg; his pose has 137).
+- Capping the wrist's twist in the cost on top of the split: the forearm rolls over instead (roll 100 -> 115-150 deg)
+  and the sideways bend comes back on the return (41 deg on frame 27).
 
 ## Swapping the weapon
 
@@ -144,5 +172,7 @@ Rejected - do not retry:
   are whatever the two clips have (the knight: hips 0.1 cm, feet 1.2-2.4 cm).
 - The other arm is the poses' and hangs from the model's hips: on the keys the hands sit a little off the posed spot in
   the world (`key_hands.py` reports it per key).
+- A frame whose path forces the wrist out of line (above): the recipe has no per-frame grip offset and no pin to a
+  hand-posed arm in mid-clip (`pin` keeps the clip's own arm); the knight's were made outside the tool.
 - One character, one cut. A second one-handed attack that goes differently belongs in this page; a different kind of
   motion gets its own.

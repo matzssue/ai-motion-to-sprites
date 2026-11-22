@@ -98,6 +98,15 @@ METRICS = {
     # per finger, the index tip 1.6 cm from its own base, the author: "one finger is curled up". His own hand-posed fist on
     # the same sword: 58-109. A fist computed to wrap that grip: 154-160. Skipped for a hand without a recipe weapon
     "finger_curl_L": (220, "deg", "joints"), "finger_curl_R": (220, "deg", "joints"),
+    # the wrist of a hand that holds a weapon (a recipe's, or the prop in both hands), from the rig's rest pose, split by
+    # the direction of the bend (wrist.py): flexion / extension, and deviation toward the thumb or the little finger.
+    # The author's rule: "the wrist should practically always be in one line with the forearm, at most a small
+    # deviation". He circled the knight's strike (9i fr. 19): the fist hung under a level forearm, 74 deg toward the
+    # little finger, extension 5; the one cone (wrist_bend, 85) passed it. His own hand-posed frames, sword hand:
+    # that frame re-posed 24 extension / 16 ulnar; his four earlier keys 20-43 extension (43 on the wind-up), 5-20 to a
+    # side (20 radial on the strike). Limits = his largest + a margin. For such a hand wrist_bend is reported only
+    "wrist_flexion_L": (50, "deg", "joints"), "wrist_flexion_R": (50, "deg", "joints"),
+    "wrist_deviation_L": (25, "deg", "joints"), "wrist_deviation_R": (25, "deg", "joints"),
     # the head's forward axis against the way the rest pose faces (HEAD_YAW_WARN below): reported, a warning, no score
     "head_yaw": (None, "deg", "joints"), "head_pitch": (None, "deg", "joints"),
 }
@@ -123,6 +132,8 @@ LABELS = {
     "forearm_roll_L": "left forearm roll", "forearm_roll_R": "right forearm roll",
     "elbow_above_shoulder_L": "left elbow above shoulder", "elbow_above_shoulder_R": "right elbow above shoulder",
     "finger_curl_L": "left finger looped round the weapon", "finger_curl_R": "right finger looped round the weapon",
+    "wrist_flexion_L": "left wrist flexed or extended under a weapon", "wrist_flexion_R": "right wrist flexed or extended under a weapon",
+    "wrist_deviation_L": "left wrist bent sideways under a weapon", "wrist_deviation_R": "right wrist bent sideways under a weapon",
     "head_yaw": "head turned off the facing", "head_pitch": "head tilted up or down",
 }
 UNIT_SHOWN = {"m": "cm", "deg": "deg", "frac": "percent"}   # METRICS unit -> how a page shows it
@@ -212,6 +223,8 @@ NEEDS = {
     "upper_arm_twist_L": ARM_L, "forearm_roll_L": ARM_L, "elbow_above_shoulder_L": ARM_L,
     "upper_arm_twist_R": ARM_R, "forearm_roll_R": ARM_R, "elbow_above_shoulder_R": ARM_R,
     "finger_curl_L": ("hand.left", "fingers"), "finger_curl_R": ("hand.right", "fingers"),
+    "wrist_flexion_L": ("forearm.left", "hand.left", "fingers"), "wrist_flexion_R": ("forearm.right", "hand.right", "fingers"),
+    "wrist_deviation_L": ("forearm.left", "hand.left", "fingers"), "wrist_deviation_R": ("forearm.right", "hand.right", "fingers"),
     "head_yaw": ("head", "upper_arm"), "head_pitch": ("head", "upper_arm"),
 }
 
