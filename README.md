@@ -7,6 +7,10 @@ Text-to-motion for 2D games. One command takes a generated 3D character to an an
 retargets it to a rig with Mixamo-compatible bone naming, puts a weapon into the hands with a small recipe per kind of grip (a one-handed sword; an experimental two-handed solver for a crossbow or a staff),
 and checks every quarter frame for problems a human would reject.
 
+![A knight's attack generated with the tool, directions S, SE, E, NE](examples/knight/preview_attack.webp)
+
+Full example with sprites and what was done by hand: [`examples/knight/`](examples/knight/README.md).
+
 It was built for a real game: an isometric action roguelite with a few hundred enemy animations. In production, the AI motion
 part was easy. The hard part was knowing which takes are broken before a person spends time looking at them.
 
@@ -169,7 +173,8 @@ Measured on the game's characters (assets are not included):
   (straps, a keg) are not posed yet.
 - **No sprite sheets yet.** The repo ends at an audited GLB and an 8-direction preview. Rendering the sheets is left to
   your own renderer.
-- **No runnable demo.** `examples/` describe a character whose assets are not included, and the first run needs Kimodo
+- **No runnable demo.** `examples/knight/` shows finished output (sprites, a GLB in the release), not a run you can repeat:
+  the other `examples/` describe a character whose assets are not included, and the first run needs Kimodo
   plus the gated Llama 3 encoder (~20 GB).
 - **Windows only so far.** Paths are handled for Linux and macOS, but nothing was run there.
 - **Commercial-use checkpoints only.** `KIMODO_MODEL` must be a `Kimodo-SOMA-*` or `Kimodo-G1-*` checkpoint (NVIDIA Open
