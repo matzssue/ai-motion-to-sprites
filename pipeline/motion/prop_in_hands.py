@@ -8,6 +8,7 @@ Inputs: character.json `actions.<a>.prop: true` (no `recipe` key), rig.json `pro
     `recoil`), optionally the approved key poses.
 Output: the clip GLB with the prop bone and both arms keyed on every frame, fingers wrapped; `<out>_arms.json`.
 Checks: motion_audit.py prop metrics (prop_in_body, prop_in_pocket, finger_tip_gap, ...); never shown without the audit.
+    The audit also gates both wrists in line with the forearm (wrist_flexion, wrist_deviation); this solver does not cost it.
 
 Prop (cut out by prepare_rig) in both hands on an AI motion: a prop pose searched without body collisions,
 both arms by analytic IK to the grip from the motion file (grip roll and elbow chosen for the wrist and for collisions),

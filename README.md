@@ -64,7 +64,7 @@ the arm that holds it again when that arm came out wrung. The older general solv
 | Group | Metrics | Limit (for a 1.8 m character, scaled by the rig's rest-pose height) |
 |---|---|---|
 | penetration | prop / hands / forearms in head, torso, legs, clavicles; fingers in prop; fingers in head (reported only) | 0.5 cm (head) to 4.5 cm (forearm in torso) |
-| joints | wrist bend and twist, mesh stretch (a bad weight makes a "stick"), **arm skin twist**; hand rotation off the approved key pose (key-pose clips only); upper arm turned about its own axis, elbow above the shoulder with the hand below the head; forearm roll and head direction (reported only, a warning when the head looks away through the clip) | 85°, 60°, 30 cm, 120° / 0.5; 50°; 100°, 10 cm |
+| joints | wrist bend and twist (a hand holding a weapon: flexion 50° and deviation to a side 25° in place of the bend), mesh stretch (a bad weight makes a "stick"), **arm skin twist**; hand rotation off the approved key pose (key-pose clips only); upper arm turned about its own axis, elbow above the shoulder with the hand below the head; forearm roll and head direction (reported only, a warning when the head looks away through the clip) | 85°, 60°, 30 cm, 120° / 0.5; 50°; 100°, 10 cm |
 | smoothness | elbow, hand, finger, head, prop jumps; loop seam; pelvis shake | 3 cm, 8°, 6°, 4°, 10 cm; 15° / 12 cm; 4° |
 | grip | gap between each palm and the prop | 3 cm |
 | feet | lowest foot point above the clip's own ground; planted foot sliding (net, over 2 frames); one foot hanging (reported only) | 15 cm; 8 cm |

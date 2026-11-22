@@ -6,12 +6,12 @@ Not for: a path that is itself wrong (the path is kept; `path_edits` only tilt o
 Inputs: motion file `recipe` entry: `tip` (the weapon's tip) and `edge` (a direction across the blade toward a cutting
     edge), both in weapon mesh coordinates; `hand`, `in_hand`, `grip` as in one_hand_weapon (read from that entry of the
     same file when left out); optional `loop`, `path_edits`, `pin`, `ease_frames`, `path_hold`, `other_arm_blend`,
-    `targets`, `weights`, `grid` (below).
+    `wrist`, `targets`, `weights`, `grid` (below).
 Output: the clip GLB with that side's shoulder, upper arm, forearm and hand keyed on every frame of the action;
     `<out>_recipe.json`. The body, the head and the fingers stay as the clip has them; the other arm too, unless
     `other_arm_blend` is given.
-Checks: per whole frame, reported and not scored: upper-arm twist, forearm roll, wrist twist and bend, elbow above the
-    shoulder (before and after, against `targets`), and how far the weapon ends up off its path. It does not look at
+Checks: per whole frame, reported and not scored: upper-arm twist, forearm roll, wrist twist, flexion and deviation,
+    elbow (before and after, against `targets`), and how far the weapon ends up off its path. It does not look at
     the weapon or the arm going into the body: one_hand_weapon and the audit do.
 
 blender -b --python pipeline/recipes/swing_arm.py -- --glb merged.glb --motion <motion>.json --out out.glb [--skeleton X]
@@ -36,6 +36,13 @@ Joining the next clip, and a changed weapon or hold:
 `other_arm_blend`: {"action": "idle", "frame": 0, "frames": 4, "clip": "idle.glb"}: on the first and last `frames` + 1
     frames the other arm (shoulder to hand, or `bones`) turns toward its pose on that frame of that action, fully on
     the first and the last frame. `clip` left out: the action is in the file being solved (character.py's merged file).
+`wrist`: "split" (default): the wrist's flexion / extension and its deviation to a side are costed each against its own
+    small target (`targets.wrist_flexion`, `wrist_deviation`), so the hand stays in line with the forearm and the
+    elbow's swivel, the weapon's roll and the forearm's roll move instead; an elbow opened past `targets.elbow_angle`
+    costs too (`weights.elbow_straight`). Where the path leaves no arm with the hand in line, the bend goes into the
+    wrist's twist (knight fr. 27: deviation 85 -> 16, twist 64 -> 100 deg): that is the path's to fix, not the fist's
+    or the hold's. "cone": the one cone of before (`wrist_bend`), which lets the fist hang sideways; with it and
+    `weights.elbow_straight: 0` the recipe solves as it did before these costs.
 `targets` (deg, cm), `weights`, `grid` (deg): TARGETS, WEIGHTS, GRID below; a key given replaces that one number.
 Run it on the clip, as chain.py and character.py do: on its own output `path_edits` would move the path a second time.
 The rest pose faces -Y with Z up (Blender), as everywhere in the pipeline."""
@@ -48,11 +55,15 @@ import numpy as np
 NAME = "swing_arm"
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "lib"))
+import wrist   # noqa: E402
 from recipe_list import entries, entry   # noqa: E402
 
 # comfort targets: past one the cost grows 10x faster (OVER); they are what the solver aims for, not the audit's limits
-TARGETS = {"upper_arm_twist": 45, "forearm_roll": 80, "wrist_twist": 60, "wrist_bend": 85, "elbow_above_cm": 5}
-WEIGHTS = {"upper_arm_twist": 1, "forearm_roll": 1.5, "wrist": 3, "elbow_up": 1, "elbow_across": 1, "out_of_reach": 1,
+# wrist_flexion / wrist_deviation: the wrist in line with the forearm, split by direction (lib/wrist.py); with
+# `"wrist": "cone"` the one cone wrist_bend is costed instead. elbow_angle: past it the arm is locking straight
+TARGETS = {"upper_arm_twist": 45, "forearm_roll": 80, "wrist_twist": 60, "wrist_bend": 85, "elbow_above_cm": 5,
+           "wrist_flexion": 35, "wrist_deviation": 15, "elbow_angle": 160}
+WEIGHTS = {"upper_arm_twist": 1, "forearm_roll": 1.5, "wrist": 3, "elbow_up": 1, "elbow_across": 1, "out_of_reach": 1, "elbow_straight": 1,
            "shoulder": 0.5, "edge": 2, "swivel_step": 0.4, "roll_step": 0.05, "forearm_step": 0.02}
 GRID = {"swivel": 10, "roll": 15, "forearm": 5}
 OVER = 10
@@ -62,6 +73,7 @@ BENT = 30.0            # deg of elbow flex from which a frame shows the elbow's 
 FORWARD, UP = np.array([0.0, -1.0, 0.0]), np.array([0.0, 0.0, 1.0])
 X, Y, Z = np.eye(3)
 KEYS = ("upper_arm_twist", "forearm_roll", "wrist_twist", "wrist_bend")
+SPLIT = ("wrist_flexion", "wrist_deviation")   # measured and costed in place of wrist_bend when the hand's axes are known
 
 
 def unit(v):
@@ -143,12 +155,23 @@ def swivel(S, E, W):
     return np.degrees(np.arctan2(np.sum(e * v, -1), np.sum(e * u, -1)))
 
 
+def flex_dev(C, Bf, H3):
+    """(flexion, deviation) of the wrist, deg (wrist.split): hand rotations `H3` under forearm rotations `Bf` [..., 3, 3]."""
+    return wrist.split(T(Bf @ C["R_fh"]) @ H3, C["radial"], C["palm"])
+
+
+def elbow_angle(S, E, W):
+    """Angle at the elbow between the upper arm and the forearm, deg: 180 = a straight arm."""
+    return np.degrees(np.arccos(np.clip(np.sum(unit(S - E) * unit(W - E), -1), -1, 1)))
+
+
 def measure(C, Bs, Bu, Bf, Bh, S, E, W, head):
     """What each frame's arm does [frames]: the four joint angles (deg), elbow above the shoulder joint (cm), swivel (deg)
     and whether the wrist is above the top of the head."""
     out = {"upper_arm_twist": twist_bend(T(Bs @ C["R_su"]) @ Bu)[0], "forearm_roll": twist_bend(T(Bu @ C["R_uf"]) @ Bf)[0]}
     out["wrist_twist"], out["wrist_bend"] = twist_bend(T(Bf @ C["R_fh"]) @ Bh)
-    out["swivel"] = swivel(S, E, W)
+    out["swivel"] = swivel(S, E, W); out["elbow_angle"] = elbow_angle(S, E, W)
+    if "radial" in C: out["wrist_flexion"], out["wrist_deviation"] = flex_dev(C, Bf, Bh)
     out["elbow_above_cm"] = (E - S) @ UP * 100; out["hand_high"] = (W - head) @ UP > 0
     return out
 
@@ -182,9 +205,18 @@ def forearm(C, s, rho):
 def soft(x, target): return (x / target) ** 2 + OVER * np.maximum(0.0, np.abs(x) / target - 1) ** 2
 
 
-def roll_cost(C, pr, wt, wb):
+def roll_cost(C, pr, wt, wb, fd=None):
+    """What the forearm's roll and the wrist cost. `fd` (flexion, deviation): the wrist's bend by direction, each against its
+    own target, in place of the one cone `wb`."""
     t, w = C["targets"], C["weights"]
-    return w["forearm_roll"] * soft(pr, t["forearm_roll"]) + w["wrist"] * (soft(wt, t["wrist_twist"]) + soft(wb, t["wrist_bend"]))
+    bend = soft(wb, t["wrist_bend"]) if fd is None else soft(fd[0], t["wrist_flexion"]) + soft(fd[1], t["wrist_deviation"])
+    return w["forearm_roll"] * soft(pr, t["forearm_roll"]) + w["wrist"] * (soft(wt, t["wrist_twist"]) + bend)
+
+
+def forearm_cost(C, s, rho):
+    """`roll_cost` of the forearm rolls `rho` on the states `s` [states, rolls]."""
+    Bf, pr, wt, wb = forearm(C, s, rho)
+    return roll_cost(C, pr, wt, wb, flex_dev(C, Bf, s["H3"][:, None]) if C.get("wrist_split") else None)
 
 
 def cost(C, fr, s):
@@ -192,7 +224,9 @@ def cost(C, fr, s):
     chest, a grip out of reach, a turned shoulder bone."""
     t, w = C["targets"], C["weights"]
     c = w["upper_arm_twist"] * soft(twist_bend(T(s["Bs"] @ C["R_su"]) @ s["Bu"])[0], t["upper_arm_twist"])
-    c = c + roll_cost(C, *forearm(C, s, np.arange(-180, 180, 10))[1:]).min(1)
+    c = c + forearm_cost(C, s, np.arange(-180, 180, 10)).min(1)
+    if w.get("elbow_straight") and "elbow_angle" in t:   # an arm locked straight: the weapon's roll can pull the wrist back in
+        c = c + w["elbow_straight"] * (np.maximum(0.0, elbow_angle(s["S"], s["E"], s["W"]) - t["elbow_angle"]) / 10) ** 2
     up = (s["E"] - s["S"]) @ UP / C["L1"]; high = (s["W"] - fr["head"]) @ UP > 0
     c = c + np.where((up > 0) & ~high, w["elbow_up"] * up * up * 10, 0)
     em = np.sum(s["e"] * unit(fr["other"] - s["S"]), -1); ef = s["e"] @ FORWARD
@@ -307,7 +341,7 @@ def plan(clip, C, loop=True, edits=None, pins=(), ease=0):
     for p in pins: phi[p], roll[p] = sw_in[p], 0.0
     sols = [solve(C, frs[f], phi[f], roll[f]) for f in range(F)]
     RHO = np.arange(-180, 180, g["forearm"]).astype(float)   # its own pass, so the forearm never flips through +-180 between frames
-    U2 = np.array([roll_cost(C, *forearm(C, s, RHO)[1:])[0] for s in sols])
+    U2 = np.array([forearm_cost(C, s, RHO)[0] for s in sols])
     rho_in = {p: float(twist_bend(sols[p]["Bf0"][0].T @ clip["Bf"][p])[0]) for p in pins}   # the clip's forearm as a roll
     for p, r in rho_in.items(): U2[p] = np.inf; U2[p, int(np.argmin(np.abs(fold(RHO - r))))] = 0.0
     rho = RHO[cheapest_loop(U2, w["forearm_step"] * wrapped(RHO, 5.0) ** 2, loop)[1]]
@@ -323,9 +357,11 @@ def plan(clip, C, loop=True, edits=None, pins=(), ease=0):
     return out
 
 
-def over_targets(m, targets):
-    """Per frame, the names of what is over its comfort target; the elbow counts only with the wrist below the top of the head."""
-    out = [[k for k in KEYS if abs(m[k][f]) > targets[k]] for f in range(len(m["swivel"]))]
+def over_targets(m, targets, split=False):
+    """Per frame, the names of what is over its comfort target; the elbow counts only with the wrist below the top of the head.
+    `split`: the wrist's flexion and deviation count in place of its one cone."""
+    keys = [k for k in KEYS if k != "wrist_bend"] + list(SPLIT) if split else KEYS
+    out = [[k for k in keys if abs(m[k][f]) > targets[k]] for f in range(len(m["swivel"]))]
     for f in np.where((m["elbow_above_cm"] > targets["elbow_above_cm"]) & ~m["hand_high"])[0]: out[f].append("elbow_above_cm")
     return out
 
@@ -335,12 +371,13 @@ def summary(rows):
     -> the report's numbers and its one line."""
     mx = lambda w, k: round(max(abs(r[w][k]) for r in rows))   # noqa: E731
     bad = [r["frame"] for r in rows if r["over"]]; short = [r["frame"] for r in rows if r["short_cm"] > 0]
-    out = {"frames": len(rows), "max": {w: {k: mx(w, k) for k in KEYS} for w in ("before", "after")},
+    keys = KEYS + tuple(k for k in SPLIT if k in rows[0]["after"])
+    out = {"frames": len(rows), "max": {w: {k: mx(w, k) for k in keys} for w in ("before", "after")},
            "elbow_above_cm": {w: round(max(r[w]["elbow_above_cm"] for r in rows), 1) for w in ("before", "after")},
            "over_targets": bad, "out_of_reach": short,
            "off_path": {"grip_cm": max(r["grip_off_cm"] for r in rows), "blade_deg": max(r["blade_off_deg"] for r in rows)}}
     out["line"] = ("arm solved again under the weapon path: " + ", ".join("%s %d -> %d" % (
-        k.replace("_", " "), out["max"]["before"][k], out["max"]["after"][k]) for k in KEYS) + " deg; over a comfort target on %d of %d frames; "
+        k.replace("_", " "), out["max"]["before"][k], out["max"]["after"][k]) for k in keys) + " deg; over a comfort target on %d of %d frames; "
         "weapon off its path up to %.1f cm / %.1f deg%s") % (len(bad), len(rows), out["off_path"]["grip_cm"], out["off_path"]["blade_deg"],
                                                               ", out of reach on %d frames" % len(short) if short else "")
     return out
@@ -392,7 +429,7 @@ def main():
         target = other_pose(other_clip)
     arm, act = take(A.glb, R["action"]); sc = bpy.context.scene
     if OB and not OB.get("clip"): target = other_pose(None); arm, act = take(None, R["action"])
-    PROF = rig_of(arm, A.skeleton).prof; pbs, dbs = arm.pose.bones, arm.data.bones
+    RIG = rig_of(arm, A.skeleton); PROF = RIG.prof; pbs, dbs = arm.pose.bones, arm.data.bones
     UA, FA, HA = (PROF.bone(r, side) for r in ("upper_arm", "forearm", "hand")); HEAD = PROF.bone("head")
     OTHER = PROF.bone("upper_arm", oside)
     if dbs[UA].parent is None: raise SystemExit("%s: the upper arm %s has no parent bone to measure its twist against" % (A.glb, UA))
@@ -423,6 +460,11 @@ def main():
     if hinge is None: raise SystemExit("%s: the %s arm never bends %d deg in %s: no elbow hinge to read" % (A.glb, side.lower(), BENT, R["action"]))
     C["hinge"] = np.stack([hinge, Y, np.cross(hinge, Y)], -1)
     C["shoulder_max"] = SHOULDER_MAX if turn_ok else 0.0   # an upper arm hanging on the chest: nothing to turn toward a far grip
+    axes = wrist.rest_axes(dbs, RIG, side[0]) if PROF.has("fingers", side) else None
+    if axes: C["radial"], C["palm"] = axes
+    C["wrist_split"] = bool(axes) and P.get("wrist", "split") == "split"
+    if P.get("wrist", "split") == "split" and not axes:
+        print("recipe %s: no fingers below %s to tell the hand's sides apart: the wrist is costed as one cone" % (NAME, HA))
     # the path is read with the hold the clip was made with, the arm solved for this entry's own
     clip = dict({k: I[k] for k in ("c0", "s0", "Bs", "head", "other", "Bu", "Bf", "Bh", "E", "W")}, G3=I["Bh"] @ C["path3"], Gt=I["W"] + I["Bh"] @ C["path_t"])
     try:   # path_edits and pin name frames of the action; plan() counts from its first frame
@@ -471,10 +513,11 @@ def main():
     # what came out, read back from the keyed clip
     N_ = read(); before = measure(C, I["Bs"], I["Bu"], I["Bf"], I["Bh"], I["s0"], I["E"], I["W"], I["head"])
     after = measure(C, N_["Bs"], N_["Bu"], N_["Bf"], N_["Bh"], N_["s0"], N_["E"], N_["W"], N_["head"])
-    over = over_targets(after, C["targets"]); G3n = N_["Bh"] @ C["grip3"]; Gtn = N_["W"] + N_["Bh"] @ C["grip_t"]
+    over = over_targets(after, C["targets"], C["wrist_split"]); G3n = N_["Bh"] @ C["grip3"]; Gtn = N_["W"] + N_["Bh"] @ C["grip_t"]
     off = np.linalg.norm(Gtn - O["Gt"], axis=1) * 100
     bl = np.degrees(np.arccos(np.clip(np.sum(G3n[:, :, 2] * O["G3"][:, :, 2], -1), -1, 1)))
-    vals = lambda m, i: dict({k: round(float(m[k][i]), 1) for k in KEYS + ("elbow_above_cm", "swivel")}, hand_high=bool(m["hand_high"][i]))  # noqa: E731
+    more = ("elbow_above_cm", "swivel", "elbow_angle") + (SPLIT if "radial" in C else ())
+    vals = lambda m, i: dict({k: round(float(m[k][i]), 1) for k in KEYS + more}, hand_high=bool(m["hand_high"][i]))  # noqa: E731
     rows = [{"frame": f, "before": vals(before, i), "after": vals(after, i), "over": over[i], "grip_off_cm": round(float(off[i]), 2),
              "blade_off_deg": round(float(bl[i]), 2), "short_cm": round(float(O["short"][i]) * 100, 1),
              "weapon_roll": round(float(O["roll"][i]), 1), "shoulder_turn": float(O["turn"][i]), "cutting": bool(O["cut"][i]),
@@ -484,8 +527,12 @@ def main():
         print("ARM %3d | twist %4.0f -> %4.0f | forearm roll %4.0f -> %4.0f | wrist twist %4.0f -> %4.0f, bend %4.0f -> %4.0f | elbow %+4.0f -> %+4.0f cm%s" % (
             r["frame"], *(r[w][k] for k in KEYS for w in ("before", "after")), r["before"]["elbow_above_cm"], r["after"]["elbow_above_cm"],
             " | over: " + ", ".join(r["over"]) if r["over"] else ""))
+    if "radial" in C:   # + flexion / - extension, + toward the thumb / - toward the little finger; 180 = a straight arm
+        for r in rows:
+            print("WRIST %3d | flexion %+4.0f -> %+4.0f | deviation %+4.0f -> %+4.0f | elbow angle %4.0f -> %4.0f" % (
+                r["frame"], *(r[w][k] for k in SPLIT + ("elbow_angle",) for w in ("before", "after"))))
     rep = dict({"recipe": NAME, "action": R["action"], "hand": side[0], "sets_hand": side[0], "bones": list(names)}, **summary(rows))
-    rep["targets"] = C["targets"]; rep["pinned"] = [r["frame"] for r in rows if r["pinned"]]
+    rep["targets"] = C["targets"]; rep["wrist"] = "split" if C["wrist_split"] else "cone"; rep["pinned"] = [r["frame"] for r in rows if r["pinned"]]
     rep["held_off_path"] = {str(frames[p]): {"deg": round(deg, 1), "cm": round(cm, 1)} for p, (deg, cm) in O["held"].items()}
     if notes: rep["notes"] = notes; rep["line"] += "; " + "; ".join(notes)
     rep["limits"] = ("whole frames; comfort targets are the solver's aim, not the audit's limits; the weapon or the arm in the "

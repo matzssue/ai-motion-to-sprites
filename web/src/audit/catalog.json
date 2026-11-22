@@ -312,6 +312,30 @@
     "group": "joints"
   },
   {
+    "key": "wrist_flexion_L",
+    "label": "left wrist flexed or extended under a weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_flexion_R",
+    "label": "right wrist flexed or extended under a weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_deviation_L",
+    "label": "left wrist bent sideways under a weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_deviation_R",
+    "label": "right wrist bent sideways under a weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
     "key": "head_yaw",
     "label": "head turned off the facing",
     "unit": "deg",

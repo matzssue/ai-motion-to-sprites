@@ -145,6 +145,8 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
    Never raise a limit to make a take pass; raise it only from a measurement, with an entry in AUDIT.md.
    **Hand-posed keys are read-only input.** A step that writes them again prints `pipeline/checks/pose_diff.py` (per bone,
    what changed); call a pose or a fist "approved" only when the author saw exactly that one.
+   **A held weapon keeps the wrist in line with the forearm** (`wrist_flexion` 50, `wrist_deviation` 25 deg, one- and
+   two-handed). Correct it by lowering / raising the forearm (elbow angle), never with the fist or the hold: the playbook.
    The audit also measures arm skin twist (`skin_twist`, `skin_spread`). **Poses computed outside the chain** (a pose
    script, IK, bone rotations) go through the skin check separately, and a frame composited with a mask through the alpha check:
    ```
@@ -230,8 +232,7 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
   with the body is one island: select by rules, not by island.
 - Before `separate` always `deselect_all` in edit mode (selection left over from import).
 - An uncut prop on the back has forearm weights: the audit sees "forearm in torso".
-- "Inside" by the sign of the nearest face alone fails next to open sheets (rags, belts): 10 cm false positives at rest.
-  The audit votes with rays (`collisions.inside`).
+- "Inside" by the sign of the nearest face alone fails next to open sheets (rags, belts): 10 cm false positives at rest. The audit votes with rays (`collisions.inside`).
 - The palm side taken from claw curvature came out as the BACK of the hand (two versions with the crossbow on the back of the
   hand, fingers bent backwards): the sign now comes from the thumb (`prepare_rig.py`). In an A-pose the palm faces the body/down.
   On the own skeleton the palm comes from the index/pinky knuckles, like the hand bone's roll: the point-cloud estimate took
@@ -242,8 +243,7 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - **Jumps**: choosing grip and elbow frame by frame flipped between almost equal solutions (hand 60°, fingers 95° between
   frames; the audit did not measure that then). A path over the whole clip (Viterbi) + smoothed fingers; smoothing whole
   arms breaks the grip. Audit: `hand_jump`, `finger_jump`, `elbow_jump` (AUDIT.md).
-- A prop pose search without an offset limit lifted the crossbow 37 cm over the head to avoid collisions (`max_offset`).
-  Check the prop height frame by frame, not only the audit.
+- A prop pose search without an offset limit lifted the crossbow 37 cm over the head to avoid collisions (`max_offset`). Check the prop height frame by frame, not only the audit.
 - A stock is not a cylinder: fingers wrap on the prop surface (BVH), not on a radius. But a grip by the bow mount has the
   mount, limbs and string closer than the far side of the stock: the own skeleton's long fingers wrapped those (hooks
   8-12 cm off the stock axis). Own chains aim at the stock's faces only (`stock_radius_max`) and collide with the whole prop.

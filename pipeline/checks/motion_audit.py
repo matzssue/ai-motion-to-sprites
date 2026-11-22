@@ -16,6 +16,7 @@ import skeleton
 import skin
 import feet
 import shake
+import wrist
 from audit_metrics import (METRICS, NEEDS, REF_HEIGHT, height, judge, scaled, facing, head_angles, head_summary, HEAD_YAW_WARN,
                            hands_set_by_recipes, hands_with_weapon, finger_curl)
 
@@ -60,6 +61,18 @@ RECIPES = []   # reports of the motion file's recipes (pipeline/recipes/)
 for _p in A.recipe_report or [A.glb.replace(".glb", "_recipe.json")]:
     try: RECIPES.append(json.load(open(_p, encoding="utf-8")))
     except (OSError, ValueError): pass
+# a weapon in the hand: a recipe's, or the prop the solver put in both hands
+WEAPON = hands_with_weapon(RECIPES, A.action) | (set("LR") if prop is not None and not A.rest_is_normal else set())
+WAX = {}   # side whose hand holds a weapon -> that hand's (radial, palm) axes at rest: the wrist is split along them
+for k_ in "LR":
+    ks_ = ("wrist_flexion_" + k_, "wrist_deviation_" + k_)
+    if k_ not in WEAPON:
+        for m_ in ks_: SKIP.setdefault(m_, "no weapon in that hand")
+    elif ks_[0] not in SKIP:
+        WAX[k_] = wrist.rest_axes(arm.data.bones, RIG, k_)
+        if WAX[k_] is None:
+            del WAX[k_]
+            for m_ in ks_: SKIP[m_] = "fewer than two fingers below the hand: its sides cannot be told apart"
 FCHAIN = {}   # side with a recipe weapon in its hand -> {finger's first bone: its bones, base first}
 for k_ in "LR":
     if k_ not in hands_with_weapon(RECIPES, A.action): SKIP.setdefault("finger_curl_" + k_, "no recipe weapon in that hand"); continue
@@ -89,6 +102,7 @@ H = height(CO_REST[:, 2])
 SCALE = H / REF_HEIGHT
 LIM = scaled(LIMITS, H)
 IN_HANDS = prop is not None and not A.rest_is_normal
+for k_ in WAX: LIMITS["wrist_bend_" + k_] = None; LIM.pop("wrist_bend_" + k_, None)   # split there: the one cone is reported only
 KEYH = {}   # clip frame -> {"L"/"R": target hand rotation, armature space}
 if A.key_hands:
     KEYH = {int(f): {s_: Quaternion(v) for s_, v in d.items()} for f, d in json.load(open(A.key_hands, encoding="utf-8"))["targets"].items()}
@@ -292,6 +306,12 @@ for t in times:
     for s, k in (("Left", "L"), ("Right", "R")):
         bend, tw = joint_angles(rr(B[s]["forearm"]), rr(B[s]["hand"]), pr(B[s]["forearm"]), pr(B[s]["hand"]))
         row["wrist_bend_" + k] = round(bend, 1); row["wrist_twist_" + k] = round(abs(tw), 1)
+        if k in WAX:   # a weapon in this hand: the wrist in line with the forearm, by direction
+            fl_, dv_ = (float(v_) for v_ in wrist.split(wrist.neutral(*(np.array(m_) for m_ in (
+                rr(B[s]["forearm"]), rr(B[s]["hand"]), pr(B[s]["forearm"]), pr(B[s]["hand"])))), *WAX[k]))
+            row["wrist_flexion_" + k] = round(abs(fl_), 1); row["wrist_deviation_" + k] = round(abs(dv_), 1)
+            row["_wrist_" + k] = [round(fl_, 1), round(dv_, 1)]   # signed: + flexion / - extension, + radial / - ulnar
+            for kk_ in ("wrist_flexion_", "wrist_deviation_"): where[kk_ + k] = [float(x) for x in head(B[s]["hand"])]; side[kk_ + k] = k
         kf_ = t - f0
         if KEYH and t >= f0 and abs(kf_ - round(kf_)) < 1e-6 and int(round(kf_)) in KEYH:
             row["key_hand_rot_" + k] = round(ang(pr(B[s]["hand"]).to_quaternion(), KEYH[int(round(kf_))][k]), 1)
