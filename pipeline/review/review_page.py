@@ -3,30 +3,20 @@
 python pipeline/review/review_page.py --glb X.glb --action attack --out dir --title "Crossbowman shot" [--prop crossbow]
     [--previous dir_of_previous_review] [--hand-frames 10,45,56,85] [--px 360] [--note "what changed"]
     [--rest-is-normal] [--no-loop]   (library walk/idle: prop on the back; without it "hand to prop" 50 cm = FAIL)
+    [--under-arm]  (stock under the armpit, motion file `aim.butt_push`: without it the page's audit skips the pocket checks)
+    [--skeleton mixamo|profile.json]  (metrics the skeleton cannot measure are listed as skipped)
 Finished steps (audit, frames, close-ups) are skipped when their output is newer than the GLB."""
-import argparse, base64, glob, html, io, json, os, sys
+import argparse, base64, glob, html, json, os, sys
 from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from chain import blender
+from audit_metrics import LABELS, METRICS
 
 DIRS = ["s", "sw", "w", "nw", "n", "ne", "e", "se"]
 COLS = 10   # frames per sheet row
-LABELS = {
-    "prop_in_head": "prop in head", "prop_in_torso": "prop in torso", "prop_in_legs": "prop in legs",
-    "prop_in_clavicles": "prop in shoulder", "hands_in_head": "hand in head", "hands_in_torso": "hand in torso",
-    "forearms_in_head": "forearm in head", "forearms_in_torso": "forearm in torso",
-    "fingers_in_prop": "fingers in prop", "wrist_bend_L": "left wrist bend",
-    "wrist_bend_R": "right wrist bend", "wrist_twist_L": "left wrist twist",
-    "wrist_twist_R": "right wrist twist", "elbow_jump": "elbow jump", "prop_jump": "prop jump",
-    "hand_jump": "hand jump", "finger_jump": "finger jump", "head_jump": "head jump", "prop_rot_jump": "prop rotation jump",
-    "loop_seam_deg": "loop seam (rotation)", "loop_seam_m": "loop seam (elbow)", "prop_above_head": "prop above head",
-    "hand_to_prop_L": "left hand to prop", "hand_to_prop_R": "right hand to prop", "loose_fingers": "loose fingers",
-    "stretch": "mesh stretch", "skin_twist": "arm skin twist", "skin_spread": "arm skin spread",
-}
-DEGREES = ("wrist", "hand_jump", "finger_jump", "head_jump", "prop_rot_jump", "loop_seam_deg", "skin_twist")
-FRACTIONS = ("loose_fingers", "skin_spread")
+UNIT = {k: v[1] for k, v in METRICS.items()}   # units and labels: one source, pipeline/lib/audit_metrics.py
 
 
 def fresh(path, glb): return os.path.exists(path) and os.path.getmtime(path) >= os.path.getmtime(glb)
@@ -34,8 +24,9 @@ def fresh(path, glb): return os.path.exists(path) and os.path.getmtime(path) >= 
 
 def fmt(k, v):
     if v is None: return "-"
-    if k.startswith(FRACTIONS): return "%.0f%%" % (100 * v)
-    return "%.1f&deg;" % v if k.startswith(DEGREES) else "%.1f cm" % (100 * v)
+    u = UNIT.get(k, "m")
+    if u == "frac": return "%.0f%%" % (100 * v)
+    return "%.1f&deg;" % v if u == "deg" else "%.1f cm" % (100 * v)
 
 
 def sheet(folder, d, px):
@@ -49,16 +40,20 @@ def sheet(folder, d, px):
 def build(A):
     """Audit, frames, close-ups -> data.json in the review folder (sheets and close-ups as webp files)."""
     os.makedirs(A.out, exist_ok=True); data_p = os.path.join(A.out, "data.json")
+    SKEL = ["--skeleton", A.skeleton] if getattr(A, "skeleton", None) else []
     aud = os.path.join(A.out, "audit")
-    if not fresh(os.path.join(aud, "audit.json"), A.glb):
+    KH = getattr(A, "key_hands", None)
+    old = os.path.join(aud, "audit.json")
+    if not fresh(old, A.glb) or (KH and "key_hands" not in json.load(open(old, encoding="utf-8"))):
         blender("motion_audit.py", "AUDIT", "--glb", A.glb, "--action", A.action, "--out", aud, *(["--prop", A.prop] if A.prop else []),
-                *(["--rest-is-normal"] if A.rest_is_normal else []), *(["--no-loop"] if A.no_loop else []))
+                *(["--rest-is-normal"] if A.rest_is_normal else []), *(["--no-loop"] if A.no_loop else []),
+                *(["--under-arm"] if getattr(A, "under_arm", False) else []), *SKEL, *(["--key-hands", KH] if KH else []))
     fr = os.path.join(A.out, "frames")
     if not fresh(os.path.join(fr, "done.json"), A.glb):
         blender("preview_8.py", "PREVIEW OK", "--glb", A.glb, "--actions", A.action, "--out", fr, "--all", "--px", str(A.px))
     hc = os.path.join(A.out, "hands")
     if A.hand_frames and not fresh(os.path.join(hc, "done"), A.glb):
-        blender("hand_closeups.py", "CLOSEUPS OK", "--glb", A.glb, "--action", A.action, "--frames", A.hand_frames, "--out", hc, "--px", "360")
+        blender("hand_closeups.py", "CLOSEUPS OK", "--glb", A.glb, "--action", A.action, "--frames", A.hand_frames, "--out", hc, "--px", "360", *SKEL)
         open(os.path.join(hc, "done"), "w").close()
     n = 0
     for d in DIRS:
@@ -72,6 +67,7 @@ def build(A):
             name = "hand_%03d_%s.webp" % (f, side); strip.save(os.path.join(A.out, name), "WEBP", quality=78); hands.append((f, side, name))
     rep = json.load(open(os.path.join(aud, "audit.json"), encoding="utf-8"))
     data = {"title": A.title, "glb": A.glb, "frames": n, "px": A.px, "audit": rep, "hands": hands}
+    if KH: data["key_hands"] = json.load(open(KH, encoding="utf-8"))   # before/after the correction, per key
     json.dump(data, open(data_p, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     return data
 
@@ -177,7 +173,35 @@ def page(data, folder, prev=None, prev_folder=None, diff=None, note=""):
             w = rp["maxima"].get(k); cl = "" if w is None or abs(w - v) < 1e-6 else ("better" if v < w else "worse")
             row += '<td class="%s">%s</td>' % (cl, fmt(k, w))
         H.append(row + "</tr>")
-    H.append("</tbody></table></div></section>")
+    for k, why in rep.get("skipped", {}).items():
+        H.append('<tr><td>%s</td><td class="muted">skipped</td><td colspan="%d" class="muted">%s</td></tr>' % (
+            LABELS.get(k, k), 3 if rp else 2, html.escape(why)))
+    H.append("</tbody></table></div>")
+    g = rep.get("face_guard")
+    if g: H.append('<p class="muted">Face guard: the solver took back up to %.0f&deg; of head turn (frame %d; at least half of that on '
+                   'frames %d&ndash;%d; %d frames in all). An intended head turn: <code>"face_guard": false</code> in the motion file\'s grip.</p>' % (
+                       g["max_deg"], g["at_frame"], g["frames"][0], g["frames"][1], g["count"]))
+    hd = rep.get("head")
+    if hd: H.append('<p class="%s">Head off the facing direction: yaw mean %.0f&deg; / max %.0f&deg;, pitch mean %.0f&deg; / max %.0f&deg;%s.</p>' % (
+        "bad" if hd["warn"] else "muted", hd["yaw_mean"], hd["yaw_max"], hd["pitch_mean"], hd["pitch_max"],
+        " &mdash; the character looks away through the clip (reported, not scored)" if hd["warn"] else ""))
+    for rc in rep.get("recipes") or []:
+        H.append('<p class="muted">Recipe %s: %s. Limits: %s.</p>' % tuple(html.escape(str(rc.get(k, ""))) for k in ("recipe", "line", "limits")))
+    H.append("</section>")
+    if rep.get("key_hands"):   # hand rotation against the approved poses: Kimodo keeps the positions, not the rotation
+        kh = data.get("key_hands") or {}; before = kh.get("before", {}); fixed = kh.get("applied")
+        H.append('<section><h2>Hands on the key poses</h2><p class="muted">How far each hand is turned from the approved pose on '
+                 'its key frame%s.</p><div class="tab"><table><thead><tr><th>key frame</th>%s<th>left</th><th>right</th></tr></thead><tbody>'
+                 % (" (after the model, then after key_hands.py put the rotation back)" if fixed else "",
+                    "<th>left from the model</th><th>right from the model</th>" if fixed else ""))
+        lim = {k: rep["limits"].get("key_hand_rot_" + k) for k in "LR"}
+        for f, v in rep["key_hands"].items():
+            b = before.get(f, {})
+            cells = "".join('<td class="%s">%s</td>' % ("bad" if lim[k] is not None and (v.get(k) or 0) > lim[k] else "",
+                                                        "-" if v.get(k) is None else "%.0f deg" % v[k]) for k in "LR")
+            H.append("<tr><td>%s</td>%s%s</tr>" % (f, "".join("<td>%s</td>" % ("-" if b.get(k) is None else "%.0f deg" % b[k]) for k in "LR")
+                                                  if fixed else "", cells))
+        H.append("</tbody></table></div></section>")
     if diff:
         H.append('<section><h2>Difference from the previous version</h2><div class="tab"><table><thead><tr><th>part</th><th>max position</th>'
                  "<th>mean</th><th>max rotation</th></tr></thead><tbody>")
@@ -200,12 +224,16 @@ if __name__ == "__main__":
     ap.add_argument("--hand-frames", default=""); ap.add_argument("--px", type=int, default=360); ap.add_argument("--note", default="")
     ap.add_argument("--rest-is-normal", action="store_true", help="library action: prop on the back, as in calibration")
     ap.add_argument("--no-loop", action="store_true", help="one-shot action: audit without the loop seam")
+    ap.add_argument("--under-arm", action="store_true", help="stock under the armpit: audit the pocket, as the chain does")
+    ap.add_argument("--skeleton", default=None, help="skeleton profile of the rig: built-in name or JSON path (default mixamo)")
+    ap.add_argument("--key-hands", default=None, help="key_hands.py report: hand rotation against the approved key poses")
     A = ap.parse_args()
+    SKEL = ["--skeleton", A.skeleton] if A.skeleton else []
     data = build(A); prev = diff = None
     if A.previous:
         prev = json.load(open(os.path.join(A.previous, "data.json"), encoding="utf-8"))
         dp = os.path.join(A.out, "diff.json")
-        blender("compare_motion.py", "COMPARE", "--a", prev["glb"], "--b", A.glb, "--action", A.action, "--out", dp, *(["--prop", A.prop] if A.prop else []))
+        blender("compare_motion.py", "COMPARE", "--a", prev["glb"], "--b", A.glb, "--action", A.action, "--out", dp, *(["--prop", A.prop] if A.prop else []), *SKEL)
         diff = json.load(open(dp, encoding="utf-8"))
     doc = page(data, A.out, prev, A.previous, diff, A.note)
     out = os.path.join(A.out, "page.html"); open(out, "w", encoding="utf-8").write(doc)

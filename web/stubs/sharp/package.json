@@ -1,0 +1,8 @@
+{
+  "name": "sharp",
+  "version": "0.0.0-stub",
+  "private": true,
+  "license": "MIT",
+  "description": "Empty stand-in for Next.js's optional image optimizer (sharp ships LGPL libvips binaries). The static export does not optimize images.",
+  "main": "index.js"
+}

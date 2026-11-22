@@ -1,0 +1,95 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "skeleton.schema.json",
+ "title": "skeleton profile",
+ "description": "Which bone of a rig plays which role (skeletons/<name>.json, or a path in character.json `skeleton`). Names are given without `prefix`. An optional role is either named or listed in `absent`; the metrics and steps that need an absent role are skipped with the reason. pipeline/lib/skeleton.py checks the same rules inside Blender.",
+ "type": "object",
+ "required": ["name", "bones", "regions"],
+ "properties": {
+  "name": {"type": "string", "minLength": 1},
+  "description": {"type": "string"},
+  "prefix": {"type": "string", "description": "put before every name (`mixamorig:`)"},
+  "bones": {
+   "type": "object",
+   "required": ["hips", "spine", "neck", "head", "left", "right"],
+   "properties": {
+    "hips": {"$ref": "#/$defs/bone"},
+    "spine": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/bone"}, "description": "hips -> neck, bottom first"},
+    "neck": {"$ref": "#/$defs/bone"},
+    "head": {"$ref": "#/$defs/bone"},
+    "head_end": {"$ref": "#/$defs/bone", "description": "head tip: the retarget aims the head at it (absent: the head bone's tail)"},
+    "left": {"$ref": "#/$defs/side"},
+    "right": {"$ref": "#/$defs/side"}
+   },
+   "propertyNames": {"description": "unknown role (hips, spine, neck, head, head_end; per-side roles go under left/right)",
+                     "anyOf": [{"enum": ["hips", "spine", "neck", "head", "head_end", "left", "right"]}, {"pattern": "^_"}]}
+  },
+  "absent": {
+   "type": "array",
+   "description": "optional roles this rig does not have (both sides)",
+   "items": {"enum": ["head_end", "shoulder", "fingers", "toe", "toe_end"]},
+   "uniqueItems": true
+  },
+  "regions": {
+   "type": "object",
+   "description": "body regions of the collision checks and the audit (`prop_in_<region>`): roles whose bones' skin forms the region; a sided role covers both sides",
+   "required": ["head", "torso", "clavicles", "legs"],
+   "properties": {
+    "head": {"$ref": "#/$defs/roles"}, "torso": {"$ref": "#/$defs/roles"},
+    "clavicles": {"$ref": "#/$defs/roles"}, "legs": {"$ref": "#/$defs/roles"}
+   },
+   "propertyNames": {"description": "unknown region (head, torso, clavicles, legs)",
+                     "anyOf": [{"enum": ["head", "torso", "clavicles", "legs"]}, {"pattern": "^_"}]}
+  }
+ },
+ "allOf": [
+  {"description": "head_end: name it or list it in `absent`", "if": {"$ref": "#/$defs/has_head_end"},
+   "then": {"properties": {"bones": {"required": ["head_end"]}}}},
+  {"description": "shoulder: name it on both sides or list it in `absent`", "if": {"$ref": "#/$defs/has_shoulder"},
+   "then": {"properties": {"bones": {"properties": {"left": {"required": ["shoulder"]}, "right": {"required": ["shoulder"]}}}}}},
+  {"description": "fingers: name them on both sides or list them in `absent`", "if": {"$ref": "#/$defs/has_fingers"},
+   "then": {"properties": {"bones": {"properties": {"left": {"required": ["fingers"]}, "right": {"required": ["fingers"]}}}}}},
+  {"description": "toe: name it on both sides or list it in `absent`", "if": {"$ref": "#/$defs/has_toe"},
+   "then": {"properties": {"bones": {"properties": {"left": {"required": ["toe"]}, "right": {"required": ["toe"]}}}}}},
+  {"description": "toe_end: name it on both sides or list it in `absent`", "if": {"$ref": "#/$defs/has_toe_end"},
+   "then": {"properties": {"bones": {"properties": {"left": {"required": ["toe_end"]}, "right": {"required": ["toe_end"]}}}}}}
+ ],
+ "$defs": {
+  "has_head_end": {"not": {"required": ["absent"], "properties": {"absent": {"contains": {"const": "head_end"}}}}},
+  "has_shoulder": {"not": {"required": ["absent"], "properties": {"absent": {"contains": {"const": "shoulder"}}}}},
+  "has_fingers": {"not": {"required": ["absent"], "properties": {"absent": {"contains": {"const": "fingers"}}}}},
+  "has_toe": {"not": {"required": ["absent"], "properties": {"absent": {"contains": {"const": "toe"}}}}},
+  "has_toe_end": {"not": {"required": ["absent"], "properties": {"absent": {"contains": {"const": "toe_end"}}}}},
+  "bone": {"type": "string", "minLength": 1},
+  "chain": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/bone"}},
+  "side": {
+   "type": "object",
+   "required": ["upper_arm", "forearm", "hand", "upper_leg", "lower_leg", "foot"],
+   "properties": {
+    "shoulder": {"$ref": "#/$defs/bone", "description": "clavicle"},
+    "upper_arm": {"$ref": "#/$defs/bone"}, "forearm": {"$ref": "#/$defs/bone"}, "hand": {"$ref": "#/$defs/bone"},
+    "fingers": {"$ref": "#/$defs/bone", "description": "first bone of the middle finger: the retarget aims the hand at it; every bone below the hand counts as a finger"},
+    "upper_leg": {"$ref": "#/$defs/bone"}, "lower_leg": {"$ref": "#/$defs/bone"}, "foot": {"$ref": "#/$defs/bone"},
+    "toe": {"$ref": "#/$defs/bone"}, "toe_end": {"$ref": "#/$defs/bone", "description": "toe tip (retarget aim of the toe)"},
+    "finger_chains": {
+     "type": "object",
+     "description": "optional: the bones of each finger from the hand outwards, the last three = the finger's three bones (a metacarpal before them is allowed). The retarget carries the finger bends between two skeletons that both list a finger; a rig whose finger bones own no skin (a Mixamo template) leaves it out",
+     "properties": {"thumb": {"$ref": "#/$defs/chain"}, "index": {"$ref": "#/$defs/chain"}, "middle": {"$ref": "#/$defs/chain"},
+                    "ring": {"$ref": "#/$defs/chain"}, "pinky": {"$ref": "#/$defs/chain"}},
+     "propertyNames": {"description": "unknown finger (thumb, index, middle, ring, pinky)",
+                       "anyOf": [{"enum": ["thumb", "index", "middle", "ring", "pinky"]}, {"pattern": "^_"}]}
+    }
+   },
+   "propertyNames": {"description": "unknown role (per side: shoulder, upper_arm, forearm, hand, fingers, upper_leg, lower_leg, foot, toe, toe_end; or finger_chains)",
+                     "anyOf": [{"enum": ["shoulder", "upper_arm", "forearm", "hand", "fingers", "upper_leg", "lower_leg", "foot", "toe", "toe_end",
+                                          "finger_chains"]},
+                                {"pattern": "^_"}]}
+  },
+  "roles": {
+   "type": "array",
+   "items": {"enum": ["hips", "spine", "neck", "head", "head_end", "shoulder", "upper_arm", "forearm", "hand", "fingers",
+                      "upper_leg", "lower_leg", "foot", "toe", "toe_end"]},
+   "uniqueItems": true
+  }
+ }
+}

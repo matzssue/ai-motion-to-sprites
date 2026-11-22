@@ -1,9 +1,15 @@
 # ai-motion-to-sprites
 
+[![CI](https://github.com/matzssue/ai-motion-to-sprites/actions/workflows/ci.yml/badge.svg)](https://github.com/matzssue/ai-motion-to-sprites/actions/workflows/ci.yml)
+
 Text-to-motion for 2D games. One command takes a generated 3D character to an animated, audited GLB ready for
 8-direction sprite rendering. Along the way it plans motion from sentences with [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo),
-retargets it to a Mixamo-style rig, puts a two-handed prop (a crossbow, a staff) into the hands with finger wrapping,
+retargets it to a rig with Mixamo-compatible bone naming, puts a weapon into the hands with a small recipe per kind of grip (a one-handed sword; an experimental two-handed solver for a crossbow or a staff),
 and checks every quarter frame for problems a human would reject.
+
+![A knight's attack generated with the tool, directions S, SE, E, NE](examples/knight/preview_attack.webp)
+
+Full example with sprites and what was done by hand: [`examples/knight/`](examples/knight/README.md).
 
 It was built for a real game: an isometric action roguelite with a few hundred enemy animations. In production, the AI motion
 part was easy. The hard part was knowing which takes are broken before a person spends time looking at them.
@@ -18,43 +24,80 @@ model.glb ─► prepare ─► auto-rig ─► AI rig ─► calibration ─►
 
 | Stage | Script | What happens |
 |---|---|---|
-| prepare | `prepare_for_rigging.py` | weld UV seams, decimate to ~25k tris, shrink and embed the texture |
-| rig | `auto_rig.py` + `auto_rig_blender.py` | silhouette-based joint detection (crotch, armpits, fingertips, robe/hunchback cases), Mixamo `mixamorig:*` skeleton, voxel-proxy bone-heat weights. Benchmarked against 18 rigs made by Mixamo (`--bench`) |
-| rig_ai | `prepare_rig.py` | cuts the prop out of the mesh onto its own bone (rule-based selection, island closure, thin-part growth for bow strings, debris cleanup), grows finger bones out of fused claws, finds the thumb and the palm side |
+| prepare | `prepare_for_rigging.py` | weld UV seams, decimate to ~25k tris, shrink and embed the texture; a separate prop mesh (`prop_model`) joins marked, so joint detection and weights see the body alone |
+| rig | `auto_rig.py` + `auto_rig_blender.py`, `hand_fingers.py` | silhouette-based joint detection (crotch, armpits, fingertips, robe/hunchback cases); the tool's own skeleton (`skeletons/amts.json`: 3-bone spine, 5 fingers x 3 bones per hand placed on the hand mesh, fist self-check of the finger skinning) or, with `--template`, a skeleton with Mixamo-compatible `mixamorig:*` names whose hierarchy, rest orientations and finger bones come from the Mixamo-skeleton FBX you supply; voxel-proxy bone-heat weights; a symmetry gate stops a rig whose mirrored joints disagree (one side found on a prop). Body proportions from the SOMA77 skeleton and ANSUR II landmarks, the rest from the mesh (knees from the leg's side contour, wrists where the hand widens); no Mixamo rig is a source or a check (sources: [LICENSES.md](LICENSES.md)) |
+| rig_ai | `prepare_rig.py` | cuts the prop out of the mesh (or takes a separate prop mesh whole) onto its own bone (rule-based selection, island closure, thin-part growth for bow strings, debris cleanup), grows finger bones out of fused claws (keeps the rig's own fingers when it has them), finds the thumb and the palm side |
 | calibration | `merge_actions.py` + `motion_audit.py` | library clips must pass the audit on this rig, so a bad rig is not blamed on the AI motion |
 | ai | `kimodo_text.py`, `kimodo_motion.py`, `kimodo_keyposes.py`, `keyposes_to_kimodo.py` | one sentence per phase; body samples without hand constraints; key poses set on the best sample and reviewed; then Kimodo is constrained through those poses (`FullBodyConstraintSet`) |
-| (chain) | `soma_to_mixamo.py`, `prop_in_hands.py` | SOMA77 BVH to Mixamo with an A/T rest-pose correction and loop closure; prop pose search without body collisions, analytic two-arm IK, Viterbi path for grip roll and elbow over the whole clip, fingers wrapped on the real prop surface (BVH), recoil |
+| (chain) | `soma_to_mixamo.py`, `pose_upper_body.py`, `head_forward.py`, a recipe or `prop_in_hands.py` | SOMA77 BVH to the rig, bone by role (skeleton profile), with an A/T rest-pose correction and loop closure; for an action whose motion file asks for it, spine, arms and hands from the key poses and the head on the facing direction; then the recipe the motion file names (below), or the **experimental** two-handed solver: prop pose search without body collisions, analytic two-arm IK, Viterbi path for grip roll and elbow over the whole clip, fingers wrapped on the real prop surface (BVH), recoil |
 | merge | `combine_actions.py` | every action processed from the same merged file, then combined and grounded on the walk |
 | preview | `preview_8.py`, `review_page.py` | 8 isometric directions; a self-contained review page with a frame-synced player, hand close-ups and audit numbers next to the previous version |
 
 ```
 pipeline/
   character.py, chain.py, variants.py   orchestration: whole character, one sample, parameter grid
-  lib/       config (env paths), GPU queue, body collisions, skin-twist math, Kimodo setup
+  lib/       config (env paths), GPU queue, skeleton profiles, body collisions, skin-twist math, audit metrics, Kimodo setup
   rig/       prepare, auto-rig, AI rig
-  motion/    Kimodo, retarget, prop in hands, merge/combine actions
-  checks/    motion audit, skin check, alpha check, motion compare
+  motion/    Kimodo, retarget, upper body from key poses, head forward, prop in hands (experimental), merge/combine actions
+  recipes/   one small script per kind of grip or weapon; README.md is the generated index
+  checks/    motion audit, skin check, alpha check, motion compare, pose diff
   review/    8-direction preview, hand close-ups, review page
+docs/motions/   playbooks: one page per kind of motion made and accepted (route, keys, steps, what was rejected); README.md is the generated index
 ```
 
 `character.py` runs all of it from one `character.json` (see `examples/`). It skips stages whose outputs are newer than their
 inputs, and stops with an exit code of 2 at each human gate.
 
+**Each kind of motion has a route, written down once it worked.** [`docs/motions/README.md`](docs/motions/README.md) indexes
+the playbooks. The first one, a one-handed weapon attack, takes legs and hips from the model through dense key poses, the
+upper body from the poses themselves (`"upper_body"` in the motion file), locks the head forward (`"head"`), and solves
+the weapon arm again under the weapon's path.
+
+**Weapons and props are recipes.** What depends on the weapon or the grip lives in `pipeline/recipes/<name>.py`: one
+narrow script per case, named by the motion file (`"recipe": {"name": ...}`, or a list run in order) and run in the prop step. Each file starts
+with the same header (use when, not for, inputs, output, checks) and [`pipeline/recipes/README.md`](pipeline/recipes/README.md)
+is the index generated from those headers. `one_hand_weapon` carries a sword rigidly in one hand with a closed fist and
+reports how deep the weapon is in the body per frame; `swing_arm`, listed before it, keeps the weapon's path and solves
+the arm that holds it again when that arm came out wrung. The older general solver `prop_in_hands.py`
+(two-handed, selected by `"prop": true`) is **experimental** and frozen: new cases get a recipe, not another rule in it.
+
 ## Quality gates
 
 `motion_audit.py` deforms the mesh every 1/4 frame and measures:
 
-| Group | Metrics | Limit (for a 1.8 m character, scaled by height) |
+| Group | Metrics | Limit (for a 1.8 m character, scaled by the rig's rest-pose height) |
 |---|---|---|
-| penetration | prop / hands / forearms in head, torso, legs, clavicles; fingers in prop | 0.5 cm (head) to 4.5 cm (forearm in torso) |
-| joints | wrist bend and twist, mesh stretch (a bad weight makes a "stick"), **arm skin twist** | 85°, 60°, 30 cm, 120° / 0.5 |
-| smoothness | elbow, hand, finger, head, prop jumps; loop seam | 3 cm, 8°, 6°, 4°, 10 cm; 15° / 12 cm |
+| penetration | prop / hands / forearms in head, torso, legs, clavicles; fingers in prop; fingers in head (reported only) | 0.5 cm (head) to 4.5 cm (forearm in torso) |
+| joints | wrist bend and twist (a hand holding a weapon: flexion 50° and deviation to a side 25° in place of the bend), mesh stretch (a bad weight makes a "stick"), **arm skin twist**; hand rotation off the approved key pose (key-pose clips only); upper arm turned about its own axis, elbow above the shoulder with the hand below the head; forearm roll and head direction (reported only, a warning when the head looks away through the clip) | 85°, 60°, 30 cm, 120° / 0.5; 50°; 100°, 10 cm |
+| smoothness | elbow, hand, finger, head, prop jumps; loop seam; pelvis shake | 3 cm, 8°, 6°, 4°, 10 cm; 15° / 12 cm; 4° |
 | grip | gap between each palm and the prop | 3 cm |
+| feet | lowest foot point above the clip's own ground; planted foot sliding (net, over 2 frames); one foot hanging (reported only) | 15 cm; 8 cm |
 
 "Inside" is decided by a 10-ray vote against the arm-less body volume. The sign of the nearest face alone gave 10 cm
 false positives next to open cloth sheets. On failure the audit renders close-ups from 5 sides at the deepest point.
 The `score` (sum of max/limit − 1) only ranks Kimodo samples. Approval stays with a person: one approved clip still
 scored FAIL 1.40.
+
+### Choosing a sample
+
+A clean audit also rewards a sample that did nothing: hands held still cannot go through anything. So `character.py`
+also measures how far the hands moved in each raw Kimodo sample (`pipeline/lib/bvh.py`: the larger hand's extent
+against the hips over the clip) and takes the lowest score only among the samples that moved at least 40% as much as the
+most active one in the batch (`stages.ACTIVE_SHARE`). Both numbers are printed for every sample, in the STOP messages and
+in the review service. Measured (share of the batch's most active sample):
+
+| batch | samples that stood still or held the hands at the head | approved / chosen by a person |
+|---|---|---|
+| Padlinozerca attack, round 1 | s0 0.31 (audit 1.18, hands at the head all clip), s2 0.18 | s1 1.00 (the only real claw rake, audit 17.31) |
+| Wybuchacz run, body | s0 0.18, s2 0.23 (audit 0.00) | s1 1.00 |
+| Wybuchacz attack and run, through the key poses | none | attack s1 0.89, run s0 0.50 |
+
+A cut between 0.31 and 0.50 separates them, so the cut is 0.4. It does not catch a whole batch that missed the phases.
+In Padlinozerca round 2 no sample did the swipe: 0.72-1.00, and s0, with the claws held at the head, still wins the tie at
+1.18. To take another sample:
+`python pipeline/character.py --character <c>.json --sample attack=2` (or the "Sample of attack" choice in the review
+service's run panel). Before the key poses are approved it picks a body sample, after that a sample made through the poses. A metric that needs a part the skeleton does not have (fingers, clavicles: `absent` in its profile) is
+listed in `skipped` with the reason and left out of the score.
 
 ### Skin twist (`skin.py`, `skin_check.py`)
 Bone-twist angles did **not** separate good clips from bad ones. An approved overhead strike had a 136° elbow/wrist
@@ -77,8 +120,17 @@ Mask-edge specks are 2–19 px and cut fingertips 65–374 px, so the limits are
 ### Other tools
 - `compare_motion.py`: frame-by-frame bone diff of two GLBs. After a *tool* change the approved motion must come out
   `IDENTICAL` (0.5 mm / 0.5°). The audit score alone has ±0.1 noise from GLB vertex reordering.
+- `pose_diff.py`: two sets of poses (GLB or .blend), per bone the largest rotation difference, most changed first. Hand-posed
+  key poses are read-only input: a step that writes them again shows with this what it changed.
 - `variants.py`: cartesian grid (or named set) of motion-file parameters, run in parallel within free RAM, ranked table
   with per-group scores and `LIMIT` lines (a solution stuck at the edge of its search range).
+- `pose_edit_scene.py`: key poses by hand when no sample did the motion. At the key-pose STOP, `character.py` leaves
+  `<work>/<action>/poses_by_hand/edit_<sample>.blend`: that sample, bones as sticks in front of the mesh, a marker on each
+  key frame, auto-key on. It is never overwritten. Pose those frames, save, then export it with
+  `blender -b --python pipeline/review/pose_edit_scene.py -- --export <edit.blend> --out <work>/<action>/poses_by_hand/poses.glb`
+  and approve that GLB (`poses_approved.json` `{"glb": ...}`, or in the review service, which lists it among the pose
+  options). The export also writes `poses.glb.json` with the sample. Poses set on another sample than `body.json` stop the
+  run: Kimodo would get wrong deltas without any error.
 - `gpu_queue.py`: one 8 GB GPU shared by Kimodo (which allocates 14 GB and spills to RAM) and Eevee renders. It uses a PID lock
   file and waits while a foreign process holds the GPU. A render next to Kimodo took 28 min instead of 2.
 
@@ -100,21 +152,33 @@ Measured on the game's characters (assets are not included):
 
 - **Bipedal humanoids only.** The auto-rig expects an A/T pose facing −Y with two arms and two legs, and Kimodo generates
   human motion. Quadrupeds, spiders, snakes and other body plans are not supported.
-- **Mixamo skeleton naming.** Retarget and audit use a fixed set of `mixamorig:*` bones. A rig with other bone names, or
-  without one of them, fails.
+- **Bone names come from a skeleton profile.** Every stage after rigging finds bones by role (`skeletons/*.json`). Built
+  in: `amts` (the tool's own skeleton, what the auto-rig builds without a template), `mixamo` (built from a Mixamo
+  template; the default when `character.json` has a template or a library walk) and `soma` (Kimodo's output). A Wybuchacz
+  and a Kusznik rig with every bone renamed to the SOMA convention audit identically to the Mixamo originals. Still
+  fixed: the spine must have as many bones as SOMA's (3), library clips must be on the Mixamo skeleton (they cannot go
+  onto `amts`: clips are copied as armature-space poses, which needs the same rest frames), and `prepare_rig.py` reads
+  the auto-rig's joints file. Fingers, toes, clavicles and bone tips may be declared absent; missing arms or legs are not
+  supported.
 - **No foot IK.** Retarget copies rotations and scales the root motion by leg length. A character whose proportions are
   far from human can slide or float its feet, and the audit has no foot-contact metric yet.
-- **One prop, held in both hands**, with a stock-like long axis (crossbow, bow, staff). One-handed props (sword, shield,
-  torch) are not supported.
-- **Fingers come from the prop grip only.** Finger bones are grown out of fused claws with per-character thresholds
-  measured by hand. Kimodo's own finger motion is dropped.
+- **Weapons: one recipe per kind of grip, few so far.** A one-handed weapon rigid in one hand (`one_hand_weapon`, with
+  `swing_arm` for the arm under its path), and the
+  experimental two-handed solver for a prop with a stock-like long axis (crossbow, bow, staff), which needs a review of
+  every frame (its known defects: `pipeline/recipes/README.md`). A shield, two weapons, a weapon that changes hands: not yet.
+- **Fingers: the prop grip, or Kimodo's hand pose.** The own skeleton places 5 fingers per hand from the mesh (claws or
+  fingers found on it; a mitten or fused claws get 5 chains spread evenly) and takes the finger bends of Kimodo's hands
+  (a fixed relaxed curl) outside a grip; on a Mixamo-template rig finger bones are grown out of fused claws with
+  per-character thresholds measured by hand and Kimodo's finger motion is dropped. Hands holding something without a prop
+  (straps, a keg) are not posed yet.
 - **No sprite sheets yet.** The repo ends at an audited GLB and an 8-direction preview. Rendering the sheets is left to
   your own renderer.
-- **No runnable demo.** `examples/` describe a character whose assets are not included, and the first run needs Kimodo
+- **No runnable demo.** `examples/knight/` shows finished output (sprites, a GLB in the release), not a run you can repeat:
+  the other `examples/` describe a character whose assets are not included, and the first run needs Kimodo
   plus the gated Llama 3 encoder (~20 GB).
 - **Windows only so far.** Paths are handled for Linux and macOS, but nothing was run there.
-- **Checkpoint licenses differ.** The default `Kimodo-SOMA-*` checkpoints allow commercial use. `Kimodo-SMPLX-RP-v1` is
-  under the NVIDIA R&D Model License. `KIMODO_MODEL` does not check this for you.
+- **Commercial-use checkpoints only.** `KIMODO_MODEL` must be a `Kimodo-SOMA-*` or `Kimodo-G1-*` checkpoint (NVIDIA Open
+  Model License). Every script refuses `Kimodo-SMPLX-RP-v1` (NVIDIA R&D Model License) and any name not on the allowlist.
 
 ## Setup
 
@@ -128,18 +192,35 @@ Measured on the game's characters (assets are not included):
   Optional: `KIMODO_PYTHON` (another interpreter) and `KIMODO_MODEL` (default `Kimodo-SOMA-RP-v1.1`).
   The GPU queue (`gpu_queue.py`) keeps its lock in `KIMODO_DIR` (the temp dir without Kimodo); `AMTS_GPU_QUEUE=0` turns it off,
   `AMTS_GPU_THRESHOLD_MB` (default 2500) is the GPU memory in use above which a Kimodo script waits.
-- Host Python with `numpy`, `scipy`, `Pillow` (auto-rig, alpha check, review page, tests).
-- A Mixamo-skeleton FBX (any library clip) as the auto-rig template and the walk used for calibration. Download it yourself
-  from Mixamo. Clips are not redistributed here.
+- Host Python with `numpy`, `scipy`, `Pillow`, `jsonschema` (auto-rig, alpha check, review page, config validation, tests):
+  `pip install -e .`
+- Optional: a Mixamo-skeleton FBX (any library clip), only for a `mixamorig:*` rig (`auto_rig_template`, or the library
+  walk) and for library clips (calibration walk). Download it yourself from Mixamo. Clips are not redistributed here, and Mixamo
+  output must not be used to train or test ML/AI systems (LICENSES.md).
+  Without one the auto-rig builds the tool's own skeleton.
 
 The files in `examples/` describe a real character whose assets are not in this repo: copy them next to your own model
-and clips, fix the paths, and measure the coordinates in `rig.example.json` on your model. Then:
+and clips, fix the paths, and measure the coordinates in `rig.example.json` on your model. `schemas/` describes every key;
+`character.py`, `chain.py` and `variants.py` check the configs against it before any Blender step.
+A rig that is not Mixamo-named needs a skeleton profile: copy `skeletons/mixamo.json`, map each role to your bone, list the
+parts the rig lacks in `absent`, and set `"skeleton": "my_rig.json"` (or a built-in name) in `character.json`. Blender
+scripts take it as `--skeleton`. Without it every stage uses `mixamo`, and optional bones the rig lacks count as absent.
+The own skeleton (`amts`, [pipeline/lib/own_skeleton.py](pipeline/lib/own_skeleton.py)): Blender-style names (`hips`,
+`spine.1`-`.3`, `neck`, `head`, `shoulder.L`, `upper_arm.L`, `forearm.L`, `hand.L`, `thumb.1.L`-`pinky.3.L`, `thigh.L`,
+`shin.L`, `foot.L`, `toe.L`, and non-deforming `*_end` leaves); rest orientation: every bone's Y axis runs to the next
+joint, Z points to the character's front (-Y), or up for feet and toes, or to the palm for hands and fingers, so a
+positive rotation about a finger's X curls it into the palm (the palm side comes from the index and pinky knuckles, and
+`prepare_rig.py` takes the grip's palm normal from the same knuckles). Its profile lists the finger chains
+(`finger_chains`), so the retarget carries Kimodo's finger bends onto them. The body, spine split, clavicle start and finger joints
+use SOMA77 proportions and ANSUR II landmarks; nothing is read from a Mixamo file. With `--template` the spine split and the
+clavicles are read from that template, so a `mixamorig:*` rig keeps the layout of the file you supply.
+Then:
 
 ```bash
 python pipeline/character.py --character my_character/character.json
 blender -b --python pipeline/checks/motion_audit.py -- --glb out.glb --action attack --prop crossbow --out audit/
 blender -b --python pipeline/checks/skin_check.py -- --glb out.glb --action attack --out skin/
-python tests/test_skin.py && python tests/test_alpha.py      # or: python -m pytest tests (pytest not required)
+python -m pytest                        # see "Development"; every test file also runs alone: python tests/test_skin.py
 ```
 
 Every script prints its usage with `--help`. Blender scripts take their arguments after `--`.
@@ -152,6 +233,44 @@ The prop frame has +Y on the character's *left*, which makes sign mistakes easy.
 ```
 
 Every run prints the grip back in words (`grip right: palm from below, fingers left and 45 deg forward, 33 cm in front of the butt`).
+
+## Development
+
+Host Python 3.10+, no Blender or Kimodo needed:
+
+```bash
+pip install -e ".[dev,server]"   # numpy, scipy, Pillow, jsonschema + pytest, ruff, pip-licenses; FastAPI, uvicorn
+python -m pytest            # auto-rig, grip words, stage helpers, config schemas, skin and alpha checks, review service
+ruff check .                # pyflakes and syntax errors only; the dense style is deliberate
+```
+
+CI runs the same on Ubuntu and Windows (and lint, typecheck, tests and build of `web/` on Ubuntu), plus a license scan of the runtime dependencies (GPL, AGPL and non-commercial
+licenses fail; see [LICENSES.md](LICENSES.md)). `AMTS_EXTRA_CONFIGS="<glob>;<glob>"` makes the schema test also check
+your own `character.json`, rig and motion files.
+
+## Web viewer
+
+[`web/`](web/) is a browser viewer for one audited motion (Next.js, React, react-three-fiber). Drop the GLB the audit
+ran on plus `audit.json` (and `audit_samples.json`) onto the page: it plays the clip in 3D with the 8 game directions,
+draws every metric over time against its limit, and clicking a failure jumps to that frame with a marker on the audit
+point. Files are read in the browser, so the static build needs no server. Setup, data flow and the Blender to three.js
+coordinate and frame conversions (with the measurements behind them) are in [web/README.md](web/README.md).
+
+## Review service
+
+[`server/`](server/) is a local FastAPI service over `character.py` for the human gates. A reviewer opens a character,
+sees every stage (up to date, runs next, waiting for review, not reached) and what the waiting gate needs, watches the
+motion in the web viewer next to its audit, and approves or rejects it: the service writes exactly what the STOP
+message asks for (`poses_approved.json`, `actions.<action>.approved`), shows the change before writing, and keeps a
+trail of every verdict. It can also start a run, stream its log and cancel it. It binds to 127.0.0.1 and only runs
+the command it was started with, for the characters it was started with.
+
+```bash
+pip install -e ".[server]"
+cd web && npm ci && npm run local -- <character.json or folder> --fake   # service + web; drop --fake for real runs
+```
+
+Open `http://127.0.0.1:3000/characters/` (the web app binds to 127.0.0.1 too). Endpoints, configuration and the safety rules: [server/README.md](server/README.md).
 
 ## Known traps (each cost a version)
 
@@ -168,13 +287,8 @@ Every run prints the grip back in words (`grip right: palm from below, fingers l
 
 ## Licenses
 
-This repository: MIT. It contains **no** models, clips or weights. It calls these:
+This repository: MIT. It contains **no** models, clips or weights. Every dependency and model it calls, with its license
+and whether it allows commercial use, is listed in [LICENSES.md](LICENSES.md).
 
-| Dependency | License | Note |
-|---|---|---|
-| Kimodo (code) | Apache-2.0 | |
-| Kimodo SOMA checkpoints | NVIDIA Open Model License | commercial use allowed; not redistributed |
-| SOMA-X (`py-soma-x`) | Apache-2.0 | MANO models are not redistributed by it |
-| Meta-Llama-3-8B-Instruct + LLM2Vec adapters | Llama 3 Community License | used only for sentence embeddings |
-| Mixamo clips/rigs | Adobe Mixamo terms | royalty-free in projects; raw FBX files must not be redistributed |
-| Blender | GPL | scripts run inside it |
+Mixamo is a trademark of Adobe. This project is not affiliated with or endorsed by Adobe; "Mixamo-compatible" refers
+to bone naming only.

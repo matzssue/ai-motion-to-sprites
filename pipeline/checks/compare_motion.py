@@ -1,16 +1,21 @@
 """Compare two versions of the same motion frame by frame: hands, elbows, prop, head, fingers.
 Proof of "looks the same" after a tool change (reference = the approved version).
 blender -b --python pipeline/checks/compare_motion.py -- --a reference.glb --b new.glb --action attack [--prop crossbow] [--out diff.json]
+    [--skeleton X]   (both files on the same skeleton; parts are named by bone without the prefix)
 Output: lines `DIFF <part> max ... (fr. N)`, ending with `COMPARE IDENTICAL|DIFFERENT`. Identity limits: 0.5 mm and 0.5 deg."""
-import bpy, sys, math, json, argparse
+import bpy, sys, os, math, json, argparse
 from mathutils import Matrix
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+from collisions import rig_of  # noqa: E402
 
 ap = argparse.ArgumentParser(description="Compare two GLB versions of one action bone by bone.")
 ap.add_argument("--a", required=True); ap.add_argument("--b", required=True); ap.add_argument("--action", required=True)
 ap.add_argument("--prop", default=None); ap.add_argument("--out", default=None)
 ap.add_argument("--limit-mm", type=float, default=0.5); ap.add_argument("--limit-deg", type=float, default=0.5)
+ap.add_argument("--skeleton", default=None, help="skeleton profile: built-in name or JSON path (default mixamo)")
 A = ap.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
-BONES = ["Hips", "Spine2", "Neck", "Head", "LeftArm", "RightArm", "LeftForeArm", "RightForeArm", "LeftHand", "RightHand"]
+BONES = [("hips", None), ("spine", None), ("neck", None), ("head", None), ("upper_arm", "Left"), ("upper_arm", "Right"),
+         ("forearm", "Left"), ("forearm", "Right"), ("hand", "Left"), ("hand", "Right")]   # spine = its top bone
 FINGER_PREFIX = "finger_"
 
 
@@ -19,8 +24,8 @@ def trace(glb):
     bpy.ops.wm.read_factory_settings(use_empty=True); bpy.ops.import_scene.gltf(filepath=glb)
     arm = next(o for o in bpy.data.objects if o.type == "ARMATURE"); arm.animation_data.action = bpy.data.actions[A.action]
     for pb in arm.pose.bones: pb.matrix_basis = Matrix()   # bones without curves: rest, not a pose from another action
-    P = next((b.name.split(":")[0] + ":" for b in arm.data.bones if ":" in b.name), "")
-    names = {n: P + n for n in BONES}
+    S = rig_of(arm, A.skeleton).prof
+    names = {S.short(n): n for n in (S.spine[-1] if r == "spine" else S.bone(r, s) for r, s in BONES)}
     if A.prop and A.prop in arm.pose.bones: names["prop"] = A.prop
     fingers = [b.name for b in arm.pose.bones if b.name.startswith(FINGER_PREFIX)]
     f0, f1 = (int(v) for v in arm.animation_data.action.frame_range); out = {}

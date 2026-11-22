@@ -4,25 +4,20 @@ import math
 import numpy as np
 from mathutils import Quaternion, Vector
 from mathutils.bvhtree import BVHTree
+import skeleton
 
-# bone names without the `mixamorig:` prefix; fingers = `finger_*` bones from prop_in_hands plus Mixamo fingers
-REGIONS = {
-    "head": ("Head", "Neck", "HeadTop_End"),
-    "torso": ("Spine", "Spine1", "Spine2", "Hips"),
-    "clavicles": ("LeftShoulder", "RightShoulder"),
-    "legs": ("LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg"),
-    "forearms": ("LeftForeArm", "RightForeArm"),
-    "hands": ("LeftHand", "RightHand"),
-}
-FINGER_PREFIX = "finger_"
+FINGER_PREFIX = "finger_"   # bones prepare_rig grows out of claws (the tool's own names, any skeleton)
+REGIONS = skeleton.REGIONS
 
 
-def is_finger(name):
-    return name.startswith(FINGER_PREFIX) or ("Hand" in name and name not in ("LeftHand", "RightHand"))
+def rig_of(arm, spec=None, exclude=()):
+    """Skeleton profile (name/path, None = default) bound to a Blender armature (skeleton.Rig, profile in `.prof`)."""
+    return skeleton.for_rig(spec, {b.name: b.parent.name if b.parent else None for b in arm.data.bones}, exclude)
 
 
 def dominant(mesh):
-    names = [g.name.split(":")[-1] for g in mesh.vertex_groups]
+    """Bone (full vertex group name) with the largest weight of every vertex."""
+    names = [g.name for g in mesh.vertex_groups]
     dom = np.full(len(mesh.data.vertices), "", dtype=object)
     for v in mesh.data.vertices:
         best, w = "", 0.0
@@ -33,9 +28,10 @@ def dominant(mesh):
     return dom
 
 
-def masks(dom):
-    out = {r: np.isin(dom, b) for r, b in REGIONS.items()}
-    out["fingers"] = np.array([is_finger(d) for d in dom])
+def masks(dom, rig):
+    out = {r: np.isin(dom, rig.prof.region_bones(r)) for r in REGIONS}
+    out["forearms"] = np.isin(dom, rig.prof.bones("forearm")); out["hands"] = np.isin(dom, rig.prof.bones("hand"))
+    out["fingers"] = np.isin(dom, sorted(rig.fingers))
     return out
 
 
@@ -82,16 +78,116 @@ def depth(tree, pts, reach=0.15):
     return best, bi
 
 
-ARMS = ("LeftArm", "RightArm", "LeftForeArm", "RightForeArm", "LeftHand", "RightHand")
-
-
-def labels(dom):
+def labels(dom, rig):
     """Region of every vertex; arms (from the upper arm down) and fingers = '' (those are what gets tested)."""
     lab = np.full(len(dom), "", dtype=object)
-    for r in ("head", "torso", "clavicles", "legs"):
-        lab[np.isin(dom, REGIONS[r])] = r
-    lab[np.array([d in ARMS or is_finger(d) for d in dom])] = ""
+    for r in REGIONS:
+        lab[np.isin(dom, rig.prof.region_bones(r))] = r
+    lab[np.isin(dom, sorted(rig.arms | rig.fingers))] = ""
     return lab
+
+
+ARM_REGIONS = (("upper_arms", "upper_arm"), ("forearms", "forearm"), ("hands", "hand"))
+GRIP_ZONE = 0.25   # share of a holding arm's forearm next to its wrist that may touch the prop (the prop lies in that palm)
+
+
+def labels_all(dom, rig):
+    """Region of every vertex over the WHOLE skin: the body regions plus upper arms, forearms, hands and fingers by role."""
+    lab = labels(dom, rig)
+    for r, role in ARM_REGIONS:
+        lab[np.isin(dom, rig.prof.bones(role))] = r
+    lab[np.isin(dom, sorted(rig.fingers))] = "fingers"
+    return lab
+
+
+def skin_tree(co, tris, lab, side):
+    """BVH of the whole labelled skin + region and side of every face (for prop_in_body)."""
+    t = tris[(lab[tris] != "").all(1)]
+    return BVHTree.FromPolygons([Vector(c) for c in co], t.tolist(), all_triangles=True), lab[t[:, 0]], side[t[:, 0]]
+
+
+def prop_in_body(tree, reg, side, pts, holders, reach=0.12, rest=None):
+    """Deepest penetration of prop points into the whole skin, per region and side: {"forearms.R": (m, point)}.
+    Only the grip zone of every holding side in `holders` ({side: (wrist, forearm length)}) is left out: its hand, fingers
+    and the forearm within GRIP_ZONE x its length of the wrist. A rest contact (a butt on the shoulder) is not left out:
+    the approved Mixamo shot's butt sat 7.4 cm inside the right shoulder and no audit saw it. Only an armpit rest
+    `rest` = (rear end, front end, side, shoulder joint, elbow) on an aim frame: the stock's rear POCKET_SPAN in the torso
+    or in that side's upper arm within POCKET_ARM of its length from the shoulder joint goes under "pocket" (scored
+    against POCKET_REST). Further down the arm it is the elbow, not the armpit."""
+    out = {}
+    if rest is not None:
+        rb = np.asarray(rest[0], float); ln = float(np.linalg.norm(np.asarray(rest[1]) - rb)); rst = (np.asarray(rest[1]) - rb) / ln
+        aS = np.asarray(rest[3], float); aE = np.asarray(rest[4], float) - aS; aL = float(aE @ aE)
+    for p in pts:
+        v = Vector(p); loc, nor, fi, d = tree.find_nearest(v, reach)
+        if loc is None or (v - loc).dot(nor) >= 0: continue
+        r, s = reg[fi], side[fi]
+        if s in holders and (r in ("hands", "fingers") or (r == "forearms" and (v - holders[s][0]).length < GRIP_ZONE * holders[s][1])):
+            continue
+        k = r + ("." + s if s else "")
+        if rest is not None and (r == "torso" or (r == "upper_arms" and s == rest[2]
+                                                  and float((np.asarray(loc) - aS) @ aE) <= POCKET_ARM * aL)) and (
+                -0.03 <= float((np.asarray(p) - rb) @ rst) <= POCKET_SPAN * ln):
+            k = "pocket"
+        if d > out.get(k, (0.0,))[0] and inside(tree, v): out[k] = (d, p)
+    return out
+
+
+# armpit pocket: a prop's rear end resting under an arm lies between the inner upper arm and the ribs - from POCKET_U[0] to
+# POCKET_U[1] of the upper arm below the shoulder joint, not outside the arm's axis, not in front of or behind the arm by
+# more than its radius + the stock's, and within POCKET_TOUCH of the torso and of the upper arm's skin. Kusznik round 6:
+# butt on the forearm in front of the elbow (author: "it does not go under the armpit")
+# The author's accepted pose on Kusznik (round 8) has the stock 0.67-0.72 of the upper arm below the shoulder joint
+POCKET_U, POCKET_TOUCH = (0.1, 0.75), 0.06
+# the stock may also run through the pocket with its rear end out behind the back (author's own aim pose, round 8: the end
+# 7.4 cm off the pocket while the stock lay in it): any section of the rear POCKET_SPAN of the prop's length counts
+POCKET_SPAN = 0.35
+# ... and rests there in the skin: the author's accepted aim pose on Kusznik (round 8) has the stock 3.9 cm in the torso
+# side of the pocket, which the general prop_in_body limit (1.5 cm) failed. Scored as prop_in_pocket, aim frames only
+POCKET_REST = 0.045
+# ... but only in the armpit: the torso side and the upper arm's top POCKET_ARM (its fold at the shoulder joint). Kusznik
+# round 8, the solver's own aim: the stock 3.3 cm in the upper arm's middle and against the forearm, the elbow pressed to
+# the body (author: "the crossbow goes into the elbow instead of the armpit"); the whole upper arm was exempt and it
+# passed. The author's accepted aim rests on the ribs (3.9-4.2 cm) and touches the upper arm 0.1 cm
+POCKET_ARM = 0.3
+
+
+def stock_end(pc):
+    """(end of the prop's long axis nearest-first pair, its radius): both ends (mean of the last 3 cm) and the median
+    distance of the points from the axis."""
+    c0 = pc.mean(0); ax = np.linalg.svd(pc - c0, full_matrices=False)[2][0]; pr = (pc - c0) @ ax
+    ends = [pc[pr < pr.min() + 0.03].mean(0), pc[pr > pr.max() - 0.03].mean(0)]
+    return ends, float(np.median(np.linalg.norm((pc - c0) - np.outer(pr, ax), axis=1)))
+
+
+def pocket_gap(b, S, E, up, out, r_stock, ua_r, tree, ua_pts, front=None):
+    """How far a rear end `b` is from the armpit pocket of the arm with shoulder joint S and elbow E (m, 0 = in it).
+    up = the spine's direction, out = away from the body on that side, tree = the body without arms. With the prop's
+    other end `front`, the nearest section of the stock's rear POCKET_SPAN (1 cm steps) counts instead of the end.
+    A section's gap is the largest of six distances and the answer is the smallest gap: a section whose first distances
+    already reach the smallest gap so far skips the two surface queries (the dear ones), and 0 ends the walk."""
+    fw = np.cross(up, out); la = np.linalg.norm(E - S); sections = [b]; best = None
+    if front is not None:
+        ln = float(np.linalg.norm(front - b)); st = (front - b) / ln
+        sections = [b + st * t for t in np.arange(0.0, POCKET_SPAN * ln + 1e-9, 0.01)]
+    for p in sections:
+        h = (S - p) @ up; u = np.clip((p - S) @ (E - S) / la ** 2, 0, 1); a = S + u * (E - S)
+        gap = max(POCKET_U[0] * la - h, h - POCKET_U[1] * la, (p - a) @ out, abs((p - a) @ fw) - ua_r - r_stock)
+        if best is not None and max(0.0, float(gap)) >= best: continue
+        loc, _, _, dt = tree.find_nearest(Vector(p), 1.0)
+        gap = max(gap, (dt if loc is not None else 1.0) - POCKET_TOUCH)
+        if best is not None and max(0.0, float(gap)) >= best: continue
+        da = float(np.linalg.norm(ua_pts - p, axis=1).min()) if len(ua_pts) else 1.0
+        g = max(0.0, float(max(gap, da - POCKET_TOUCH)))
+        if best is None or g < best: best = g
+        if best == 0.0: break
+    return best
+
+
+def limb_radius(co, sel, a, b):
+    """Median distance of the vertices `sel` from the segment a-b (an upper arm's skin radius at rest)."""
+    u = np.clip((co[sel] - a) @ (b - a) / ((b - a) @ (b - a)), 0, 1)
+    return float(np.median(np.linalg.norm(co[sel] - (a + u[:, None] * (b - a)), axis=1)))
 
 
 def body_tree(co, tris, lab):
@@ -112,12 +208,6 @@ def depths(tree, reg, pts, reach=0.12):
         r = reg[fi]
         if d > out.get(r, (0.0,))[0] and inside(tree, v): out[r] = (d, p, i)
     return out
-
-
-def bone_side(name):
-    """'L' / 'R' / '' for arm, hand and finger bones (`finger_R0_1`, `LeftHandIndex1`)."""
-    if name.startswith(FINGER_PREFIX): return name[len(FINGER_PREFIX)]
-    return "L" if name.startswith("Left") else "R" if name.startswith("Right") else ""
 
 
 def joint_angles(parent_rest, child_rest, parent, child):

@@ -1,0 +1,196 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "motion.schema.json",
+ "title": "Motion file",
+ "description": "One action: Kimodo phases and key poses, and/or the prop grip for prop_in_hands.py, or the recipe that puts a weapon in the hands (pipeline/recipes/README.md). Keys starting with _ are comments; unknown keys are allowed. character.py also requires `phases` for an `ai` action and `grip` for a `prop` action.",
+ "type": "object",
+ "required": ["action"],
+ "properties": {
+  "action": {"type": "string", "minLength": 1},
+  "phases": {
+   "type": "array", "minItems": 1,
+   "items": {"type": "object", "required": ["duration", "text"],
+             "properties": {"duration": {"type": "number"}, "text": {"type": "string", "minLength": 1}}}
+  },
+  "tail_padding": {"type": "number"},
+  "loop_blend_s": {"type": "number"},
+  "root_speed": {"type": "number"},
+  "no_aim": {"type": "boolean"},
+  "key_poses": {
+   "type": "object",
+   "description": "pose name -> frame at 24 fps; the first one starts and ends the clip",
+   "patternProperties": {"^[^_]": {"type": "integer"}}
+  },
+  "hands": {
+   "type": "object",
+   "required": ["windows", "right_target_from_shoulder", "left_from_right"],
+   "properties": {
+    "windows": {"type": "array", "items": {
+     "type": "object", "required": ["from", "to", "every", "mode"],
+     "properties": {"from": {"type": "number"}, "to": {"anyOf": [{"type": "number"}, {"const": "end"}]},
+                    "every": {"type": "number"}, "mode": {"type": "string"}}}},
+    "right_target_from_shoulder": {"$ref": "#/$defs/vec3"},
+    "left_from_right": {"$ref": "#/$defs/vec3"}
+   }
+  },
+  "grip": {
+   "type": "object",
+   "required": ["palm_center", "clearance", "stock_radius_max", "right", "left", "elbow_deg", "twist_to_forearm",
+                "forearm_clearance", "hand_clearance", "finger_thickness"],
+   "properties": {
+    "palm_center": {"type": "number"}, "clearance": {"type": "number"}, "stock_radius_max": {"type": "number"},
+    "right": {"$ref": "#/$defs/hand"}, "left": {"$ref": "#/$defs/hand"},
+    "elbow_deg": {"type": "number"}, "twist_to_forearm": {"type": "number"}, "forearm_clearance": {"type": "number"},
+    "hand_clearance": {"type": "number"}, "finger_thickness": {"type": "number"},
+    "max_offset": {"type": "number"}, "offset_penalty": {"type": "number"}, "finger_change_penalty": {"type": "number"},
+    "change_penalty": {"type": "number"}, "passes": {"type": "integer"}, "face_guard": {"type": "boolean"}
+   }
+  },
+  "hold": {
+   "type": "object",
+   "required": ["yaw_deg", "pitch_deg", "above_hips", "body_clearance"],
+   "properties": {"yaw_deg": {"type": "number"}, "pitch_deg": {"type": "number"}, "above_hips": {"type": "number"},
+                  "body_clearance": {"type": "number"}}
+  },
+  "aim": {
+   "type": "object",
+   "properties": {"butt_from_shoulder": {"$ref": "#/$defs/vec3"}, "butt_push": {"$ref": "#/$defs/vec3"}, "pitch_deg": {"type": "number"},
+                  "head_back_deg": {"type": "number"}, "transition_arc": {"type": "number"}, "head_gaze": {"type": "number"}}
+  },
+  "upper_body": {
+   "type": "object", "additionalProperties": false,
+   "description": "spine, shoulders, arms and hands from the approved key poses instead of the motion model (pipeline/motion/pose_upper_body.py); needs `key_poses`",
+   "properties": {
+    "tangents": {"type": "object", "additionalProperties": false, "patternProperties": {"^[0-9]+$": {"type": "number", "minimum": 0}},
+                 "description": "key frame -> speed through that key against Catmull-Rom's (1 = unchanged, under 1 brakes)"},
+    "breakdowns": {"type": "object", "additionalProperties": false,
+                   "description": "frame -> an in-between pose of the weapon arm built from the track on that frame",
+                   "patternProperties": {"^[0-9]+$": {"type": "object", "additionalProperties": false, "minProperties": 1,
+                                                    "properties": {"wrist_move": {"$ref": "#/$defs/vec3", "description": "m, world"},
+                                                                   "weapon_toward": {"$ref": "#/$defs/vec3", "description": "world direction of the blade"}}}}}
+   }
+  },
+  "head": {
+   "type": "object", "additionalProperties": false,
+   "description": "the head turned to the direction the character faces (pipeline/motion/head_forward.py)",
+   "properties": {"mode": {"enum": ["lock", "keep"]}, "pitch_deg": {"type": "number"}, "keep": {"type": "number", "minimum": 0, "maximum": 1},
+                  "chest_max_deg": {"type": "number", "exclusiveMinimum": 0}}
+  },
+  "recipe": {
+   "description": "the narrow tools run on the merged clip (pipeline/recipes/<name>.py, index: pipeline/recipes/README.md): one entry, or a list run in that order",
+   "if": {"type": "array"},
+   "then": {"minItems": 1, "items": {"$ref": "#/$defs/recipe"}},
+   "else": {"$ref": "#/$defs/recipe"}
+  },
+  "recoil": {
+   "type": "object",
+   "required": ["fire_s", "kick_deg", "lean_deg"],
+   "properties": {"fire_s": {"type": "number"}, "kick_deg": {"type": "number"}, "lean_deg": {"type": "number"}}
+  }
+ },
+ "$defs": {
+  "recipe": {
+   "type": "object",
+   "description": "one recipe: its name; the other keys are that recipe's inputs",
+   "required": ["name"],
+   "properties": {"name": {"enum": ["one_hand_weapon", "swing_arm"]}},
+   "allOf": [
+    {"if": {"properties": {"name": {"const": "one_hand_weapon"}}, "required": ["name"]},
+     "then": {
+      "required": ["weapon", "in_hand", "grip"],
+      "properties": {
+       "weapon": {"type": "string", "minLength": 1, "description": "GLB with one mesh, path relative to the motion file"},
+       "hand": {"enum": ["right", "left"]},
+       "in_hand": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                   "description": "the weapon mesh object in the hand bone's frame (rows of a 4x4 matrix; may hold a scale)"},
+       "grip": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/vec3"},
+                "description": "both ends of the part the fist closes on, in the weapon mesh's own coordinates"},
+       "fingers": {"type": "object", "description": "finger bone -> pose quaternion [w, x, y, z] of the closed fist",
+                   "additionalProperties": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}}
+      }
+     }},
+    {"if": {"properties": {"name": {"const": "swing_arm"}}, "required": ["name"]},
+     "then": {
+      "required": ["tip", "edge"],
+      "properties": {
+       "tip": {"$ref": "#/$defs/vec3", "description": "the weapon's tip, weapon mesh coordinates"},
+       "edge": {"$ref": "#/$defs/vec3", "description": "a direction across the blade toward a cutting edge, weapon mesh coordinates"},
+       "hand": {"enum": ["right", "left"]},
+       "in_hand": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+                   "description": "as one_hand_weapon's; left out: read from that entry of the same file"},
+       "grip": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/vec3"},
+                "description": "as one_hand_weapon's; left out: read from that entry of the same file"},
+       "loop": {"type": "boolean", "description": "the action's last frame repeats its first (default true)"},
+       "wrist": {"enum": ["split", "cone"], "description": "cone (default): the wrist's bend costed as one cone (wrist_bend); split: its flexion and its deviation each against its own target - an option, it moves the bend into a wrist twist of up to 100 deg where the path leaves no arm in line"},
+       "pin": {"type": "array", "items": {"type": "integer", "minimum": 0}, "uniqueItems": true,
+               "description": "frames of the action that keep the clip's own arm (the frame shared with the next clip)"},
+       "ease_frames": {"type": "integer", "minimum": 0,
+                       "description": "frames on both sides of a pinned frame over which the path eases from the weapon as the pinned arm holds it"},
+       "path_hold": {"type": "object", "required": ["in_hand"], "additionalProperties": false,
+                     "description": "how the weapon sat in the hand when the clip was made: the path is read with it, the arm solved for this entry's own hold",
+                     "properties": {
+                      "in_hand": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}}},
+                      "grip": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/vec3"}, "description": "of the weapon the clip was made with, when it changed"},
+                      "tip": {"$ref": "#/$defs/vec3"},
+                      "edge": {"$ref": "#/$defs/vec3"}}},
+       "other_arm_blend": {"type": "object", "required": ["action"], "additionalProperties": false,
+                           "description": "the other arm turned toward its pose in another action on the first and last frames",
+                           "properties": {
+                            "action": {"type": "string", "minLength": 1},
+                            "clip": {"type": "string", "minLength": 1, "description": "GLB with that action, path relative to the motion file; left out: the file being solved"},
+                            "frame": {"type": "integer", "minimum": 0, "description": "frame of that action (default 0)"},
+                            "frames": {"type": "integer", "minimum": 0, "description": "frames next to the first and the last one that are blended too (default 4)"},
+                            "bones": {"type": "array", "minItems": 1, "items": {"type": "string"}, "description": "default: the other side's shoulder, upper arm, forearm, hand"}}},
+       "path_edits": {
+        "type": "array",
+        "items": {"type": "object", "required": ["frames"], "additionalProperties": false,
+                  "properties": {
+                   "frames": {"type": "object", "minProperties": 1, "additionalProperties": false,
+                              "patternProperties": {"^[0-9]+$": {"type": "number", "minimum": 0, "maximum": 1}},
+                              "description": "frame of the action -> weight 0-1 of this edit on it"},
+                   "move_cm": {"type": "number", "description": "grip toward the point half-way between the shoulder joint and the top of the head"},
+                   "tilt_deg": {"type": "number", "description": "blade tilted toward `tilt_toward` about the grip"},
+                   "tilt_toward": {"$ref": "#/$defs/vec3", "description": "world direction (default forward, -Y)"}}}
+       },
+       "targets": {"type": "object", "additionalProperties": false,
+                   "properties": {"upper_arm_twist": {"type": "number", "exclusiveMinimum": 0}, "forearm_roll": {"type": "number", "exclusiveMinimum": 0},
+                                  "wrist_twist": {"type": "number", "exclusiveMinimum": 0}, "wrist_bend": {"type": "number", "exclusiveMinimum": 0},
+                                  "elbow_above_cm": {"type": "number"}, "wrist_flexion": {"type": "number", "exclusiveMinimum": 0},
+                                  "wrist_deviation": {"type": "number", "exclusiveMinimum": 0},
+                                  "elbow_angle": {"type": "number", "exclusiveMinimum": 0, "maximum": 180}}},
+       "weights": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0},
+                   "propertyNames": {"enum": ["upper_arm_twist", "forearm_roll", "wrist", "elbow_up", "elbow_across", "out_of_reach", "shoulder",
+                                              "edge", "swivel_step", "roll_step", "forearm_step", "elbow_straight"]}},
+       "grid": {"type": "object", "additionalProperties": false,
+                "properties": {"swivel": {"type": "integer", "minimum": 1}, "roll": {"type": "integer", "minimum": 1},
+                               "forearm": {"type": "integer", "minimum": 1}}}
+      }
+     }}
+   ]
+  },
+  "vec3": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+  "axis": {"enum": ["forward", "back", "left", "right", "up", "down"]},
+  "hand": {
+   "type": "object",
+   "required": ["x"],
+   "properties": {
+    "x": {"type": "number"},
+    "palm": {"enum": ["from below", "from above", "from the right", "from the left", "from behind", "from the front"]},
+    "palm_normal": {"$ref": "#/$defs/vec3"},
+    "fingers": {"$ref": "#/$defs/axis"},
+    "fingers_tilt": {"type": "array", "prefixItems": [{"$ref": "#/$defs/axis"}, {"type": "number"}], "minItems": 2, "maxItems": 2},
+    "direction": {"$ref": "#/$defs/vec3"},
+    "roll_deg": {"type": "number"},
+    "elbow_target": {"$ref": "#/$defs/vec3"},
+    "elbow_target_weight": {"type": "number"},
+    "knuckles_at_edge": {"type": "boolean"}
+   },
+   "allOf": [
+    {"description": "give the palm side in words (`palm`) or as a vector (`palm_normal`)",
+     "anyOf": [{"required": ["palm"]}, {"required": ["palm_normal"]}]},
+    {"description": "give the finger direction in words (`fingers`) or as a vector (`direction`)",
+     "anyOf": [{"required": ["fingers"]}, {"required": ["direction"]}]}
+   ]
+  }
+ }
+}

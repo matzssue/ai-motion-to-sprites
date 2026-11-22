@@ -4,13 +4,14 @@ python pipeline/variants.py --rig rig_ai.glb --motion <motion>.json --merged mer
     --set grip.right.x=0.06,0.08,0.10 --set hold.body_clearance=0.14,0.18   (cartesian product)
     [--file variants.json]   ({"name": {"grip.right.x": 0.1, ...}, ...} - named variants instead of a grid)
     [--frames 10,45,56]      (quick try: only these frames, no path in time or smoothness metrics, ~15 s per variant)
-    [--reference v10.glb]    (position difference vs the approved version) [--parallel 3]
+    [--reference v10.glb]    (position difference vs the approved version) [--parallel 3] [--skeleton X]
 A value with a bracket is a vector: --set "grip.right.direction=[0.3,0.95,0];[0.7,0.7,0]" (variants split by a semicolon)."""
 import argparse, ctypes, itertools, json, os, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from config import BLENDER, script_path
+from schema_check import load as load_config
 
 GB_PER_PROCESS = 0.7   # Blender with a 25k-triangle character takes ~0.3 GB; the rest is headroom
 
@@ -50,21 +51,22 @@ def run_variant(name, changes, A, base, prop):
     motion = os.path.join(D, "motion.json"); json.dump(R, open(motion, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     glb = os.path.join(D, "prop.glb"); log = os.path.join(D, "log.txt"); open(log, "w").close()
     fr = ["--frames", A.frames] if A.frames else []
+    sk = ["--skeleton", A.skeleton] if A.skeleton else []
     t0 = time.time()
     out = blender("prop_in_hands.py", log, "--glb", A.merged, "--rig-data", A.rig.replace(".glb", "_data.json"),
-                  "--motion", motion, "--out", glb, *fr)
+                  "--motion", motion, "--out", glb, *fr, *sk)
     w = {"name": name, "changes": changes, "glb": glb}
     if not any(l.startswith("OK ") for l in out): w["error"] = "prop step failed (%s)" % log; return w
     w["limits_hit"] = [l[6:] for l in out if l.startswith("LIMIT ")]
     blender("motion_audit.py", log, "--glb", glb, "--action", R["action"], "--out", os.path.join(D, "audit"),
-            "--prop", prop, "--no-closeups", *fr)
+            "--prop", prop, "--no-closeups", *fr, *sk)
     try: rep = json.load(open(os.path.join(D, "audit", "audit.json"), encoding="utf-8"))
     except OSError: w["error"] = "audit failed (%s)" % log; return w
     w.update(score=rep["score"], scores=rep["scores"], area=rep["score_area"], maxima=rep["maxima"],
              errors={k: v["max"] for k, v in rep["errors"].items()}, limits=rep["limits"])
     if A.reference and not A.frames:
         cmp_ = blender("compare_motion.py", log, "--a", A.reference, "--b", glb, "--action", R["action"], "--prop", prop,
-                       "--out", os.path.join(D, "diff.json"))
+                       "--out", os.path.join(D, "diff.json"), *sk)
         if any(l.startswith("COMPARE") for l in cmp_):
             dd = json.load(open(os.path.join(D, "diff.json"), encoding="utf-8"))
             w["from_ref_mm"] = round(max(v["mm"] for v in dd.values()), 1); w["from_ref_deg"] = round(max(v["deg"] for v in dd.values()), 1)
@@ -83,8 +85,9 @@ if __name__ == "__main__":
     ap.add_argument("--rig", required=True); ap.add_argument("--motion", required=True); ap.add_argument("--merged", required=True)
     ap.add_argument("--out", required=True); ap.add_argument("--set", action="append", default=[]); ap.add_argument("--file")
     ap.add_argument("--frames"); ap.add_argument("--reference"); ap.add_argument("--parallel", type=int, default=3)
+    ap.add_argument("--skeleton", default=None, help="skeleton profile of the rig: built-in name or JSON path (default mixamo)")
     A = ap.parse_args()
-    base = json.load(open(A.motion, encoding="utf-8")); os.makedirs(A.out, exist_ok=True)
+    base = load_config(A.motion, "motion", ("grip",)); os.makedirs(A.out, exist_ok=True)
     prop = json.load(open(A.rig.replace(".glb", "_data.json"), encoding="utf-8"))["prop"]["name"]
     if A.file:
         variants = list(json.load(open(A.file, encoding="utf-8")).items())
@@ -101,7 +104,7 @@ if __name__ == "__main__":
         results = list(ex.map(lambda nz: run_variant(nz[0], nz[1], A, base, prop), variants))
     results.sort(key=lambda w: w.get("score", 1e9))
     json.dump(results, open(os.path.join(A.out, "results.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
-    groups = ("penetration", "joints", "smoothness", "grip")
+    groups = ("penetration", "joints", "smoothness", "grip", "feet")
     L = ["| variant | score | " + " | ".join(groups) + " | area | vs reference | worst | at limit |", "|---|---|" + "---|" * (len(groups) + 4)]
     for w in results:
         if "error" in w: L.append("| %s | - | %s |" % (w["name"], w["error"])); continue

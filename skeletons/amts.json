@@ -1,0 +1,29 @@
+{
+ "name": "amts",
+ "description": "The tool's own skeleton (65 bones, Blender-style names with .L/.R, 5 fingers x 3 bones per hand): what pipeline/rig/auto_rig.py builds without a Mixamo template. Hierarchy and rest orientation: pipeline/lib/own_skeleton.py.",
+ "prefix": "",
+ "bones": {
+  "hips": "hips",
+  "spine": ["spine.1", "spine.2", "spine.3"],
+  "neck": "neck",
+  "head": "head",
+  "head_end": "head_end",
+  "left": {
+   "shoulder": "shoulder.L", "upper_arm": "upper_arm.L", "forearm": "forearm.L", "hand": "hand.L", "fingers": "middle.1.L",
+   "upper_leg": "thigh.L", "lower_leg": "shin.L", "foot": "foot.L", "toe": "toe.L", "toe_end": "toe_end.L",
+   "finger_chains": {"thumb": ["thumb.1.L", "thumb.2.L", "thumb.3.L"], "index": ["index.1.L", "index.2.L", "index.3.L"], "middle": ["middle.1.L", "middle.2.L", "middle.3.L"], "ring": ["ring.1.L", "ring.2.L", "ring.3.L"], "pinky": ["pinky.1.L", "pinky.2.L", "pinky.3.L"]}
+  },
+  "right": {
+   "shoulder": "shoulder.R", "upper_arm": "upper_arm.R", "forearm": "forearm.R", "hand": "hand.R", "fingers": "middle.1.R",
+   "upper_leg": "thigh.R", "lower_leg": "shin.R", "foot": "foot.R", "toe": "toe.R", "toe_end": "toe_end.R",
+   "finger_chains": {"thumb": ["thumb.1.R", "thumb.2.R", "thumb.3.R"], "index": ["index.1.R", "index.2.R", "index.3.R"], "middle": ["middle.1.R", "middle.2.R", "middle.3.R"], "ring": ["ring.1.R", "ring.2.R", "ring.3.R"], "pinky": ["pinky.1.R", "pinky.2.R", "pinky.3.R"]}
+  }
+ },
+ "absent": [],
+ "regions": {
+  "head": ["head", "neck", "head_end"],
+  "torso": ["spine", "hips"],
+  "clavicles": ["shoulder"],
+  "legs": ["upper_leg", "lower_leg"]
+ }
+}

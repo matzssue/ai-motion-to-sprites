@@ -1,14 +1,27 @@
-"""Blender chain of AI motion for one sample: retarget -> merge with the walk -> prop in hands -> audit.
-character.py drives a whole character (model -> all actions); this is its building block, used alone to fix one sample.
-python pipeline/chain.py --rig rig_ai.glb --motion <motion>.json --bvh x_s0.bvh --walk walk.fbx --out dir
-    [--no-prop] [--from retarget|merge|prop|audit]"""
+"""Blender chain of AI motion for one sample: retarget -> (upper body from the key poses, head forward, key poses' hand
+rotation) -> merge with the walk -> prop in hands
+or the motion file's recipe -> audit. character.py drives a whole character (model -> all actions); this is its building block, used alone to fix one sample.
+python pipeline/chain.py --rig rig_ai.glb --motion <motion>.json --bvh x_s0.bvh [--walk walk.fbx] --out dir
+    [--no-prop] [--from retarget|merge|prop|audit] [--skeleton mixamo|profile.json] [--key-poses poses.glb --key-frames 0,14,20]
+A sample generated through key poses gets the poses' hand rotation back after the retarget (key_hands.py: Kimodo does not
+keep it) unless a prop solver sets the hands; either way the audit measures it on the key frames (key_hand_rot_*). With a
+prop the same poses are the prop solver's target: the prop is placed as they hold it.
+A motion file with `upper_body` takes the spine, arms and hands from the key poses instead (pose_upper_body.py: the model
+then only supplies legs and hips) and one with `head` turns the head to the facing direction (head_forward.py); which
+motions need them: docs/motions/README.md.
+A motion file with `recipe` runs pipeline/recipes/<name>.py in the prop step instead of prop_in_hands.py (experimental,
+frozen); a list of recipes runs in its order, each on the one before. pipeline/recipes/README.md lists the recipes."""
 import argparse, json, os, subprocess, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from config import BLENDER, script_path
+from recipe_list import entries as recipes_of, problems as recipe_problems
+from schema_check import load as load_config, load_skeleton
 
-IMPORTANT = ("smoothed", "RETARGET", "merge_actions", "pass", "OK", "AUDIT", "  FAIL", "  rest", "  score", "  no limit", "stock",
-             "closeups", "MAX", "RIG OK", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ")
+IMPORTANT = ("smoothed", "RETARGET", "merge_actions", "pass", "OK", "AUDIT", "  FAIL", "  rest", "  score", "  no limit", "  skipped",
+             "skeleton", "fingers:", "stock", "FACE GUARD",
+             "closeups", "MAX", "RIG OK", "KEY", "WRIST", "WORSE", "prop ", "grip ", "LIMIT", "PROP POSE", "time", "DIFF", "COMPARE", "PREVIEW", "CLOSEUPS", "action ",
+             "aim:", "approved key poses", "APPROVED PLACE", "recipe ", "  recipe", "  head", "  WARN", "UPPER BODY", "BREAKDOWN", "HEAD ")
 
 
 def blender(script, marker, *args):
@@ -23,42 +36,101 @@ def blender(script, marker, *args):
     return r.stdout
 
 
-def merge(rig, actions, out):
+def merge(rig, actions, out, skeleton=None):
     """actions: [(name, file)]. The AI clip action must be named differently than the library action (merge rejects name clashes)."""
-    blender("merge_actions.py", "merge_actions: " + out, "--base=" + rig, *("--anim=%s=%s" % a for a in actions), "--out=" + out)
+    blender("merge_actions.py", "merge_actions: " + out, "--base=" + rig, *("--anim=%s=%s" % a for a in actions), "--out=" + out,
+            *(["--skeleton=" + skeleton] if skeleton else []))
 
 
-def audit(glb, action, out, prop=None, rest_is_normal=False, loop=True):
-    args = ["--glb", glb, "--action", action, "--out", out] + (["--prop", prop] if prop else [])
+def run_recipe(recipe, glb, motion, out, skeleton=None):
+    """The motion file's recipe on one action of `glb` (pipeline/recipes/<name>.py; the schema lists the valid names)."""
+    blender(recipe["name"] + ".py", "RECIPE OK", "--glb", glb, "--motion", motion, "--out", out, *skel(skeleton))
+
+
+def recipe_steps(recipes, out):
+    """[(recipe entry, the GLB it writes)]: each runs on the file before it, the last one writes `out`."""
+    return [(rc, out if i == len(recipes) - 1 else out.replace(".glb", "_%d_%s.glb" % (i + 1, rc["name"]))) for i, rc in enumerate(recipes)]
+
+
+def run_recipes(recipes, glb, motion, out, skeleton=None, run=True):
+    """The motion file's recipes in order on one action of `glb` -> their reports (`run` False: only where they lie)."""
+    reports = []
+    for rc, dst in recipe_steps(recipes, out):
+        if run: run_recipe(rc, glb, motion, dst, skeleton)
+        reports.append(dst.replace(".glb", "_recipe.json")); glb = dst
+    return reports
+
+
+def skel(skeleton):
+    """--skeleton arguments; none for the default (a config without `skeleton` runs exactly as before)."""
+    return ["--skeleton", skeleton] if skeleton else []
+
+
+def audit(glb, action, out, prop=None, rest_is_normal=False, loop=True, skeleton=None, under_arm=False, key_hands=None, recipe_report=None):
+    args = ["--glb", glb, "--action", action, "--out", out] + (["--prop", prop] if prop else []) + skel(skeleton)
+    args += ["--key-hands", key_hands] if key_hands else []
+    args += ["--recipe-report", *recipe_report] if recipe_report else []   # a list; else <glb>_recipe.json, when it is this action's
+    args += ["--under-arm"] if under_arm else []   # stock under the armpit: the prop in the upper arm is scored
     blender("motion_audit.py", "AUDIT", *args, *(["--rest-is-normal"] if rest_is_normal else []), *([] if loop else ["--no-loop"]))
     return json.load(open(os.path.join(out, "audit.json"), encoding="utf-8"))
 
 
-def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=True):
-    """Returns (glb, audit report)."""
-    R = json.load(open(motion, encoding="utf-8")); action = R["action"]
+def chain(rig, motion, bvh, out, walk, with_prop=True, start="retarget", loop=True, skeleton=None, key_poses=None):
+    """Returns (glb, audit report). `walk` = library walk merged next to the action; None = the action alone (a rig without
+    library clips, e.g. the own skeleton). `key_poses` = (approved poses GLB, key frames) for a sample made through them:
+    their hand rotation is put back or measured, and a prop is placed as they hold it."""
+    R = json.load(open(motion, encoding="utf-8")); action = R["action"]; recipes = recipes_of(R)
+    if recipes and with_prop:
+        raise SystemExit("%s names the recipe %s: the action cannot also run the prop solver (`prop`)" % (motion, ", ".join(rc["name"] for rc in recipes)))
+    if recipe_problems(R): raise SystemExit("%s: %s" % (motion, "; ".join(recipe_problems(R))))
     os.makedirs(out, exist_ok=True)
     name = os.path.splitext(os.path.basename(bvh))[0]
     clip, merged, ready = (os.path.join(out, "%s_%s.glb" % (p, name)) for p in ("clip", "merged", "prop"))
     data = rig.replace(".glb", "_data.json")
     steps = ["retarget", "merge", "prop", "audit"]; k = steps.index(start)
-    if k <= 0: blender("soma_to_mixamo.py", "RETARGET OK", bvh, rig, clip, "ai_source", str(R.get("loop_blend_s", 0)))
+    if k <= 0: blender("soma_to_mixamo.py", "RETARGET OK", bvh, rig, clip, "ai_source", str(R.get("loop_blend_s", 0)), *skel(skeleton))
+    upper = "upper_body" in R
+    if upper and not key_poses: raise SystemExit("%s has `upper_body`: it needs the approved key poses (--key-poses, --key-frames)" % motion)
+    if upper and with_prop: raise SystemExit("%s has `upper_body`: not tried with the prop solver (`prop`), which sets both arms itself" % motion)
+    if upper and k <= 0:   # spine, arms and hands from the poses: the model keeps legs and hips
+        blender("pose_upper_body.py", "UPPER BODY OK", "--clip", clip, "--poses", key_poses[0], "--poses-action", action,
+                "--frames", ",".join(map(str, key_poses[1])), "--motion", motion, "--out", clip, *([] if loop else ["--no-loop"]), *skel(skeleton))
+    if "head" in R and k <= 0: blender("head_forward.py", "HEAD FORWARD OK", "--clip", clip, "--motion", motion, "--out", clip, *skel(skeleton))
+    kh = os.path.join(out, "keyhands_%s.json" % name) if key_poses else None
+    if kh and k <= 0:   # with a prop the solver sets the hands later, with `upper_body` they are the poses': only the audit's targets
+        blender("key_hands.py", "KEY HANDS OK", "--clip", clip, "--poses", key_poses[0], "--poses-action", action,
+                "--frames", ",".join(map(str, key_poses[1])), "--report", kh, *(["--measure-only"] if with_prop or upper else ["--out", clip]),
+                *([] if loop else ["--no-loop"]), *skel(skeleton))
     # an AI walk is named like the library walk - merge rejects name clashes
-    if k <= 1: merge(rig, [("walk" if action != "walk" else "walk_library", walk), (action, clip)], merged)
+    if k <= 1: merge(rig, ([("walk" if action != "walk" else "walk_library", walk)] if walk else []) + [(action, clip)], merged, skeleton)
     result = merged
     prop = json.load(open(data, encoding="utf-8"))["prop"]["name"] if with_prop else None
     if with_prop:
-        if k <= 2: blender("prop_in_hands.py", "OK ", "--glb", merged, "--rig-data", data, "--motion", motion, "--out", ready)
+        if k <= 2: blender("prop_in_hands.py", "OK ", "--glb", merged, "--rig-data", data, "--motion", motion, "--out", ready,
+                           *skel(skeleton), *(["--key-poses", key_poses[0], "--key-frames", ",".join(map(str, key_poses[1]))] if key_poses else []))
         result = ready
-    return result, audit(result, action, os.path.join(out, "audit_" + name), prop, loop=loop)
+    reports = None
+    if recipes: reports = run_recipes(recipes, merged, motion, ready, skeleton, run=k <= 2); result = ready
+    return result, audit(result, action, os.path.join(out, "audit_" + name), prop, loop=loop, skeleton=skeleton,
+                         under_arm=with_prop and "butt_push" in R.get("aim", {}), key_hands=kh if kh and os.path.exists(kh) else None,
+                         recipe_report=reports)
 
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description="Run retarget -> merge -> prop in hands -> audit for one Kimodo sample.")
     ap.add_argument("--rig", required=True); ap.add_argument("--motion", required=True); ap.add_argument("--bvh", required=True)
-    ap.add_argument("--out", required=True); ap.add_argument("--walk", required=True, help="library walk clip (Mixamo skeleton)")
+    ap.add_argument("--out", required=True); ap.add_argument("--walk", default=None, help="library walk clip merged next to the sample (optional)")
     ap.add_argument("--no-prop", action="store_true"); ap.add_argument("--from", dest="start", default="retarget", choices=["retarget", "merge", "prop", "audit"])
+    ap.add_argument("--skeleton", default=None, help="skeleton profile of the rig: built-in name or JSON path (default mixamo)")
+    ap.add_argument("--key-poses", default=None, help="approved key poses GLB the sample was generated through")
+    ap.add_argument("--key-frames", default=None, help="their frames (24 fps), e.g. 0,14,20")
     A = ap.parse_args()
-    glb, rep = chain(*(os.path.abspath(p) for p in (A.rig, A.motion, A.bvh, A.out, A.walk)), not A.no_prop, A.start)
+    if bool(A.key_poses) != bool(A.key_frames): ap.error("--key-poses and --key-frames go together")
+    with_prop = not A.no_prop and "recipe" not in load_config(A.motion, "motion")   # a recipe replaces the prop solver
+    load_config(A.motion, "motion", ("grip",) if with_prop else ())
+    if A.skeleton: load_skeleton(A.skeleton)   # a bad profile is named before any Blender step
+    glb, rep = chain(*(os.path.abspath(p) if p else None for p in (A.rig, A.motion, A.bvh, A.out, A.walk)), with_prop, A.start,
+                     skeleton=A.skeleton and (A.skeleton if not A.skeleton.endswith(".json") else os.path.abspath(A.skeleton)),
+                     key_poses=(os.path.abspath(A.key_poses), [int(x) for x in A.key_frames.split(",")]) if A.key_poses else None)
     print("RESULT", glb, rep["result"], "score", rep["score"])

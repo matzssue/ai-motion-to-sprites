@@ -1,0 +1,350 @@
+[
+  {
+    "key": "prop_in_head",
+    "label": "prop in head",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "prop_in_torso",
+    "label": "prop in torso",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "prop_in_legs",
+    "label": "prop in legs",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "prop_in_clavicles",
+    "label": "prop in shoulder",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "hands_in_head",
+    "label": "hand in head",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "hands_in_torso",
+    "label": "hand in torso",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "forearms_in_head",
+    "label": "forearm in head",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "forearms_in_torso",
+    "label": "forearm in torso",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "fingers_in_prop",
+    "label": "fingers in prop",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "fingers_in_head",
+    "label": "fingers in head",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "wrist_bend_L",
+    "label": "left wrist bend",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_bend_R",
+    "label": "right wrist bend",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_twist_L",
+    "label": "left wrist twist",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_twist_R",
+    "label": "right wrist twist",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "elbow_jump",
+    "label": "elbow jump",
+    "unit": "cm",
+    "group": "smoothness"
+  },
+  {
+    "key": "prop_jump",
+    "label": "prop jump",
+    "unit": "cm",
+    "group": "smoothness"
+  },
+  {
+    "key": "hand_jump",
+    "label": "hand jump",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "finger_jump",
+    "label": "finger jump",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "head_jump",
+    "label": "head jump",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "prop_rot_jump",
+    "label": "prop rotation jump",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "loop_seam_deg",
+    "label": "loop seam (rotation)",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "loop_seam_m",
+    "label": "loop seam (elbow)",
+    "unit": "cm",
+    "group": "smoothness"
+  },
+  {
+    "key": "hand_to_prop_L",
+    "label": "left hand to prop",
+    "unit": "cm",
+    "group": "grip"
+  },
+  {
+    "key": "hand_to_prop_R",
+    "label": "right hand to prop",
+    "unit": "cm",
+    "group": "grip"
+  },
+  {
+    "key": "prop_above_head",
+    "label": "prop above head",
+    "unit": "cm",
+    "group": "grip"
+  },
+  {
+    "key": "loose_fingers",
+    "label": "loose fingers",
+    "unit": "percent",
+    "group": "grip"
+  },
+  {
+    "key": "stretch",
+    "label": "mesh stretch",
+    "unit": "cm",
+    "group": "joints"
+  },
+  {
+    "key": "skin_twist",
+    "label": "arm skin twist",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "skin_spread",
+    "label": "arm skin spread",
+    "unit": "percent",
+    "group": "joints"
+  },
+  {
+    "key": "skin_tear",
+    "label": "torn shoulder skin",
+    "unit": "percent",
+    "group": "joints"
+  },
+  {
+    "key": "prop_in_upper_arms",
+    "label": "prop in upper arm",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "prop_in_body",
+    "label": "prop in body",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "rest_gap",
+    "label": "stock off the armpit",
+    "unit": "cm",
+    "group": "grip"
+  },
+  {
+    "key": "prop_in_pocket",
+    "label": "stock in armpit skin",
+    "unit": "cm",
+    "group": "penetration"
+  },
+  {
+    "key": "face_skew",
+    "label": "face skew",
+    "unit": "cm",
+    "group": "joints"
+  },
+  {
+    "key": "finger_tip_gap",
+    "label": "fingertip off prop",
+    "unit": "cm",
+    "group": "grip"
+  },
+  {
+    "key": "finger_tip_fold",
+    "label": "folded fingertip",
+    "unit": "percent",
+    "group": "joints"
+  },
+  {
+    "key": "feet_above_ground",
+    "label": "feet off the ground",
+    "unit": "cm",
+    "group": "feet"
+  },
+  {
+    "key": "foot_slide",
+    "label": "planted foot sliding",
+    "unit": "cm",
+    "group": "feet"
+  },
+  {
+    "key": "foot_hanging",
+    "label": "one foot hanging",
+    "unit": "cm",
+    "group": "feet"
+  },
+  {
+    "key": "key_hand_rot_L",
+    "label": "left hand off its key pose",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "key_hand_rot_R",
+    "label": "right hand off its key pose",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "pelvis_shake",
+    "label": "pelvis shake",
+    "unit": "deg",
+    "group": "smoothness"
+  },
+  {
+    "key": "knee_shake",
+    "label": "knee shake",
+    "unit": "cm",
+    "group": "smoothness"
+  },
+  {
+    "key": "upper_arm_twist_L",
+    "label": "left upper arm twist",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "upper_arm_twist_R",
+    "label": "right upper arm twist",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "forearm_roll_L",
+    "label": "left forearm roll",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "forearm_roll_R",
+    "label": "right forearm roll",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "elbow_above_shoulder_L",
+    "label": "left elbow above shoulder",
+    "unit": "cm",
+    "group": "joints"
+  },
+  {
+    "key": "elbow_above_shoulder_R",
+    "label": "right elbow above shoulder",
+    "unit": "cm",
+    "group": "joints"
+  },
+  {
+    "key": "finger_curl_L",
+    "label": "left finger looped round the weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "finger_curl_R",
+    "label": "right finger looped round the weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_flexion_L",
+    "label": "left wrist flexed or extended under a weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_flexion_R",
+    "label": "right wrist flexed or extended under a weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_deviation_L",
+    "label": "left wrist bent sideways under a weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "wrist_deviation_R",
+    "label": "right wrist bent sideways under a weapon",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "head_yaw",
+    "label": "head turned off the facing",
+    "unit": "deg",
+    "group": "joints"
+  },
+  {
+    "key": "head_pitch",
+    "label": "head tilted up or down",
+    "unit": "deg",
+    "group": "joints"
+  }
+]

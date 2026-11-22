@@ -1,0 +1,43 @@
+"""Pure helpers of character.py (no argparse, no Blender), importable by tests."""
+import os
+
+STAGES = ["prepare", "rig", "rig_ai", "calibration", "ai", "merge", "preview"]
+# name prefix of a separate prop's mesh objects (character.json `prop_model`) from prepare to rig_ai: auto_rig leaves them out of
+# joint detection and of the weight proxy, prepare_rig takes them whole as the prop
+PROP_MESH = "amts_prop"
+NOISE = 0.15   # the audit score of the same motion in another GLB export differs by ~0.1 (README, "Audit noise")
+
+
+# A sample whose hands move less than this share of the batch's most active sample "did nothing" and is not picked
+# automatically (hand extent against the hips over the clip, bvh.activity "range"). Measured (README, "Choosing a sample"):
+# samples that stood still or held the hands in one place 0.18-0.31 (Padlinozerca r1 s0 0.31 with audit 1.18 beside the real
+# rake s1 1.00 / 17.31; Wybuchacz run s0 0.18, s2 0.23 at audit 0), approved samples 0.50-1.00 (Wybuchacz run kf s0 0.50).
+ACTIVE_SHARE = 0.4
+
+
+def pick(samples):
+    """samples: [(audit score, hand range)] -> index of the lowest score among the samples that moved (ACTIVE_SHARE);
+    a tie goes to the more active one."""
+    top = max((m for _, m in samples), default=0.0)
+    ok = [i for i, (_, m) in enumerate(samples) if m >= ACTIVE_SHARE * top] or list(range(len(samples)))
+    return min(ok, key=lambda i: (samples[i][0], -samples[i][1]))
+
+
+def rig_review(has_prop):
+    """What to check on the AI rig previews (the rig_ai STOP of character.py and the service's rig gate)."""
+    return ("the whole prop red, " if has_prop else "") + "fingers coloured, the thumb red = really the thumb"
+
+
+def fresh(out, *inputs):
+    if not os.path.exists(out): return False
+    return all(os.path.getmtime(out) >= os.path.getmtime(w) for w in inputs if os.path.exists(w))
+
+
+def keys(R, fr, loop=True):
+    """Kimodo frame (30 fps) : pose frame (24 fps); the last key = the first pose so the clip loops.
+    A one-shot action ("loop": false, e.g. picking up loot) holds the last pose at the end."""
+    last = int(round(sum(f["duration"] for f in R["phases"]) * 30)) - 1
+    ks = ["%d:%d" % (int(round(f * 30 / 24)), f) for f in fr]
+    if loop: ks.append("%d:%d" % (last, fr[0]))
+    elif int(round(fr[-1] * 30 / 24)) < last: ks.append("%d:%d" % (last, fr[-1]))
+    return ",".join(ks)
