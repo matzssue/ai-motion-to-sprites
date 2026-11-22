@@ -108,12 +108,13 @@ finger. Nothing flagged it: the wrist was measured as one cone of 85 deg in any 
   extension 20-43 / to a side 5-20. The clip accepted before the rule fails on 16-28 (deviation 27-88).
 - **Correct it by lowering or raising the forearm (the elbow angle).** He re-posed frame 19 that way: forearm 18 deg
   lower, elbow 119 -> 137 deg, the hand turned at the wrist; the fist and the hold as they were.
-- `swing_arm` costs the two parts separately by default (`wrist`: "split", targets 35 and 15 deg) and an elbow opened
-  past 160. Same input and path as the clip above: deviation 88 -> 21 at most (16 away from the pinned loop frame),
-  flexion 34 -> 46, elbow 85-156 deg, sword in the body on 0 of 56 frames, weapon off its path 0.0 cm.
-- What the cost cannot do: on 16-19 and 26-28 the blade's direction leaves no arm with the hand in line, and the bend
-  turns into a twist of the hand about the forearm (64 -> 100 deg on frame 27; audit `wrist_twist` 60). Those frames
-  need the forearm moved, which is the weapon's place on them: pose the frame, or change the path there.
+- `swing_arm` can cost the two parts separately: `"wrist": "split"` (targets 35 and 15 deg), with
+  `"weights": {"elbow_straight": 1}` for an elbow opened past 160. An option, off by default: it moves the bend into
+  a twist of the hand about the forearm, up to 100 deg. Same input and path as the clip above: deviation 88 -> 21 at
+  most (16 away from the pinned loop frame), flexion 34 -> 46, elbow 85-156 deg, sword in the body on 0 of 56 frames,
+  weapon off its path 0.0 cm; but on 16-19 and 26-28 the blade's direction leaves no arm with the hand in line and
+  the twist goes to 70-100 deg (64 -> 100 on frame 27; audit `wrist_twist` 60). Those frames need the forearm moved,
+  which is the weapon's place on them: pose the frame, or change the path there.
 
 Rejected - do not retry:
 - Moving the grip point alone, the arm chosen as before: 73 -> 56 deg on the strike frame, the frame before it still 74.

@@ -36,13 +36,12 @@ Joining the next clip, and a changed weapon or hold:
 `other_arm_blend`: {"action": "idle", "frame": 0, "frames": 4, "clip": "idle.glb"}: on the first and last `frames` + 1
     frames the other arm (shoulder to hand, or `bones`) turns toward its pose on that frame of that action, fully on
     the first and the last frame. `clip` left out: the action is in the file being solved (character.py's merged file).
-`wrist`: "split" (default): the wrist's flexion / extension and its deviation to a side are costed each against its own
-    small target (`targets.wrist_flexion`, `wrist_deviation`), so the hand stays in line with the forearm and the
-    elbow's swivel, the weapon's roll and the forearm's roll move instead; an elbow opened past `targets.elbow_angle`
-    costs too (`weights.elbow_straight`). Where the path leaves no arm with the hand in line, the bend goes into the
-    wrist's twist (knight fr. 27: deviation 85 -> 16, twist 64 -> 100 deg): that is the path's to fix, not the fist's
-    or the hold's. "cone": the one cone of before (`wrist_bend`), which lets the fist hang sideways; with it and
-    `weights.elbow_straight: 0` the recipe solves as it did before these costs.
+`wrist`: "cone" (default): the wrist's bend is costed as one cone (`targets.wrist_bend`), whatever its direction.
+    "split", an option: flexion / extension and deviation to a side are costed each against its own small target
+    (`targets.wrist_flexion`, `wrist_deviation`), so the fist does not hang sideways under the forearm. Off by
+    default: where the path leaves no arm with the hand in line it moves the bend into the wrist's twist, up to
+    100 deg (knight fr. 27: deviation 85 -> 16, twist 64 -> 100); those frames are the path's to fix.
+    `weights.elbow_straight` (default 0, try 1 with "split"): a cost for an elbow opened past `targets.elbow_angle`.
 `targets` (deg, cm), `weights`, `grid` (deg): TARGETS, WEIGHTS, GRID below; a key given replaces that one number.
 Run it on the clip, as chain.py and character.py do: on its own output `path_edits` would move the path a second time.
 The rest pose faces -Y with Z up (Blender), as everywhere in the pipeline."""
@@ -59,11 +58,11 @@ import wrist   # noqa: E402
 from recipe_list import entries, entry   # noqa: E402
 
 # comfort targets: past one the cost grows 10x faster (OVER); they are what the solver aims for, not the audit's limits
-# wrist_flexion / wrist_deviation: the wrist in line with the forearm, split by direction (lib/wrist.py); with
-# `"wrist": "cone"` the one cone wrist_bend is costed instead. elbow_angle: past it the arm is locking straight
+# wrist_flexion / wrist_deviation: costed in place of the one cone wrist_bend only with `"wrist": "split"`
+# (lib/wrist.py). elbow_angle: past it the arm is locking straight; costs only with weights.elbow_straight > 0
 TARGETS = {"upper_arm_twist": 45, "forearm_roll": 80, "wrist_twist": 60, "wrist_bend": 85, "elbow_above_cm": 5,
            "wrist_flexion": 35, "wrist_deviation": 15, "elbow_angle": 160}
-WEIGHTS = {"upper_arm_twist": 1, "forearm_roll": 1.5, "wrist": 3, "elbow_up": 1, "elbow_across": 1, "out_of_reach": 1, "elbow_straight": 1,
+WEIGHTS = {"upper_arm_twist": 1, "forearm_roll": 1.5, "wrist": 3, "elbow_up": 1, "elbow_across": 1, "out_of_reach": 1, "elbow_straight": 0,
            "shoulder": 0.5, "edge": 2, "swivel_step": 0.4, "roll_step": 0.05, "forearm_step": 0.02}
 GRID = {"swivel": 10, "roll": 15, "forearm": 5}
 OVER = 10
@@ -357,6 +356,11 @@ def plan(clip, C, loop=True, edits=None, pins=(), ease=0):
     return out
 
 
+def wrist_mode(P):
+    """How a recipe entry wants the wrist costed: "cone" unless it asks for "split"."""
+    return P.get("wrist", "cone")
+
+
 def over_targets(m, targets, split=False):
     """Per frame, the names of what is over its comfort target; the elbow counts only with the wrist below the top of the head.
     `split`: the wrist's flexion and deviation count in place of its one cone."""
@@ -462,8 +466,8 @@ def main():
     C["shoulder_max"] = SHOULDER_MAX if turn_ok else 0.0   # an upper arm hanging on the chest: nothing to turn toward a far grip
     axes = wrist.rest_axes(dbs, RIG, side[0]) if PROF.has("fingers", side) else None
     if axes: C["radial"], C["palm"] = axes
-    C["wrist_split"] = bool(axes) and P.get("wrist", "split") == "split"
-    if P.get("wrist", "split") == "split" and not axes:
+    C["wrist_split"] = bool(axes) and wrist_mode(P) == "split"
+    if wrist_mode(P) == "split" and not axes:
         print("recipe %s: no fingers below %s to tell the hand's sides apart: the wrist is costed as one cone" % (NAME, HA))
     # the path is read with the hold the clip was made with, the arm solved for this entry's own
     clip = dict({k: I[k] for k in ("c0", "s0", "Bs", "head", "other", "Bu", "Bf", "Bh", "E", "W")}, G3=I["Bh"] @ C["path3"], Gt=I["W"] + I["Bh"] @ C["path_t"])

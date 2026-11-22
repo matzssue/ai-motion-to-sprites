@@ -121,7 +121,7 @@
        "grip": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/vec3"},
                 "description": "as one_hand_weapon's; left out: read from that entry of the same file"},
        "loop": {"type": "boolean", "description": "the action's last frame repeats its first (default true)"},
-       "wrist": {"enum": ["split", "cone"], "description": "split (default): flexion and deviation of the wrist each against its own target; cone: the one cone wrist_bend"},
+       "wrist": {"enum": ["split", "cone"], "description": "cone (default): the wrist's bend costed as one cone (wrist_bend); split: its flexion and its deviation each against its own target - an option, it moves the bend into a wrist twist of up to 100 deg where the path leaves no arm in line"},
        "pin": {"type": "array", "items": {"type": "integer", "minimum": 0}, "uniqueItems": true,
                "description": "frames of the action that keep the clip's own arm (the frame shared with the next clip)"},
        "ease_frames": {"type": "integer", "minimum": 0,

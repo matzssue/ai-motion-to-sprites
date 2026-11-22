@@ -145,8 +145,8 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
    Never raise a limit to make a take pass; raise it only from a measurement, with an entry in AUDIT.md.
    **Hand-posed keys are read-only input.** A step that writes them again prints `pipeline/checks/pose_diff.py` (per bone,
    what changed); call a pose or a fist "approved" only when the author saw exactly that one.
-   **A held weapon keeps the wrist in line with the forearm** (`wrist_flexion` 50, `wrist_deviation` 25 deg, one- and
-   two-handed). Correct it by lowering / raising the forearm (elbow angle), never with the fist or the hold: the playbook.
+   **A held weapon keeps the wrist in line with the forearm** (`wrist_flexion` 50, `wrist_deviation` 25 deg, one- and two-handed). Correct it by lowering / raising the forearm (elbow angle), never with the fist or the hold: the playbook.
+   `swing_arm`'s `"wrist": "split"` is an option, off by default: it moves the bend into a wrist twist of up to 100 deg.
    The audit also measures arm skin twist (`skin_twist`, `skin_spread`). **Poses computed outside the chain** (a pose
    script, IK, bone rotations) go through the skin check separately, and a frame composited with a mask through the alpha check:
    ```

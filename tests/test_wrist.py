@@ -58,7 +58,18 @@ def test_wrist_limits_pass_the_authors_hand_posed_frames_and_fail_the_circled_on
 
 
 def split_consts():
-    C = consts(); C.update(radial=X, palm=Z, wrist_split=True); return C
+    """The synthetic arm with the wrist cost asked for by direction, as `"wrist": "split"` sets it."""
+    C = consts(); C.update(radial=X, palm=Z, wrist_split=SA.wrist_mode({"wrist": "split"}) == "split"); return C
+
+
+def test_the_split_wrist_and_the_elbow_cost_are_off_unless_asked_for():
+    assert SA.wrist_mode({}) == "cone" and SA.wrist_mode({"wrist": "split"}) == "split" and SA.WEIGHTS["elbow_straight"] == 0
+    c = clip(); C = consts(); axes = dict(consts(), radial=X, palm=Z, wrist_split=SA.wrist_mode({}) == "split")
+    a, b = SA.plan(c, C, loop=True), SA.plan(c, axes, loop=True)
+    for k in ("Bu", "Bf", "Bh", "E", "W"): assert np.array_equal(a[k], b[k]), k   # a hand with fingers, nothing asked: the same arm
+    c["Gt"][0] = c["s0"][0] + [0.0, -0.595, 0.0] + c["G3"][0] @ C["grip3"].T @ C["grip_t"]; fr = frame(c, 0); s = SA.solve(C, fr, [0.0], [0.0])
+    none = dict(C, weights={k: v for k, v in C["weights"].items() if k != "elbow_straight"})
+    assert SA.elbow_angle(s["S"], s["E"], s["W"])[0] > 165 and SA.cost(C, fr, s)[0] == SA.cost(none, fr, s)[0]   # an almost straight arm, free
 
 
 def test_roll_cost_by_direction_is_stricter_sideways():
@@ -86,7 +97,7 @@ def test_plan_with_the_split_wrist_keeps_the_path_and_straightens_the_wrist():
 
 
 def test_a_locked_elbow_costs_and_the_weight_switches_it_off():
-    C, c = consts(), clip(); c["Gt"][0] = c["s0"][0] + [0.0, -0.595, 0.0] + c["G3"][0] @ C["grip3"].T @ C["grip_t"]   # the wrist almost at arm's length
+    C, c = consts(), clip(); C["weights"]["elbow_straight"] = 1; c["Gt"][0] = c["s0"][0] + [0.0, -0.595, 0.0] + c["G3"][0] @ C["grip3"].T @ C["grip_t"]   # the wrist almost at arm's length
     fr = frame(c, 0); s = SA.solve(C, fr, [0.0], [0.0]); ang = SA.elbow_angle(s["S"], s["E"], s["W"])[0]
     off = dict(C, weights=dict(C["weights"], elbow_straight=0))
     assert ang > 165 and abs(SA.cost(C, fr, s)[0] - SA.cost(off, fr, s)[0] - ((ang - 160) / 10) ** 2) < 1e-9
