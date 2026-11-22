@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-motion-to-sprites"
-version = "0.1.0"
+version = "0.2.0"
 description = "Text-to-motion for 2D games: generated 3D character to an animated, audited GLB for 8-direction sprites."
 readme = "README.md"
 license = { text = "MIT" }

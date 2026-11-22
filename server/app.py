@@ -17,7 +17,7 @@ from .models import (ErrorBody, Health, JobSummary, Manifest, PipelineState, Cha
 from .pipeline_lib import STAGES
 from .settings import Settings
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 ERRORS = {404: {"model": ErrorBody}, 409: {"model": ErrorBody}, 422: {"model": ErrorBody}}
 
 
