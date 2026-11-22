@@ -128,7 +128,7 @@ def wrist_stats():
 
 
 BEFORE = errors(); WB = wrist_stats()
-# a loop that ends where it starts (soma_to_mixamo loop_blend) has its period = the clip's length, else one key step more
+# a loop that ends where it starts (retarget_kimodo loop_blend) has its period = the clip's length, else one key step more
 sc.frame_set(int(f0)); bpy.context.view_layer.update(); q_first = {s: hand_q(arm, B[s]["hand"]) for s in B}
 sc.frame_set(int(f1), subframe=f1 - int(f1)); bpy.context.view_layer.update()
 closed = all(KH.angle(hand_q(arm, B[s]["hand"]), q_first[s]) < 1.0 for s in B)

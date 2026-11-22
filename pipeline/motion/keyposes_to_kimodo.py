@@ -49,7 +49,7 @@ C = basis(A1, TGT) @ basis(src, SRC).inverted()
 wrot = lambda ob, n: (ob.matrix_world @ ob.pose.bones[n].matrix).to_3x3().normalized()
 SH, TH = SRC.bone("hips"), TGT.bone("hips")
 lift = lambda ob, S: whead(ob, S.bone("hips")).z - min(whead(ob, n).z for n in S.bones("foot"))
-K = lift(A1, TGT) / lift(src, SRC)   # the retarget's hip scale (soma_to_mixamo.py)
+K = lift(A1, TGT) / lift(src, SRC)   # the retarget's hip scale (retarget_kimodo.py)
 v3 = lambda v: np.array(v[:])
 sc = bpy.context.scene; res = {"C": [list(r) for r in C], "D": {}, "hips": {}, "control": {}}
 for f in frames:

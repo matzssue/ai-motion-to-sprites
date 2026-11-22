@@ -1,5 +1,5 @@
 """Hip position of a hand-set key pose carried back to Kimodo (plain numpy; keyposes_to_kimodo.py and kimodo_keyposes.py use
-it, tests run it). The retarget (soma_to_mixamo.py) moves the rig's hips by the source's hip travel turned by C and scaled
+it, tests run it). The retarget (retarget_kimodo.py) moves the rig's hips by the source's hip travel turned by C and scaled
 by k = rig hip height / source hip height (above the lowest foot, rest pose). Key poses passed rotations only, so a crouch
 posed by hand reached Kimodo at the base sample's standing hip height and floated (Padlinozerca: lowest joint 34 cm up)."""
 import math
@@ -11,7 +11,7 @@ BVH_UNITS = 100.0   # Kimodo writes its BVH in cm (kimodo/exports/bvh.py); Blend
 
 
 def retarget(src, src_rest, tgt_rest, C, k):
-    """soma_to_mixamo.py: rig hips for source hips `src` (both Blender world)."""
+    """retarget_kimodo.py: rig hips for source hips `src` (both Blender world)."""
     return np.asarray(tgt_rest) + np.asarray(C) @ (np.asarray(src) - src_rest) * k
 
 

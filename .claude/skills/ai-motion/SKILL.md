@@ -226,7 +226,7 @@ the three worst metrics, the difference from the reference and `LIMIT` lines. Wo
 - The end of a Kimodo sequence collapses: `tail_padding` generates longer and cuts.
 - A Kimodo clip stands at another height than the library walk (0.5 m lower once): in game the sprite jumps on every clip
   change and the audit does not see it. `combine_actions.py` grounds every action on the walk (`--ground`).
-- The auto-rig stands in an A-pose: without the CORR rest correction in `soma_to_mixamo.py` the arms go sideways.
+- The auto-rig stands in an A-pose: without the CORR rest correction in `retarget_kimodo.py` the arms go sideways.
 - `LeftLeg` is the upper leg in SOMA and the lower leg in Mixamo: never match bones by name across skeletons, only by role.
   Library clips are copied by role too (`merge_actions.py --skeleton`); without it, by name only (as before).
 - Bone lengths from GLB are meaningless: Blender IK does not work; IK is computed from bone heads.
