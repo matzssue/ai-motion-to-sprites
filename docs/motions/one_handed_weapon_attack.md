@@ -115,9 +115,17 @@ finger. Nothing flagged it: the wrist was measured as one cone of 85 deg in any 
   weapon off its path 0.0 cm; but on 16-19 and 26-28 the blade's direction leaves no arm with the hand in line and
   the twist goes to 70-100 deg (64 -> 100 on frame 27; audit `wrist_twist` 60). Those frames need the forearm moved,
   which is the weapon's place on them: pose the frame, or change the path there.
+- **What the released knight does** (`examples/knight/attack.json`): the strike frame posed by hand in the pose scene,
+  and the path pulled 3/4 of the way toward that pose's weapon (`pin_toward`, t 0.75 = elbow 138 deg on frame 19 against
+  his 137; t 1 left the arm straight, 156, since he also turned the shoulder); the grip point moved by one offset per
+  span where the wrist still bent (`reach`: 6 cm up on 20-22, 12 cm down on 24-28, with the weapon kept 9 cm off the arm
+  and 12 cm off the helmet); the wrist costed as flexion / deviation about the hand's axes on 14-30
+  (`wrist_anatomical`), its twist capped at 68 (`wrist_twist_cap`), the sword kept 9 cm off the forearm on 22-30
+  (`forearm_clear`). What the audit still flags there is in `examples/knight/README.md`.
 
 Rejected - do not retry:
-- Moving the grip point alone, the arm chosen as before: 73 -> 56 deg on the strike frame, the frame before it still 74.
+- Moving the grip point alone, frame by frame, the arm chosen as before: 73 -> 56 deg on the strike frame, the frame
+  before it still 74; the offsets pointed different ways and cancelled out when smoothed (hence one offset per span).
 - One cone limit for the wrist: it hides a sideways bend (74 deg is inside 85).
 - Straightening the arm until the elbow locks to bring the hand in line (173 deg; his pose has 137).
 - Capping the wrist's twist in the cost on top of the split: the forearm rolls over instead (roll 100 -> 115-150 deg)
